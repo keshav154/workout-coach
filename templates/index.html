@@ -196,7 +196,10 @@
       <h1>💪 Workout Coach</h1>
       <span id="day-label">Loading...</span>
     </div>
-    <button id="reset-btn" onclick="resetChat()">New Session</button>
+    <div style="display:flex;gap:8px">
+      <button id="reset-btn" onclick="resetChat()">New Session</button>
+      <button id="reset-profile-btn" onclick="resetProfile()" style="background:none;border:1px solid #444;color:#ff6b6b;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">Reset Profile</button>
+    </div>
   </header>
 
   <div id="chat"></div>
@@ -337,6 +340,15 @@
   }
 
   function quickSend(text) { sendMessage(text); }
+
+  async function resetProfile() {
+    if (!confirm('This will delete your profile and restart onboarding. Are you sure?')) return;
+    await fetch('/reset_profile', { method: 'POST', headers: authHeaders() });
+    chat.innerHTML = '';
+    await fetch('/reset', { method: 'POST', headers: authHeaders() });
+    addBubble('Profile reset! Refreshing...', 'system');
+    setTimeout(() => location.reload(), 1000);
+  }
 
   function logWeight() {
     const kg = prompt('Enter your weight in kg (e.g. 97.5):');
