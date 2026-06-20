@@ -87,12 +87,12 @@ PROGRAM = {
         "focus":   "chest, triceps",
         "warmup":  "5 min treadmill brisk walk, then 1 light set each exercise",
         "exercises": [
-            {"name": "Dumbbell Flat Bench Press",          "sets": 4, "rep_range": "8-12"},
-            {"name": "Dumbbell Incline Bench Press",        "sets": 3, "rep_range": "8-12"},
-            {"name": "Dumbbell Decline Bench Press",        "sets": 3, "rep_range": "8-12"},
-            {"name": "Dumbbell Chest Fly (flat)",           "sets": 3, "rep_range": "10-12"},
-            {"name": "Tricep Overhead Extension",           "sets": 3, "rep_range": "10-12"},
-            {"name": "Resistance Band Tricep Pushdown",     "sets": 3, "rep_range": "12-15"},
+            {"name": "Dumbbell Flat Bench Press",          "sets": 4, "rep_range": "8-12",  "form": "Retract shoulder blades, lower dumbbells to mid-chest, press straight up."},
+            {"name": "Dumbbell Incline Bench Press",        "sets": 3, "rep_range": "8-12",  "form": "Set bench to 30-45 degrees, keep elbows at 45 degrees from body."},
+            {"name": "Dumbbell Decline Bench Press",        "sets": 3, "rep_range": "8-12",  "form": "Lower chest target, keep core tight, controlled descent."},
+            {"name": "Dumbbell Chest Fly (flat)",           "sets": 3, "rep_range": "10-12", "form": "Slight bend in elbows throughout, feel the stretch at the bottom."},
+            {"name": "Tricep Overhead Extension",           "sets": 3, "rep_range": "10-12", "form": "Keep elbows pointing forward, only forearms move."},
+            {"name": "Resistance Band Tricep Pushdown",     "sets": 3, "rep_range": "12-15", "form": "Elbows pinned to sides, full extension at bottom, squeeze triceps."},
         ],
     },
     "B": {
@@ -100,12 +100,12 @@ PROGRAM = {
         "focus":   "lats, rhomboids, rear delts, biceps",
         "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
         "exercises": [
-            {"name": "Dumbbell Bent-Over Row",              "sets": 4, "rep_range": "8-12"},
-            {"name": "Dumbbell Single-Arm Row",             "sets": 3, "rep_range": "8-12"},
-            {"name": "Resistance Band Lat Pulldown",        "sets": 3, "rep_range": "12-15"},
-            {"name": "Resistance Band Face Pull",           "sets": 3, "rep_range": "15"},
-            {"name": "Dumbbell Bicep Curl",                 "sets": 3, "rep_range": "10-12"},
-            {"name": "Hammer Curl",                         "sets": 3, "rep_range": "10-12"},
+            {"name": "Dumbbell Bent-Over Row",              "sets": 4, "rep_range": "8-12",  "form": "Hinge at hips 45 degrees, pull to hip, squeeze shoulder blade at top."},
+            {"name": "Dumbbell Single-Arm Row",             "sets": 3, "rep_range": "8-12",  "form": "Support on bench, pull elbow past torso, keep back flat."},
+            {"name": "Resistance Band Lat Pulldown",        "sets": 3, "rep_range": "12-15", "form": "Pull elbows down and back, lean slightly back, squeeze lats."},
+            {"name": "Resistance Band Face Pull",           "sets": 3, "rep_range": "15",    "form": "Pull to forehead level, elbows high, externally rotate at end."},
+            {"name": "Dumbbell Bicep Curl",                 "sets": 3, "rep_range": "10-12", "form": "Elbows fixed at sides, full range, squeeze at top."},
+            {"name": "Hammer Curl",                         "sets": 3, "rep_range": "10-12", "form": "Neutral grip (thumbs up), targets brachialis for arm thickness."},
         ],
     },
     "C": {
@@ -113,12 +113,12 @@ PROGRAM = {
         "focus":   "deltoids, biceps, triceps",
         "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
         "exercises": [
-            {"name": "Dumbbell Overhead Press",             "sets": 4, "rep_range": "8-12"},
-            {"name": "Dumbbell Lateral Raise",              "sets": 3, "rep_range": "12-15"},
-            {"name": "Dumbbell Front Raise",                "sets": 3, "rep_range": "12-15"},
-            {"name": "Resistance Band Rear Delt Fly",       "sets": 3, "rep_range": "15"},
-            {"name": "Dumbbell Bicep Curl",                 "sets": 3, "rep_range": "10-12"},
-            {"name": "Tricep Overhead Extension",           "sets": 3, "rep_range": "10-12"},
+            {"name": "Dumbbell Overhead Press",             "sets": 4, "rep_range": "8-12",  "form": "Press straight up, don't flare elbows too wide, slight forward lean ok."},
+            {"name": "Dumbbell Lateral Raise",              "sets": 3, "rep_range": "12-15", "form": "Lead with elbows, slight forward angle, stop at shoulder height."},
+            {"name": "Dumbbell Front Raise",                "sets": 3, "rep_range": "12-15", "form": "Slight bend in elbow, raise to eye level, controlled descent."},
+            {"name": "Resistance Band Rear Delt Fly",       "sets": 3, "rep_range": "15",    "form": "Hinge forward, arms wide, squeeze rear delts at peak."},
+            {"name": "Dumbbell Bicep Curl",                 "sets": 3, "rep_range": "10-12", "form": "Elbows fixed at sides, full range, squeeze at top."},
+            {"name": "Tricep Overhead Extension",           "sets": 3, "rep_range": "10-12", "form": "Keep elbows pointing forward, only forearms move."},
         ],
     },
     "D": {
@@ -126,12 +126,12 @@ PROGRAM = {
         "focus":   "quads, hamstrings, glutes, calves, core",
         "warmup":  "5 min treadmill incline walk + bodyweight squats 2x15",
         "exercises": [
-            {"name": "Goblet Squat",                        "sets": 4, "rep_range": "10-12"},
-            {"name": "Romanian Deadlift",                   "sets": 3, "rep_range": "10-12"},
-            {"name": "Dumbbell Reverse Lunge",              "sets": 3, "rep_range": "10 each"},
-            {"name": "Hip Thrust (shoulders on bench)",     "sets": 3, "rep_range": "12-15"},
-            {"name": "Dumbbell Step-Up (on bench)",         "sets": 3, "rep_range": "10 each"},
-            {"name": "Calf Raises",                         "sets": 3, "rep_range": "15-20"},
+            {"name": "Goblet Squat",                        "sets": 4, "rep_range": "10-12", "form": "Hold dumbbell at chest, squat deep, knees track over toes, chest up."},
+            {"name": "Romanian Deadlift",                   "sets": 3, "rep_range": "10-12", "form": "Hinge at hips, soft knee bend, feel hamstring stretch, back flat."},
+            {"name": "Dumbbell Reverse Lunge",              "sets": 3, "rep_range": "10 each","form": "Step back, front knee at 90 degrees, don't let it cave inward."},
+            {"name": "Hip Thrust (shoulders on bench)",     "sets": 3, "rep_range": "12-15", "form": "Drive through heels, squeeze glutes at top, chin tucked."},
+            {"name": "Dumbbell Step-Up (on bench)",         "sets": 3, "rep_range": "10 each","form": "Drive through the heel on the bench, don't push off back foot."},
+            {"name": "Calf Raises",                         "sets": 3, "rep_range": "15-20", "form": "Full range — stretch at bottom, pause and squeeze at top."},
         ],
     },
 }
@@ -273,6 +273,34 @@ def get_weight_trend(mem: dict) -> str:
     trend = "gained" if delta > 0 else "lost"
     return (f"last: {latest_kg} kg on {latest_date} | "
             f"{trend} {abs(delta):.1f} kg since {first_date}")
+
+
+def get_consecutive_workout_days(log: dict) -> int:
+    """Count how many days in a row (by calendar date) sessions were logged."""
+    sessions = log.get("sessions", [])
+    if not sessions:
+        return 0
+    dates = sorted(set(s["date"] for s in sessions if "date" in s), reverse=True)
+    streak = 0
+    expected = date.today()
+    for d in dates:
+        try:
+            session_date = datetime.strptime(d, "%Y-%m-%d").date()
+            if session_date == expected or session_date == expected - timedelta(days=1):
+                streak += 1
+                expected = session_date - timedelta(days=1)
+            else:
+                break
+        except ValueError:
+            pass
+    return streak
+
+
+def should_suggest_deload(log: dict) -> bool:
+    """Suggest deload every 24 sessions (~6 weeks of 4x/week training)."""
+    sessions = log.get("sessions", [])
+    count = len(sessions)
+    return count > 0 and count % 24 == 0
 
 
 def is_first_session_this_week(log: dict) -> bool:
@@ -444,6 +472,9 @@ def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dic
     long_gap = gap_days is not None and gap_days >= 7
     today_str = date.today().isoformat()
     recent_weights = profile.get("recent_weights", {})
+    consecutive_days = get_consecutive_workout_days(log)
+    suggest_deload = should_suggest_deload(log)
+    exercises_done = {e["name"] for s in log.get("sessions", []) for e in s.get("exercises", [])}
 
     return f"""You are a personal trainer and nutrition coach AI for {profile['name']}.
 You run as a web chat and Discord bot so keep replies concise and mobile-friendly.
@@ -483,6 +514,18 @@ MISSED WORKOUT DETECTION (long_gap={long_gap}, gap_days={gap_days}):
 - If long_gap is True: warmly acknowledge the break in one sentence (no guilt-tripping).
 - Then tell the user to use 10-15% lighter weights than their last session for today.
 - Resume normal progressive overload from next session onward.
+
+REST DAY SUGGESTION (consecutive_days={consecutive_days}):
+- If consecutive_days >= 3: recommend taking tomorrow as a rest day before starting the next session.
+- Mention it briefly at the end of the workout, not as a warning.
+
+DELOAD WEEK (suggest_deload={suggest_deload}):
+- If suggest_deload is True: tell the user this is deload week — use 60% of normal weights, same sets/reps.
+- Explain it helps muscles recover and come back stronger. Only mention once per session.
+
+FORM CUES (exercises_done={exercises_done}):
+- For each exercise in today's workout, if the exercise name is NOT in exercises_done (first time ever doing it), include its form cue in one line below the exercise.
+- If the exercise has been done before, skip the form cue unless user asks.
 
 WORKOUT:
 - Show today's workout with exercise list, sets, reps.

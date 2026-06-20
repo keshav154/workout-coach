@@ -227,6 +227,94 @@ def health():
     return "OK", 200
 
 
+# ── WhatsApp bot (Twilio) ──────────────────────────────────────────────────────
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+TWILIO_AUTH_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+TWILIO_WHATSAPP_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "").strip()  # e.g. whatsapp:+14155238886
+ALLOWED_WHATSAPP_NUMBER = os.environ.get("ALLOWED_WHATSAPP_NUMBER", "").strip()  # e.g. whatsapp:+919876543210
+
+
+@flask_app.route("/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    from twilio.twiml.messaging_response import MessagingResponse
+    from twilio.request_validator import RequestValidator
+
+    # Validate request is from Twilio
+    if TWILIO_AUTH_TOKEN:
+        validator = RequestValidator(TWILIO_AUTH_TOKEN)
+        signature = request.headers.get("X-Twilio-Signature", "")
+        url = request.url
+        valid = validator.validate(url, request.form, signature)
+        if not valid:
+            log.warning("WhatsApp: invalid Twilio signature")
+            return "Forbidden", 403
+
+    from_number = request.form.get("From", "")
+    user_text   = request.form.get("Body", "").strip()
+
+    # Only respond to the allowed number
+    if ALLOWED_WHATSAPP_NUMBER and from_number != ALLOWED_WHATSAPP_NUMBER:
+        log.warning(f"WhatsApp: ignoring message from {from_number}")
+        return str(MessagingResponse())
+
+    log.info(f"WhatsApp message from {from_number}: {user_text[:50]}")
+
+    history = load_history("whatsapp")
+
+    if user_text.lower() in ("!workout", "!start", "start", "hi", "hello"):
+        reset_history("whatsapp")
+        history = []
+        user_msg = "What's my workout today?"
+    elif user_text.lower() == "!done":
+        user_msg = "I finished today's workout. Let's log it and go through my nutrition."
+    elif user_text.lower().startswith("!weight "):
+        try:
+            kg = float(user_text.split()[1])
+            user_msg = f"My weight today is {kg} kg."
+        except (ValueError, IndexError):
+            resp = MessagingResponse()
+            resp.message("Usage: !weight 97.5")
+            return str(resp)
+    elif user_text.lower() == "!reset":
+        reset_history("whatsapp")
+        resp = MessagingResponse()
+        resp.message("Conversation reset! Send 'hi' to begin.")
+        return str(resp)
+    elif user_text.lower() in ("!help", "help"):
+        resp = MessagingResponse()
+        resp.message(
+            "Commands:\n"
+            "!workout - today's workout\n"
+            "!done - log session + nutrition\n"
+            "!weight 97.5 - log weight\n"
+            "!reset - fresh conversation\n"
+            "Or just type anything to chat!"
+        )
+        return str(resp)
+    else:
+        user_msg = user_text
+
+    history.append({"role": "user", "content": user_msg})
+
+    try:
+        reply, parsed_log, _, _ = ask_agent(history, source="whatsapp")
+    except Exception as e:
+        log.error(f"WhatsApp agent error: {e}")
+        resp = MessagingResponse()
+        resp.message("Something went wrong. Please try again.")
+        return str(resp)
+
+    reply += log_suffix(parsed_log)
+    history.append({"role": "assistant", "content": reply})
+    save_history("whatsapp", history)
+
+    # Twilio has a 1600 char limit per message — split if needed
+    twiml = MessagingResponse()
+    for i in range(0, max(len(reply), 1), 1500):
+        twiml.message(reply[i:i + 1500])
+    return str(twiml)
+
+
 # ── Discord bot ────────────────────────────────────────────────────────────────
 HELP_MSG = """Commands:
 !workout  - today's workout

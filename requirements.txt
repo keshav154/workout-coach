@@ -7,3 +7,4 @@ audioop-lts==0.2.1
 pymongo==4.10.1
 dnspython==2.7.0
 certifi==2025.4.26
+twilio==9.3.6
