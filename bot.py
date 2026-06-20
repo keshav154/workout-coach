@@ -1,0 +1,314 @@
+"""
+Workout Bot — Flask web server + Discord bot running together on Render.
+- Web UI: https://your-app.onrender.com  (chat in browser)
+- Discord: message the bot in your Discord server
+Both share the same agent_core logic, workout_log.json and memory.json.
+"""
+
+import json
+import logging
+import os
+import re
+import threading
+
+import discord
+import requests
+from flask import Flask, jsonify, render_template, request, session
+from openai import OpenAI
+
+from agent_core import (
+    DATA_DIR,
+    PROGRAM,
+    apply_memory_update,
+    build_system_prompt,
+    get_last_session_for_day,
+    get_next_day,
+    load_log,
+    load_memory,
+    save_memory,
+    save_session,
+    try_parse_log,
+    try_parse_memory_update,
+)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger(__name__)
+
+# ── Config ──────────────────────────────────────────────────────────────────
+GROQ_KEY        = os.environ["GROQ_API_KEY"]
+DISCORD_TOKEN   = os.environ.get("DISCORD_BOT_TOKEN", "")
+FLASK_SECRET    = os.environ.get("FLASK_SECRET", "workout-secret-key-change-me")
+DISCORD_USER_ID = os.environ.get("DISCORD_USER_ID", "")   # your Discord user ID
+
+groq = OpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1")
+
+WEB_HISTORY_FILE    = DATA_DIR / "web_history.json"
+DISCORD_HISTORY_FILE = DATA_DIR / "discord_history.json"
+
+
+# ── Shared agent logic ───────────────────────────────────────────────────────
+def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dict | None]:
+    workout_log = load_log()
+    mem         = load_memory()
+    day         = get_next_day(workout_log)
+    last        = get_last_session_for_day(workout_log, day)
+    system      = build_system_prompt(day, last, workout_log, mem)
+
+    messages = [{"role": "system", "content": system}] + history
+
+    resp = groq.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=messages,
+        temperature=0.7,
+    )
+    full = resp.choices[0].message.content or ""
+
+    parsed_log = try_parse_log(full)
+    parsed_mem = try_parse_memory_update(full)
+    display    = re.sub(r"<(LOG_SESSION|UPDATE_MEMORY)>.*?</\1>", "", full, flags=re.DOTALL).strip()
+
+    # Persist log + memory
+    if parsed_log:
+        save_session(workout_log, parsed_log)
+    if parsed_mem:
+        apply_memory_update(mem, parsed_mem)
+        save_memory(mem)
+
+    return display, parsed_log, parsed_mem
+
+
+def load_history(path) -> list:
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+
+def save_history(path, history: list) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(history[-20:], f)   # keep last 20 messages
+
+
+def append_and_save(path, role: str, content: str) -> list:
+    history = load_history(path)
+    history.append({"role": role, "content": content})
+    if len(history) > 20:
+        history = history[-20:]
+    save_history(path, history)
+    return history
+
+
+# ── Flask web app ────────────────────────────────────────────────────────────
+flask_app = Flask(__name__)
+flask_app.secret_key = FLASK_SECRET
+
+
+@flask_app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@flask_app.route("/chat", methods=["POST"])
+def chat():
+    user_text = (request.json or {}).get("message", "").strip()
+    if not user_text:
+        return jsonify({"error": "empty message"}), 400
+
+    history = load_history(WEB_HISTORY_FILE)
+
+    # Handle reset command
+    if user_text.lower() in ("/reset", "reset"):
+        save_history(WEB_HISTORY_FILE, [])
+        return jsonify({"reply": "Conversation reset. Ask me what your workout is today!"})
+
+    history.append({"role": "user", "content": user_text})
+
+    try:
+        reply, parsed_log, _ = ask_agent(history, source="web")
+    except Exception as e:
+        log.error(f"Web agent error: {e}")
+        return jsonify({"error": "AI error, please try again"}), 500
+
+    suffix = ""
+    if parsed_log:
+        n = parsed_log.get("nutrition", {})
+        bw = parsed_log.get("body_weight_kg", "")
+        parts = ["Session logged!"]
+        if bw:
+            parts.append(f"Weight: {bw} kg")
+        if n.get("calories_eaten"):
+            parts.append(f"{n['calories_eaten']} kcal | {n.get('protein_g','?')}g protein")
+        suffix = "\n\n" + " | ".join(parts)
+
+    history.append({"role": "assistant", "content": reply})
+    save_history(WEB_HISTORY_FILE, history)
+
+    return jsonify({"reply": reply + suffix})
+
+
+@flask_app.route("/reset", methods=["POST"])
+def reset_web():
+    save_history(WEB_HISTORY_FILE, [])
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/chat_history")
+def chat_history():
+    history = load_history(WEB_HISTORY_FILE)
+    return jsonify({"history": history})
+
+
+@flask_app.route("/day_info")
+def day_info():
+    workout_log = load_log()
+    day = get_next_day(workout_log)
+    p   = PROGRAM.get(day, {})
+    return jsonify({"day": day, "name": p.get("name", ""), "focus": p.get("focus", "")})
+
+
+@flask_app.route("/health")
+def health():
+    return "OK", 200
+
+
+# ── Discord bot ──────────────────────────────────────────────────────────────
+HELP_MSG = """Commands:
+!workout  — today's workout
+!done     — log session + nutrition
+!weight 97.5 — log your weight
+!summary  — last session recap
+!reset    — fresh conversation
+!help     — this menu
+
+Or just type anything to chat with your coach!"""
+
+
+def make_discord_client():
+    intents = discord.Intents.default()
+    intents.message_content = True
+    client = discord.Client(intents=intents)
+
+    @client.event
+    async def on_ready():
+        log.info(f"Discord bot logged in as {client.user}")
+
+    @client.event
+    async def on_message(message: discord.Message):
+        if message.author == client.user:
+            return
+
+        # Security: only respond to your account
+        if DISCORD_USER_ID and str(message.author.id) != str(DISCORD_USER_ID):
+            return
+
+        text = message.content.strip()
+        if not text:
+            return
+
+        async with message.channel.typing():
+            history = load_history(DISCORD_HISTORY_FILE)
+
+            # Commands
+            if text in ("!workout", "!start"):
+                save_history(DISCORD_HISTORY_FILE, [])
+                history = []
+                user_msg = "What's my workout today? Also ask me my weight."
+
+            elif text == "!done":
+                user_msg = "I finished today's workout. Let's log it and go through my nutrition."
+
+            elif text.startswith("!weight "):
+                try:
+                    kg = float(text.split()[1])
+                    user_msg = f"My weight today is {kg} kg."
+                except (ValueError, IndexError):
+                    await message.channel.send("Usage: !weight 97.5")
+                    return
+
+            elif text == "!summary":
+                workout_log = load_log()
+                sessions = workout_log.get("sessions", [])
+                if not sessions:
+                    await message.channel.send("No sessions logged yet. Start with !workout")
+                    return
+                last = sessions[-1]
+                day  = last.get("day", "?")
+                p    = PROGRAM.get(day, {})
+                lines = [f"Last session: Day {day} - {p.get('name','')} ({last.get('date','?')})", ""]
+                bw = last.get("body_weight_kg")
+                if bw:
+                    lines.append(f"Weight: {bw} kg")
+                for ex in last.get("exercises", []):
+                    lines.append(f"  {ex['name']}: {ex.get('weight','?')}kg x {ex.get('reps_done','?')} reps")
+                n = last.get("nutrition", {})
+                if n.get("calories_eaten"):
+                    lines += ["", f"Nutrition: {n['calories_eaten']} kcal | {n.get('protein_g','?')}g protein",
+                              f"Burnt: {n.get('calories_burnt','?')} kcal | Net: {n.get('net_calories','?')} kcal"]
+                await message.channel.send("\n".join(lines))
+                return
+
+            elif text == "!reset":
+                save_history(DISCORD_HISTORY_FILE, [])
+                await message.channel.send("Conversation reset. Send !workout to begin.")
+                return
+
+            elif text in ("!help", "!commands"):
+                await message.channel.send(HELP_MSG)
+                return
+
+            elif text.startswith("!"):
+                await message.channel.send(HELP_MSG)
+                return
+
+            else:
+                user_msg = text
+
+            history.append({"role": "user", "content": user_msg})
+
+            try:
+                reply, parsed_log, _ = ask_agent(history, source="discord")
+            except Exception as e:
+                log.error(f"Discord agent error: {e}")
+                await message.channel.send("Something went wrong. Please try again.")
+                return
+
+            if parsed_log:
+                n  = parsed_log.get("nutrition", {})
+                bw = parsed_log.get("body_weight_kg", "")
+                parts = ["Session logged!"]
+                if bw:
+                    parts.append(f"Weight: {bw} kg")
+                if n.get("calories_eaten"):
+                    parts.append(f"{n['calories_eaten']} kcal | {n.get('protein_g','?')}g protein")
+                reply += "\n\n" + " | ".join(parts)
+
+            history.append({"role": "assistant", "content": reply})
+            save_history(DISCORD_HISTORY_FILE, history)
+
+            # Discord has a 2000 char limit per message
+            for i in range(0, max(len(reply), 1), 1900):
+                await message.channel.send(reply[i:i + 1900])
+
+    return client
+
+
+# ── Startup: run Flask + Discord together ────────────────────────────────────
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    flask_app.run(host="0.0.0.0", port=port)
+
+
+def run_discord():
+    if not DISCORD_TOKEN:
+        log.warning("DISCORD_BOT_TOKEN not set — Discord bot disabled.")
+        return
+    client = make_discord_client()
+    client.run(DISCORD_TOKEN)
+
+
+if __name__ == "__main__":
+    # Run Discord bot in background thread, Flask in main thread
+    discord_thread = threading.Thread(target=run_discord, daemon=True)
+    discord_thread.start()
+    run_flask()

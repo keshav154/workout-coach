@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Workout Coach</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f0f0f;
+      color: #f0f0f0;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    header {
+      background: #1a1a2e;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 18px; font-weight: 700; color: #7c83fd; }
+    header span { font-size: 12px; color: #888; }
+    #reset-btn {
+      background: none; border: 1px solid #444; color: #aaa;
+      padding: 5px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    }
+    #reset-btn:hover { border-color: #7c83fd; color: #7c83fd; }
+
+    /* Chat area */
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scroll-behavior: smooth;
+    }
+
+    .bubble {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 18px;
+      font-size: 15px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .bubble.user {
+      background: #7c83fd;
+      color: #fff;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+    .bubble.coach {
+      background: #1e1e2e;
+      color: #e8e8f0;
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+      border: 1px solid #2a2a4a;
+    }
+    .bubble.system {
+      background: #1a2a1a;
+      color: #6fcf97;
+      align-self: center;
+      font-size: 13px;
+      border-radius: 10px;
+      padding: 6px 12px;
+    }
+
+    /* Typing indicator */
+    .typing {
+      display: flex; gap: 4px; align-items: center;
+      background: #1e1e2e; padding: 10px 16px;
+      border-radius: 18px; border-bottom-left-radius: 4px;
+      border: 1px solid #2a2a4a;
+      align-self: flex-start;
+    }
+    .typing span {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #7c83fd; animation: bounce 1.2s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-6px); }
+    }
+
+    /* Quick action buttons */
+    #quick-actions {
+      display: flex; gap: 8px; padding: 8px 16px;
+      overflow-x: auto; flex-shrink: 0;
+      scrollbar-width: none;
+    }
+    #quick-actions::-webkit-scrollbar { display: none; }
+    .quick-btn {
+      background: #1e1e2e; border: 1px solid #2a2a4a;
+      color: #aaa; padding: 6px 14px; border-radius: 20px;
+      font-size: 13px; cursor: pointer; white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .quick-btn:hover, .quick-btn:active {
+      background: #2a2a4a; color: #7c83fd; border-color: #7c83fd;
+    }
+
+    /* Input area */
+    #input-area {
+      display: flex; gap: 8px; padding: 10px 12px;
+      background: #1a1a2e; border-top: 1px solid #2a2a4a;
+      flex-shrink: 0;
+    }
+    #msg-input {
+      flex: 1; background: #0f0f1a; border: 1px solid #2a2a4a;
+      color: #f0f0f0; border-radius: 22px; padding: 10px 16px;
+      font-size: 15px; outline: none; resize: none;
+      max-height: 120px; overflow-y: auto;
+      line-height: 1.4;
+    }
+    #msg-input:focus { border-color: #7c83fd; }
+    #msg-input::placeholder { color: #555; }
+    #send-btn {
+      background: #7c83fd; border: none; color: #fff;
+      width: 44px; height: 44px; border-radius: 50%;
+      font-size: 20px; cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      align-self: flex-end;
+    }
+    #send-btn:disabled { background: #333; cursor: default; }
+    #send-btn:hover:not(:disabled) { background: #9098ff; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>💪 Workout Coach</h1>
+    <span id="day-label">Loading...</span>
+  </div>
+  <button id="reset-btn" onclick="resetChat()">New Session</button>
+</header>
+
+<div id="chat"></div>
+
+<div id="quick-actions">
+  <button class="quick-btn" onclick="quickSend("What's my workout today?")">Today's Workout</button>
+  <button class="quick-btn" onclick="quickSend('I am done with my workout, let\'s log it')">Log Session</button>
+  <button class="quick-btn" onclick="quickSend('What should I eat now for protein?')">Meal Suggestion</button>
+  <button class="quick-btn" onclick="logWeight()">Log Weight</button>
+  <button class="quick-btn" onclick="quickSend('Show me my last session summary')">Last Session</button>
+</div>
+
+<div id="input-area">
+  <textarea id="msg-input" placeholder="Ask your coach..." rows="1"
+    oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+  <button id="send-btn" onclick="sendMessage()">&#9650;</button>
+</div>
+
+<script>
+  const chat  = document.getElementById('chat');
+  const input = document.getElementById('msg-input');
+  const btn   = document.getElementById('send-btn');
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function addBubble(text, cls) {
+    const div = document.createElement('div');
+    div.className = 'bubble ' + cls;
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
+
+  function showTyping() {
+    const t = document.createElement('div');
+    t.className = 'typing';
+    t.id = 'typing';
+    t.innerHTML = '<span></span><span></span><span></span>';
+    chat.appendChild(t);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function hideTyping() {
+    const t = document.getElementById('typing');
+    if (t) t.remove();
+  }
+
+  async function sendMessage(overrideText) {
+    const text = (overrideText || input.value).trim();
+    if (!text) return;
+
+    input.value = '';
+    input.style.height = 'auto';
+    btn.disabled = true;
+
+    addBubble(text, 'user');
+    showTyping();
+
+    try {
+      const res  = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      });
+      const data = await res.json();
+      hideTyping();
+
+      if (data.error) {
+        addBubble('Error: ' + data.error, 'system');
+      } else {
+        addBubble(data.reply, 'coach');
+        if (data.reply.includes('Session logged')) {
+          addBubble('Session saved!', 'system');
+        }
+      }
+    } catch (err) {
+      hideTyping();
+      addBubble('Network error. Check your connection.', 'system');
+    }
+
+    btn.disabled = false;
+    input.focus();
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function quickSend(text) {
+    sendMessage(text);
+  }
+
+  function logWeight() {
+    const kg = prompt('Enter your weight in kg (e.g. 97.5):');
+    if (kg && !isNaN(parseFloat(kg))) {
+      sendMessage(`My weight today is ${parseFloat(kg)} kg`);
+    }
+  }
+
+  async function resetChat() {
+    if (!confirm('Start a new session?')) return;
+    await fetch('/reset', { method: 'POST' });
+    chat.innerHTML = '';
+    addBubble('New session started! Tap "Today\'s Workout" to begin.', 'system');
+  }
+
+  // Load today's day label
+  async function loadDayInfo() {
+    try {
+      const res  = await fetch('/day_info');
+      const data = await res.json();
+      document.getElementById('day-label').textContent =
+        `Day ${data.day}: ${data.name}`;
+    } catch {
+      document.getElementById('day-label').textContent = 'Ready to train';
+    }
+  }
+
+  // Auto-send greeting on first load
+  window.onload = async () => {
+    await loadDayInfo();
+    const res  = await fetch('/chat_history');
+    const data = await res.json();
+    if (data.history && data.history.length > 0) {
+      data.history.forEach(m => {
+        if (m.role !== 'system') {
+          addBubble(m.content, m.role === 'user' ? 'user' : 'coach');
+        }
+      });
+    } else {
+      sendMessage("What's my workout today?");
+    }
+  };
+</script>
+</body>
+</html>
