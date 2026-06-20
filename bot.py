@@ -211,6 +211,17 @@ def reset_profile():
     return jsonify({"ok": True})
 
 
+@flask_app.route("/delete_last_session", methods=["POST"])
+@require_auth
+def delete_last_session():
+    from agent_core import _col
+    result = _col("workout_log").update_one(
+        {"_id": "log"},
+        {"$pop": {"sessions": 1}}
+    )
+    return jsonify({"ok": True, "modified": result.modified_count})
+
+
 @flask_app.route("/health")
 def health():
     return "OK", 200

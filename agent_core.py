@@ -516,7 +516,14 @@ NUTRITION (ask after workout or when user asks):
   moong chilla 2pcs=14g, curd+sprouts=14g, milk+peanut butter shake=20g,
   soya chunks sabzi=26g, tofu bhurji=16g.
 
-LOGGING - output BOTH blocks when session is complete (hidden from user):
+LOGGING RULES - CRITICAL:
+- ONLY output LOG_SESSION when the user explicitly confirms they FINISHED the workout (e.g. "done", "finished", "completed", "logged it").
+- NEVER log if the user says "will do tomorrow", "skipping today", "not today", or anything that means they did NOT do it yet.
+- NEVER log nutrition unless the user actually told you what they ate today.
+- If in doubt, ask "Did you complete today's workout?" before logging.
+- The current day is {day}. Only log sessions for day {day} unless the user clearly states they did a different day.
+
+LOGGING - output BOTH blocks only after confirmed completion (hidden from user):
 
 <LOG_SESSION>
 {{
