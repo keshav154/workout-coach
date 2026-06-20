@@ -3,6 +3,8 @@ Workout Bot — Flask web UI + Discord bot on Render.
 Data persisted in MongoDB Atlas (free tier).
 """
 
+import base64
+import functools
 import logging
 import os
 import re
@@ -10,7 +12,7 @@ import threading
 
 import discord
 import requests
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 from openai import OpenAI
 
@@ -39,6 +41,30 @@ GROQ_KEY        = os.environ["GROQ_API_KEY"]
 DISCORD_TOKEN   = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_USER_ID = os.environ.get("DISCORD_USER_ID", "")
 FLASK_SECRET    = os.environ.get("FLASK_SECRET", "change-me")
+WEB_PASSWORD    = os.environ.get("WEB_PASSWORD", "")   # set this on Render
+
+
+def require_auth(f):
+    """Basic auth decorator — protects all web UI routes."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not WEB_PASSWORD:
+            return f(*args, **kwargs)   # no password set = open (dev mode)
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(auth[6:]).decode("utf-8")
+                _, pwd   = decoded.split(":", 1)
+                if pwd == WEB_PASSWORD:
+                    return f(*args, **kwargs)
+            except Exception:
+                pass
+        return Response(
+            "Login required",
+            401,
+            {"WWW-Authenticate": 'Basic realm="Workout Coach"'},
+        )
+    return decorated
 
 groq = OpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1")
 
@@ -91,11 +117,13 @@ flask_app.secret_key = FLASK_SECRET
 
 
 @flask_app.route("/")
+@require_auth
 def index():
     return render_template("index.html")
 
 
 @flask_app.route("/chat", methods=["POST"])
+@require_auth
 def chat():
     user_text = (request.json or {}).get("message", "").strip()
     if not user_text:
@@ -118,17 +146,20 @@ def chat():
 
 
 @flask_app.route("/reset", methods=["POST"])
+@require_auth
 def reset_web():
     reset_history("web")
     return jsonify({"ok": True})
 
 
 @flask_app.route("/chat_history")
+@require_auth
 def chat_history():
     return jsonify({"history": load_history("web")})
 
 
 @flask_app.route("/day_info")
+@require_auth
 def day_info():
     workout_log = load_log()
     day = get_next_day(workout_log)
