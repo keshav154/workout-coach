@@ -6,7 +6,7 @@ Profile is stored in MongoDB; onboarding collects it on first run via chat.
 import json
 import os
 import re
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import certifi
 from pymongo import MongoClient
@@ -275,6 +275,35 @@ def get_weight_trend(mem: dict) -> str:
             f"{trend} {abs(delta):.1f} kg since {first_date}")
 
 
+def is_first_session_this_week(log: dict) -> bool:
+    """True if no session has been logged in the current calendar week (Mon-Sun)."""
+    sessions = log.get("sessions", [])
+    if not sessions:
+        return True
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())  # Monday
+    for s in sessions:
+        try:
+            d = datetime.strptime(s["date"], "%Y-%m-%d").date()
+            if d >= week_start:
+                return False
+        except (ValueError, KeyError):
+            pass
+    return True
+
+
+def days_since_last_session(log: dict) -> int | None:
+    """Returns days since the last logged session, or None if no sessions."""
+    sessions = log.get("sessions", [])
+    if not sessions:
+        return None
+    try:
+        last_date = datetime.strptime(sessions[-1]["date"], "%Y-%m-%d").date()
+        return (date.today() - last_date).days
+    except (ValueError, KeyError):
+        return None
+
+
 def get_adjusted_calorie_target(mem: dict, base: int) -> int:
     entries = mem.get("weight_log", [])
     parsed = []
@@ -310,8 +339,13 @@ Ask ONE question at a time, in this order:
 7. Confirm: 4 days per week training (or ask if different)
 8. Confirm: vegetarian Indian diet (or ask about diet)
 9. Any injuries or body parts to avoid?
+10. Have they been working out recently? (yes / no / used to but stopped)
+    - If yes or used to: ask which exercises they were doing and roughly what dumbbell weights they were using.
+      Map their answer to the closest available weights: 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg.
+      Save these as starting weights in recent_weights.
+    - If no (complete beginner to weights): set recent_weights as empty, coach will start them light.
 
-Once you have ALL 9 answers, output this hidden block (do not display to user):
+Once you have ALL answers, output this hidden block (do not display to user):
 <SAVE_PROFILE>
 {
   "name": "...",
@@ -324,13 +358,23 @@ Once you have ALL 9 answers, output this hidden block (do not display to user):
   "diet": "vegetarian Indian",
   "session_min": "45-60",
   "activity_level": "sedentary",
-  "injuries": "none"
+  "injuries": "none",
+  "recent_weights": {
+    "Dumbbell Flat Bench Press": 0,
+    "Dumbbell Bent-Over Row": 0,
+    "Goblet Squat": 0,
+    "Dumbbell Overhead Press": 0,
+    "Dumbbell Bicep Curl": 0
+  }
 }
 </SAVE_PROFILE>
 
-Then immediately greet them warmly, summarize their plan (calorie target, protein target, 4-day split), and tell them to tap "Today's Workout" to start.
+Fill recent_weights with the closest available dumbbell weights based on what they told you.
+If they are a complete beginner with no recent training, set all weights to 0 (coach will guide them live).
 
-Equipment available: adjustable dumbbells, incline-decline bench, treadmill, resistance bands.
+Then immediately greet them warmly, show their calorie target, protein target, and tell them the 4-day split (A: Chest+Triceps, B: Back+Biceps, C: Shoulders+Arms, D: Legs+Core). Tell them to tap "Today's Workout" to begin.
+
+Equipment available: adjustable dumbbells (4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg), incline-decline bench, treadmill, resistance bands.
 Keep messages short, warm, and encouraging. Mobile-friendly plain text only.
 """
 
@@ -395,6 +439,9 @@ def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dic
     cal_target = get_adjusted_calorie_target(mem, targets["calorie_target"])
     sessions = len(log.get("sessions", []))
     injuries = profile.get("injuries", "none")
+    first_this_week = is_first_session_this_week(log)
+    gap_days = days_since_last_session(log)
+    long_gap = gap_days is not None and gap_days >= 7
 
     return f"""You are a personal trainer and nutrition coach AI for {profile['name']}.
 You run as a web chat and Discord bot so keep replies concise and mobile-friendly.
@@ -406,9 +453,13 @@ USER PROFILE:
   Diet: {profile['diet']} | Session: {profile['session_min']} min | Activity outside gym: {profile.get('activity_level','sedentary')}
   Injuries: {injuries}
   Equipment: adjustable dumbbells, incline-decline bench, treadmill, resistance bands
+  Available dumbbell weights (kg): 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24
+  IMPORTANT: Always recommend weights from the above list only. Never suggest a weight not in this list.
+  When progressive overload calls for an increase, pick the next available weight up from the list.
   Calorie target (auto-adjusted): {cal_target} kcal/day
   Protein target: {targets['protein_target_g']} g/day
   Sessions logged so far: {sessions}
+  Starting weights from onboarding (use these if no session history for an exercise): {profile.get('recent_weights', {})}
 
 {format_memory_block(mem)}
 
@@ -416,13 +467,19 @@ USER PROFILE:
 
 YOUR RESPONSIBILITIES:
 
-WEIGHT CHECK-IN (ask at start of every session):
-- Ask today's weight casually in one line.
-- Compare to last recorded and comment on pace.
-- Gaining >0.5 kg/week: "gaining a bit fast, trim 200 kcal"
-- No change 2+ sessions: "weight stalled, add 200 kcal"
-- 0.1-0.5 kg/week: "on track, keep it up"
+WEEKLY WEIGH-IN (first_this_week={first_this_week}):
+- Ask weight ONLY if first_this_week is True (first session of this calendar week).
+- If False, skip weight question entirely — do not mention it.
+- When you do ask: compare to last recorded and comment on weekly pace.
+- Gaining >0.5 kg/week: suggest trimming 200 kcal
+- No change for 2+ weeks: suggest adding 200 kcal
+- 0.1-0.5 kg/week: "perfect pace"
 - Log in UPDATE_MEMORY weight_log as "YYYY-MM-DD: XX.X kg"
+
+MISSED WORKOUT DETECTION (long_gap={long_gap}, gap_days={gap_days}):
+- If long_gap is True: warmly acknowledge the break in one sentence (no guilt-tripping).
+- Then tell the user to use 10-15% lighter weights than their last session for today.
+- Resume normal progressive overload from next session onward.
 
 WORKOUT:
 - Show today's workout with exercise list, sets, reps.
