@@ -18,6 +18,42 @@
       flex-direction: column;
     }
 
+    /* ── Lock screen ── */
+    #lock-screen {
+      display: flex;
+      position: fixed; inset: 0;
+      background: #0f0f0f;
+      z-index: 999;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 32px;
+    }
+    #lock-screen .icon { font-size: 48px; }
+    #lock-screen h2 { font-size: 22px; color: #7c83fd; }
+    #lock-screen p  { font-size: 14px; color: #888; text-align: center; }
+    #lock-input {
+      width: 100%; max-width: 300px;
+      background: #1e1e2e; border: 2px solid #2a2a4a;
+      color: #f0f0f0; border-radius: 12px;
+      padding: 14px 16px; font-size: 18px; outline: none;
+      text-align: center; letter-spacing: 3px;
+    }
+    #lock-input:focus { border-color: #7c83fd; }
+    #lock-btn {
+      background: #7c83fd; border: none; color: #fff;
+      padding: 14px 32px; border-radius: 12px;
+      font-size: 16px; cursor: pointer;
+      width: 100%; max-width: 300px;
+      font-weight: 600;
+    }
+    #lock-btn:active { background: #5a62e0; }
+    #lock-error { color: #ff6b6b; font-size: 13px; display: none; }
+
+    /* ── Main app (hidden until unlocked) ── */
+    #app { display: none; flex-direction: column; height: 100dvh; }
+
     /* Header */
     header {
       background: #1a1a2e;
@@ -142,28 +178,42 @@
 </head>
 <body>
 
-<header>
-  <div>
-    <h1>💪 Workout Coach</h1>
-    <span id="day-label">Loading...</span>
-  </div>
-  <button id="reset-btn" onclick="resetChat()">New Session</button>
-</header>
-
-<div id="chat"></div>
-
-<div id="quick-actions">
-  <button class="quick-btn" onclick="quickSend("What's my workout today?")">Today's Workout</button>
-  <button class="quick-btn" onclick="quickSend('I am done with my workout, let\'s log it')">Log Session</button>
-  <button class="quick-btn" onclick="quickSend('What should I eat now for protein?')">Meal Suggestion</button>
-  <button class="quick-btn" onclick="logWeight()">Log Weight</button>
-  <button class="quick-btn" onclick="quickSend('Show me my last session summary')">Last Session</button>
+<!-- Lock screen -->
+<div id="lock-screen">
+  <div class="icon">💪</div>
+  <h2>Workout Coach</h2>
+  <p>Enter your password to continue</p>
+  <input id="lock-input" type="password" placeholder="Password"
+    onkeydown="if(event.key==='Enter') unlock()" autofocus />
+  <div id="lock-error">Wrong password. Try again.</div>
+  <button id="lock-btn" onclick="unlock()">Unlock</button>
 </div>
 
-<div id="input-area">
-  <textarea id="msg-input" placeholder="Ask your coach..." rows="1"
-    oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
-  <button id="send-btn" onclick="sendMessage()">&#9650;</button>
+<!-- Main app -->
+<div id="app">
+  <header>
+    <div>
+      <h1>💪 Workout Coach</h1>
+      <span id="day-label">Loading...</span>
+    </div>
+    <button id="reset-btn" onclick="resetChat()">New Session</button>
+  </header>
+
+  <div id="chat"></div>
+
+  <div id="quick-actions">
+    <button class="quick-btn" onclick="quickSend('What is my workout today?')">Today's Workout</button>
+    <button class="quick-btn" onclick="quickSend('I am done with my workout, lets log it')">Log Session</button>
+    <button class="quick-btn" onclick="quickSend('What should I eat now for protein?')">Meal Suggestion</button>
+    <button class="quick-btn" onclick="logWeight()">Log Weight</button>
+    <button class="quick-btn" onclick="quickSend('Show me my last session summary')">Last Session</button>
+  </div>
+
+  <div id="input-area">
+    <textarea id="msg-input" placeholder="Ask your coach..." rows="1"
+      oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+    <button id="send-btn" onclick="sendMessage()">&#9650;</button>
+  </div>
 </div>
 
 <script>
@@ -171,6 +221,41 @@
   const input = document.getElementById('msg-input');
   const btn   = document.getElementById('send-btn');
 
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  let password = sessionStorage.getItem('wc_pwd') || '';
+
+  function unlock() {
+    const val = document.getElementById('lock-input').value.trim();
+    if (!val) return;
+    // Try a quick API call to verify password
+    fetch('/day_info', { headers: { 'X-Password': val } })
+      .then(r => {
+        if (r.status === 401) {
+          document.getElementById('lock-error').style.display = 'block';
+          document.getElementById('lock-input').value = '';
+        } else {
+          password = val;
+          sessionStorage.setItem('wc_pwd', password);
+          document.getElementById('lock-screen').style.display = 'none';
+          document.getElementById('app').style.display = 'flex';
+          init();
+        }
+      })
+      .catch(() => {
+        // If no password set on server, just let through
+        password = val;
+        sessionStorage.setItem('wc_pwd', password);
+        document.getElementById('lock-screen').style.display = 'none';
+        document.getElementById('app').style.display = 'flex';
+        init();
+      });
+  }
+
+  function authHeaders(extra) {
+    return Object.assign({ 'X-Password': password }, extra || {});
+  }
+
+  // ── UI helpers ────────────────────────────────────────────────────────────
   function autoResize(el) {
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
@@ -194,8 +279,7 @@
 
   function showTyping() {
     const t = document.createElement('div');
-    t.className = 'typing';
-    t.id = 'typing';
+    t.className = 'typing'; t.id = 'typing';
     t.innerHTML = '<span></span><span></span><span></span>';
     chat.appendChild(t);
     chat.scrollTop = chat.scrollHeight;
@@ -206,6 +290,7 @@
     if (t) t.remove();
   }
 
+  // ── Chat ──────────────────────────────────────────────────────────────────
   async function sendMessage(overrideText) {
     const text = (overrideText || input.value).trim();
     if (!text) return;
@@ -220,11 +305,18 @@
     try {
       const res  = await fetch('/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ message: text })
       });
       const data = await res.json();
       hideTyping();
+
+      if (res.status === 401) {
+        // Password changed — force re-login
+        sessionStorage.removeItem('wc_pwd');
+        location.reload();
+        return;
+      }
 
       if (data.error) {
         addBubble('Error: ' + data.error, 'system');
@@ -244,50 +336,61 @@
     chat.scrollTop = chat.scrollHeight;
   }
 
-  function quickSend(text) {
-    sendMessage(text);
-  }
+  function quickSend(text) { sendMessage(text); }
 
   function logWeight() {
     const kg = prompt('Enter your weight in kg (e.g. 97.5):');
     if (kg && !isNaN(parseFloat(kg))) {
-      sendMessage(`My weight today is ${parseFloat(kg)} kg`);
+      sendMessage('My weight today is ' + parseFloat(kg) + ' kg');
     }
   }
 
   async function resetChat() {
     if (!confirm('Start a new session?')) return;
-    await fetch('/reset', { method: 'POST' });
+    await fetch('/reset', { method: 'POST', headers: authHeaders() });
     chat.innerHTML = '';
     addBubble('New session started! Tap "Today\'s Workout" to begin.', 'system');
   }
 
-  // Load today's day label
   async function loadDayInfo() {
     try {
-      const res  = await fetch('/day_info');
+      const res  = await fetch('/day_info', { headers: authHeaders() });
       const data = await res.json();
-      document.getElementById('day-label').textContent =
-        `Day ${data.day}: ${data.name}`;
+      document.getElementById('day-label').textContent = 'Day ' + data.day + ': ' + data.name;
     } catch {
       document.getElementById('day-label').textContent = 'Ready to train';
     }
   }
 
-  // Auto-send greeting on first load
-  window.onload = async () => {
+  async function init() {
     await loadDayInfo();
-    const res  = await fetch('/chat_history');
+    const res  = await fetch('/chat_history', { headers: authHeaders() });
     const data = await res.json();
     if (data.history && data.history.length > 0) {
       data.history.forEach(m => {
-        if (m.role !== 'system') {
-          addBubble(m.content, m.role === 'user' ? 'user' : 'coach');
-        }
+        if (m.role !== 'system') addBubble(m.content, m.role === 'user' ? 'user' : 'coach');
       });
     } else {
       sendMessage("What's my workout today?");
     }
+  }
+
+  // ── Startup ───────────────────────────────────────────────────────────────
+  window.onload = () => {
+    if (password) {
+      // Already have a password in session — verify it silently
+      fetch('/day_info', { headers: authHeaders() }).then(r => {
+        if (r.status === 401) {
+          sessionStorage.removeItem('wc_pwd');
+          password = '';
+        } else {
+          document.getElementById('lock-screen').style.display = 'none';
+          document.getElementById('app').style.display = 'flex';
+          init();
+        }
+      });
+    }
+    // else: lock screen stays visible (default)
   };
 </script>
 </body>

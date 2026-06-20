@@ -3,7 +3,6 @@ Workout Bot — Flask web UI + Discord bot on Render.
 Data persisted in MongoDB Atlas (free tier).
 """
 
-import base64
 import functools
 import logging
 import os
@@ -12,7 +11,7 @@ import threading
 
 import discord
 import requests
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request
 
 from openai import OpenAI
 
@@ -45,25 +44,18 @@ WEB_PASSWORD    = os.environ.get("WEB_PASSWORD", "")   # set this on Render
 
 
 def require_auth(f):
-    """Basic auth decorator — protects all web UI routes."""
+    """Check X-Password header sent by the JS frontend on every API call."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         if not WEB_PASSWORD:
-            return f(*args, **kwargs)   # no password set = open (dev mode)
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Basic "):
-            try:
-                decoded = base64.b64decode(auth[6:]).decode("utf-8")
-                _, pwd   = decoded.split(":", 1)
-                if pwd == WEB_PASSWORD:
-                    return f(*args, **kwargs)
-            except Exception:
-                pass
-        return Response(
-            "Login required",
-            401,
-            {"WWW-Authenticate": 'Basic realm="Workout Coach"'},
-        )
+            return f(*args, **kwargs)
+        # HTML page itself is always served (JS handles the password screen)
+        if request.path == "/" or request.method == "GET" and request.path in ("/health",):
+            return f(*args, **kwargs)
+        pwd = request.headers.get("X-Password", "")
+        if pwd == WEB_PASSWORD:
+            return f(*args, **kwargs)
+        return jsonify({"error": "unauthorized"}), 401
     return decorated
 
 groq = OpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1")

@@ -1,10 +1,5 @@
-"""Minimal preview server — no Groq/Discord needed, just shows the UI."""
-import json
-from pathlib import Path
 from flask import Flask, jsonify, render_template, request
-
 app = Flask(__name__)
-
 MOCK_HISTORY = []
 
 @app.route("/")
@@ -14,18 +9,8 @@ def index():
 @app.route("/chat", methods=["POST"])
 def chat():
     msg = (request.json or {}).get("message", "")
-    MOCK_HISTORY.append({"role": "user", "content": msg})
-    reply = (
-        "Day A - Chest + Triceps\n\n"
-        "Warm-up: 5 min treadmill\n\n"
-        "1. Dumbbell Bench Press  |  4 sets x 8-12 reps\n"
-        "2. Dumbbell Incline Bench Press  |  3 sets x 8-12 reps\n"
-        "3. Dumbbell Chest Fly  |  3 sets x 10-12 reps\n"
-        "4. Tricep Overhead Extension  |  3 sets x 10-12 reps\n"
-        "5. Resistance Band Tricep Pushdown  |  3 sets x 12-15 reps\n\n"
-        "Also, what's your weight today?"
-    )
-    MOCK_HISTORY.append({"role": "assistant", "content": reply})
+    reply = "Day A - Chest + Triceps\n\n1. Dumbbell Bench Press  |  4 sets x 8-12 reps\n2. Dumbbell Incline Bench Press  |  3 sets x 8-12 reps\n3. Dumbbell Chest Fly  |  3 sets x 10-12 reps\n4. Tricep Overhead Extension  |  3 sets x 10-12 reps\n5. Resistance Band Tricep Pushdown  |  3 sets x 12-15 reps\n\nWhat's your weight today?"
+    MOCK_HISTORY.extend([{"role":"user","content":msg},{"role":"assistant","content":reply}])
     return jsonify({"reply": reply})
 
 @app.route("/reset", methods=["POST"])
