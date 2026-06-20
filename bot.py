@@ -205,6 +205,56 @@ def day_info():
     return jsonify({"day": day, "name": p.get("name", ""), "focus": p.get("focus", "")})
 
 
+@flask_app.route("/stats")
+@require_auth
+def stats():
+    from agent_core import get_weight_trend
+    workout_log = load_log()
+    mem         = load_memory()
+    sessions    = workout_log.get("sessions", [])
+    day         = get_next_day(workout_log)
+    p           = PROGRAM.get(day, {})
+
+    # Last weight from memory
+    weight_entries = mem.get("weight_log", [])
+    last_weight = None
+    if weight_entries:
+        try:
+            last_weight = float(sorted(weight_entries)[-1].split(": ")[1].replace(" kg", ""))
+        except Exception:
+            pass
+
+    # Sessions this week
+    from datetime import date, timedelta
+    today      = date.today()
+    week_start = today - timedelta(days=today.weekday())
+    sessions_this_week = sum(
+        1 for s in sessions
+        if s.get("date", "") >= week_start.isoformat()
+    )
+
+    # Recent sessions (last 5)
+    recent = []
+    for s in reversed(sessions[-5:]):
+        d = s.get("day", "?")
+        recent.append({
+            "day":       d,
+            "name":      PROGRAM.get(d, {}).get("name", ""),
+            "date":      s.get("date", ""),
+            "weight":    s.get("body_weight_kg"),
+            "exercises": len(s.get("exercises", [])),
+        })
+
+    return jsonify({
+        "total_sessions":    len(sessions),
+        "last_weight":       last_weight,
+        "next_day":          day,
+        "next_name":         p.get("name", ""),
+        "sessions_this_week": sessions_this_week,
+        "recent_sessions":   recent,
+    })
+
+
 @flask_app.route("/profile_status")
 @require_auth
 def profile_status():

@@ -5,184 +5,283 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>Workout Coach</title>
+  <title>CoachX</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg:        #0a0a0f;
+      --surface:   #13131f;
+      --surface2:  #1c1c2e;
+      --border:    #2a2a45;
+      --accent:    #6c63ff;
+      --accent2:   #ff6584;
+      --green:     #43e97b;
+      --yellow:    #f9ca24;
+      --text:      #e8e8f5;
+      --muted:     #6b6b8a;
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0f0f0f;
-      color: #f0f0f0;
+      background: var(--bg);
+      color: var(--text);
       height: 100dvh;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
 
     /* ── Lock screen ── */
     #lock-screen {
       display: flex;
       position: fixed; inset: 0;
-      background: #0f0f0f;
+      background: var(--bg);
       z-index: 999;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 16px;
+      gap: 20px;
       padding: 32px;
     }
-    #lock-screen .icon { font-size: 48px; }
-    #lock-screen h2 { font-size: 22px; color: #7c83fd; }
-    #lock-screen p  { font-size: 14px; color: #888; text-align: center; }
+    .lock-logo {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 20px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px;
+      box-shadow: 0 8px 32px rgba(108,99,255,0.4);
+    }
+    #lock-screen h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+    #lock-screen h1 span { color: var(--accent); }
+    #lock-screen p  { font-size: 14px; color: var(--muted); }
     #lock-input {
-      width: 100%; max-width: 300px;
-      background: #1e1e2e; border: 2px solid #2a2a4a;
-      color: #f0f0f0; border-radius: 12px;
-      padding: 14px 16px; font-size: 18px; outline: none;
-      text-align: center; letter-spacing: 3px;
+      width: 100%; max-width: 320px;
+      background: var(--surface2); border: 2px solid var(--border);
+      color: var(--text); border-radius: 14px;
+      padding: 14px 18px; font-size: 18px; outline: none;
+      text-align: center; letter-spacing: 4px;
     }
-    #lock-input:focus { border-color: #7c83fd; }
+    #lock-input:focus { border-color: var(--accent); }
     #lock-btn {
-      background: #7c83fd; border: none; color: #fff;
-      padding: 14px 32px; border-radius: 12px;
-      font-size: 16px; cursor: pointer;
-      width: 100%; max-width: 300px;
-      font-weight: 600;
+      width: 100%; max-width: 320px;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      border: none; color: #fff;
+      padding: 16px; border-radius: 14px;
+      font-size: 16px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 4px 20px rgba(108,99,255,0.4);
     }
-    #lock-btn:active { background: #5a62e0; }
-    #lock-error { color: #ff6b6b; font-size: 13px; display: none; }
+    #lock-error { color: var(--accent2); font-size: 13px; display: none; }
 
-    /* ── Main app (hidden until unlocked) ── */
+    /* ── Main app ── */
     #app { display: none; flex-direction: column; height: 100dvh; }
 
     /* Header */
     header {
-      background: #1a1a2e;
-      padding: 14px 16px;
+      background: var(--surface);
+      padding: 12px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid #2a2a4a;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
-    header h1 { font-size: 18px; font-weight: 700; color: #7c83fd; }
-    header span { font-size: 12px; color: #888; }
-    #reset-btn {
-      background: none; border: 1px solid #444; color: #aaa;
-      padding: 5px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    .header-logo {
+      display: flex; align-items: center; gap: 10px;
     }
-    #reset-btn:hover { border-color: #7c83fd; color: #7c83fd; }
+    .logo-icon {
+      width: 34px; height: 34px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    .logo-text { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+    .logo-text span { color: var(--accent); }
+    .header-actions { display: flex; gap: 6px; }
+    .hdr-btn {
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); padding: 5px 10px;
+      border-radius: 8px; font-size: 11px; cursor: pointer;
+    }
+    .hdr-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .hdr-btn.danger:hover { border-color: var(--accent2); color: var(--accent2); }
+    .hdr-btn.warn:hover { border-color: var(--yellow); color: var(--yellow); }
 
-    /* Chat area */
-    #chat {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px;
+    /* ── Stats cards ── */
+    #stats-bar {
+      display: flex; gap: 8px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      flex-shrink: 0;
+      scrollbar-width: none;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    #stats-bar::-webkit-scrollbar { display: none; }
+    .stat-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px 14px;
+      min-width: 110px;
+      flex-shrink: 0;
+    }
+    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+    .stat-value.accent  { color: var(--accent); }
+    .stat-value.green   { color: var(--green); }
+    .stat-value.yellow  { color: var(--yellow); }
+    .stat-value.pink    { color: var(--accent2); }
+
+    /* ── Tab bar ── */
+    #tabs {
       display: flex;
-      flex-direction: column;
-      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      background: var(--surface);
+    }
+    .tab {
+      flex: 1; padding: 10px;
+      font-size: 13px; font-weight: 600;
+      color: var(--muted); cursor: pointer;
+      text-align: center; border: none;
+      background: none; border-bottom: 2px solid transparent;
+    }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Chat view ── */
+    #chat-view { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
+    #chat {
+      flex: 1; overflow-y: auto;
+      padding: 14px 12px;
+      display: flex; flex-direction: column;
+      gap: 10px;
       scroll-behavior: smooth;
     }
 
     .bubble {
-      max-width: 85%;
-      padding: 10px 14px;
-      border-radius: 18px;
-      font-size: 15px;
-      line-height: 1.5;
-      white-space: pre-wrap;
-      word-break: break-word;
+      max-width: 85%; padding: 10px 14px;
+      border-radius: 18px; font-size: 14px;
+      line-height: 1.55; white-space: pre-wrap; word-break: break-word;
     }
     .bubble.user {
-      background: #7c83fd;
-      color: #fff;
-      align-self: flex-end;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      color: #fff; align-self: flex-end;
       border-bottom-right-radius: 4px;
     }
     .bubble.coach {
-      background: #1e1e2e;
-      color: #e8e8f0;
+      background: var(--surface2); color: var(--text);
       align-self: flex-start;
       border-bottom-left-radius: 4px;
-      border: 1px solid #2a2a4a;
+      border: 1px solid var(--border);
     }
     .bubble.system {
-      background: #1a2a1a;
-      color: #6fcf97;
-      align-self: center;
-      font-size: 13px;
-      border-radius: 10px;
-      padding: 6px 12px;
+      background: rgba(67,233,123,0.1); color: var(--green);
+      align-self: center; font-size: 12px;
+      border-radius: 10px; padding: 5px 12px;
+      border: 1px solid rgba(67,233,123,0.2);
     }
 
-    /* Typing indicator */
+    /* Typing */
     .typing {
-      display: flex; gap: 4px; align-items: center;
-      background: #1e1e2e; padding: 10px 16px;
+      display: flex; gap: 5px; align-items: center;
+      background: var(--surface2); padding: 12px 16px;
       border-radius: 18px; border-bottom-left-radius: 4px;
-      border: 1px solid #2a2a4a;
-      align-self: flex-start;
+      border: 1px solid var(--border); align-self: flex-start;
     }
     .typing span {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: #7c83fd; animation: bounce 1.2s infinite;
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent); animation: bounce 1.2s infinite;
     }
     .typing span:nth-child(2) { animation-delay: 0.2s; }
     .typing span:nth-child(3) { animation-delay: 0.4s; }
     @keyframes bounce {
-      0%, 60%, 100% { transform: translateY(0); }
-      30% { transform: translateY(-6px); }
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
+      30% { transform: translateY(-6px); opacity: 1; }
     }
 
-    /* Quick action buttons */
+    /* Quick actions */
     #quick-actions {
-      display: flex; gap: 8px; padding: 8px 16px;
+      display: flex; gap: 7px; padding: 8px 12px;
       overflow-x: auto; flex-shrink: 0;
       scrollbar-width: none;
     }
     #quick-actions::-webkit-scrollbar { display: none; }
     .quick-btn {
-      background: #1e1e2e; border: 1px solid #2a2a4a;
-      color: #aaa; padding: 6px 14px; border-radius: 20px;
-      font-size: 13px; cursor: pointer; white-space: nowrap;
-      flex-shrink: 0;
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--muted); padding: 6px 14px; border-radius: 20px;
+      font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
     }
     .quick-btn:hover, .quick-btn:active {
-      background: #2a2a4a; color: #7c83fd; border-color: #7c83fd;
+      background: rgba(108,99,255,0.15); color: var(--accent); border-color: var(--accent);
     }
 
-    /* Input area */
+    /* Input */
     #input-area {
       display: flex; gap: 8px; padding: 10px 12px;
-      background: #1a1a2e; border-top: 1px solid #2a2a4a;
+      background: var(--surface); border-top: 1px solid var(--border);
       flex-shrink: 0;
     }
     #msg-input {
-      flex: 1; background: #0f0f1a; border: 1px solid #2a2a4a;
-      color: #f0f0f0; border-radius: 22px; padding: 10px 16px;
-      font-size: 15px; outline: none; resize: none;
-      max-height: 120px; overflow-y: auto;
-      line-height: 1.4;
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 22px; padding: 10px 16px;
+      font-size: 14px; outline: none; resize: none;
+      max-height: 120px; overflow-y: auto; line-height: 1.4;
     }
-    #msg-input:focus { border-color: #7c83fd; }
-    #msg-input::placeholder { color: #555; }
+    #msg-input:focus { border-color: var(--accent); }
+    #msg-input::placeholder { color: var(--muted); }
     #send-btn {
-      background: #7c83fd; border: none; color: #fff;
-      width: 44px; height: 44px; border-radius: 50%;
-      font-size: 20px; cursor: pointer; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      border: none; color: #fff;
+      width: 42px; height: 42px; border-radius: 50%;
+      font-size: 18px; cursor: pointer; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
       align-self: flex-end;
+      box-shadow: 0 2px 12px rgba(108,99,255,0.4);
     }
-    #send-btn:disabled { background: #333; cursor: default; }
-    #send-btn:hover:not(:disabled) { background: #9098ff; }
+    #send-btn:disabled { background: var(--surface2); box-shadow: none; cursor: default; }
+
+    /* ── Stats view ── */
+    #stats-view {
+      display: none; flex: 1; overflow-y: auto;
+      padding: 14px 12px; flex-direction: column; gap: 12px;
+    }
+    .stats-section { }
+    .stats-title {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
+    }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .big-stat {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 14px;
+    }
+    .big-stat .label { font-size: 11px; color: var(--muted); }
+    .big-stat .val   { font-size: 24px; font-weight: 800; margin-top: 4px; }
+    .big-stat .sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .session-list { display: flex; flex-direction: column; gap: 6px; }
+    .session-item {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 14px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .session-day { font-weight: 700; font-size: 13px; }
+    .session-date { font-size: 11px; color: var(--muted); }
+    .session-tag {
+      font-size: 11px; padding: 3px 8px; border-radius: 8px;
+      background: rgba(108,99,255,0.15); color: var(--accent);
+    }
   </style>
 </head>
 <body>
 
 <!-- Lock screen -->
 <div id="lock-screen">
-  <div class="icon">💪</div>
-  <h2>Workout Coach</h2>
-  <p>Enter your password to continue</p>
+  <div class="lock-logo">⚡</div>
+  <h1>Coach<span>X</span></h1>
+  <p>Your personal AI coach — fitness & finance</p>
   <input id="lock-input" type="password" placeholder="Password"
     onkeydown="if(event.key==='Enter') unlock()" autofocus />
   <div id="lock-error">Wrong password. Try again.</div>
@@ -192,31 +291,93 @@
 <!-- Main app -->
 <div id="app">
   <header>
-    <div>
-      <h1>💪 Workout Coach</h1>
-      <span id="day-label">Loading...</span>
+    <div class="header-logo">
+      <div class="logo-icon">⚡</div>
+      <div class="logo-text">Coach<span>X</span></div>
     </div>
-    <div style="display:flex;gap:8px">
-      <button id="reset-btn" onclick="resetChat()">New Session</button>
-      <button id="reset-profile-btn" onclick="resetProfile()" style="background:none;border:1px solid #444;color:#ff6b6b;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">Reset Profile</button>
-      <button onclick="deleteLastSession()" style="background:none;border:1px solid #444;color:#f0a500;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">Undo Last Log</button>
+    <div class="header-actions">
+      <button class="hdr-btn warn" onclick="deleteLastSession()">Undo Log</button>
+      <button class="hdr-btn" onclick="resetChat()">New Session</button>
+      <button class="hdr-btn danger" onclick="resetProfile()">Reset Profile</button>
     </div>
   </header>
 
-  <div id="chat"></div>
-
-  <div id="quick-actions">
-    <button class="quick-btn" onclick="quickSend('What is my workout today?')">Today's Workout</button>
-    <button class="quick-btn" onclick="quickSend('I am done with my workout, lets log it')">Log Session</button>
-    <button class="quick-btn" onclick="quickSend('What should I eat now for protein?')">Meal Suggestion</button>
-    <button class="quick-btn" onclick="logWeight()">Log Weight</button>
-    <button class="quick-btn" onclick="quickSend('Show me my last session summary')">Last Session</button>
+  <!-- Stats bar -->
+  <div id="stats-bar">
+    <div class="stat-card">
+      <div class="stat-label">Today</div>
+      <div class="stat-value accent" id="stat-day">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Focus</div>
+      <div class="stat-value" id="stat-focus" style="font-size:12px;margin-top:4px;">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Sessions</div>
+      <div class="stat-value green" id="stat-sessions">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Last Weight</div>
+      <div class="stat-value yellow" id="stat-weight">—</div>
+    </div>
   </div>
 
-  <div id="input-area">
-    <textarea id="msg-input" placeholder="Ask your coach..." rows="1"
-      oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
-    <button id="send-btn" onclick="sendMessage()">&#9650;</button>
+  <!-- Tabs -->
+  <div id="tabs">
+    <button class="tab active" onclick="switchTab('chat')">💬 Coach</button>
+    <button class="tab" onclick="switchTab('stats')">📊 Progress</button>
+  </div>
+
+  <!-- Chat view -->
+  <div id="chat-view">
+    <div id="chat"></div>
+
+    <div id="quick-actions">
+      <button class="quick-btn" onclick="quickSend('What is my workout today?')">Today's Workout</button>
+      <button class="quick-btn" onclick="quickSend('I am done with my workout, lets log it')">Log Session</button>
+      <button class="quick-btn" onclick="quickSend('What should I eat now for protein?')">Meal Suggestion</button>
+      <button class="quick-btn" onclick="logWeight()">Log Weight</button>
+      <button class="quick-btn" onclick="quickSend('Show me my last session summary')">Last Session</button>
+    </div>
+
+    <div id="input-area">
+      <textarea id="msg-input" placeholder="Ask your coach..." rows="1"
+        oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+      <button id="send-btn" onclick="sendMessage()">▲</button>
+    </div>
+  </div>
+
+  <!-- Stats view -->
+  <div id="stats-view">
+    <div class="stats-section">
+      <div class="stats-title">Overview</div>
+      <div class="stats-grid">
+        <div class="big-stat">
+          <div class="label">Total Sessions</div>
+          <div class="val accent" id="sv-sessions">—</div>
+          <div class="sub">all time</div>
+        </div>
+        <div class="big-stat">
+          <div class="label">Current Weight</div>
+          <div class="val yellow" id="sv-weight">—</div>
+          <div class="sub">last logged</div>
+        </div>
+        <div class="big-stat">
+          <div class="label">Next Workout</div>
+          <div class="val green" id="sv-next">—</div>
+          <div class="sub" id="sv-next-name">—</div>
+        </div>
+        <div class="big-stat">
+          <div class="label">Streak</div>
+          <div class="val pink" id="sv-streak">—</div>
+          <div class="sub">this week</div>
+        </div>
+      </div>
+    </div>
+    <div class="stats-section" style="margin-top:4px">
+      <div class="stats-title">Recent Sessions</div>
+      <div class="session-list" id="sv-sessions-list"></div>
+    </div>
   </div>
 </div>
 
@@ -231,7 +392,6 @@
   function unlock() {
     const val = document.getElementById('lock-input').value.trim();
     if (!val) return;
-    // Try a quick API call to verify password
     fetch('/day_info', { headers: { 'X-Password': val } })
       .then(r => {
         if (r.status === 401) {
@@ -246,7 +406,6 @@
         }
       })
       .catch(() => {
-        // If no password set on server, just let through
         password = val;
         sessionStorage.setItem('wc_pwd', password);
         document.getElementById('lock-screen').style.display = 'none';
@@ -259,6 +418,16 @@
     return Object.assign({ 'X-Password': password }, extra || {});
   }
 
+  // ── Tabs ──────────────────────────────────────────────────────────────────
+  function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      t.classList.toggle('active', (i === 0) === (tab === 'chat'));
+    });
+    document.getElementById('chat-view').style.display  = tab === 'chat'  ? 'flex' : 'none';
+    document.getElementById('stats-view').style.display = tab === 'stats' ? 'flex' : 'none';
+    if (tab === 'stats') loadStatsView();
+  }
+
   // ── UI helpers ────────────────────────────────────────────────────────────
   function autoResize(el) {
     el.style.height = 'auto';
@@ -266,10 +435,7 @@
   }
 
   function handleKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   }
 
   function addBubble(text, cls) {
@@ -294,6 +460,55 @@
     if (t) t.remove();
   }
 
+  // ── Stats bar ─────────────────────────────────────────────────────────────
+  async function loadStatsBar() {
+    try {
+      const res  = await fetch('/day_info', { headers: authHeaders() });
+      const data = await res.json();
+      document.getElementById('stat-day').textContent   = 'Day ' + data.day;
+      document.getElementById('stat-focus').textContent = data.focus || data.name;
+    } catch {}
+
+    try {
+      const res  = await fetch('/stats', { headers: authHeaders() });
+      const data = await res.json();
+      document.getElementById('stat-sessions').textContent = data.total_sessions ?? '0';
+      document.getElementById('stat-weight').textContent   = data.last_weight ? data.last_weight + ' kg' : '—';
+    } catch {}
+  }
+
+  // ── Stats view ────────────────────────────────────────────────────────────
+  async function loadStatsView() {
+    try {
+      const res  = await fetch('/stats', { headers: authHeaders() });
+      const data = await res.json();
+
+      document.getElementById('sv-sessions').textContent  = data.total_sessions ?? '—';
+      document.getElementById('sv-weight').textContent    = data.last_weight ? data.last_weight + ' kg' : '—';
+      document.getElementById('sv-next').textContent      = 'Day ' + (data.next_day ?? '—');
+      document.getElementById('sv-next-name').textContent = data.next_name ?? '';
+      document.getElementById('sv-streak').textContent    = (data.sessions_this_week ?? '0') + ' / 4';
+
+      const list = document.getElementById('sv-sessions-list');
+      list.innerHTML = '';
+      (data.recent_sessions || []).forEach(s => {
+        const item = document.createElement('div');
+        item.className = 'session-item';
+        item.innerHTML = `
+          <div>
+            <div class="session-day">Day ${s.day} — ${s.name}</div>
+            <div class="session-date">${s.date}${s.weight ? ' · ' + s.weight + ' kg' : ''}</div>
+          </div>
+          <div class="session-tag">${s.exercises} exercises</div>
+        `;
+        list.appendChild(item);
+      });
+      if (!data.recent_sessions || !data.recent_sessions.length) {
+        list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No sessions logged yet.</div>';
+      }
+    } catch (e) {}
+  }
+
   // ── Chat ──────────────────────────────────────────────────────────────────
   async function sendMessage(overrideText) {
     const text = (overrideText || input.value).trim();
@@ -315,12 +530,7 @@
       const data = await res.json();
       hideTyping();
 
-      if (res.status === 401) {
-        // Password changed — force re-login
-        sessionStorage.removeItem('wc_pwd');
-        location.reload();
-        return;
-      }
+      if (res.status === 401) { sessionStorage.removeItem('wc_pwd'); location.reload(); return; }
 
       if (data.error) {
         addBubble('Error: ' + data.error, 'system');
@@ -328,44 +538,23 @@
         addBubble(data.reply, 'coach');
         if (data.reply.includes('Session logged')) {
           addBubble('Session saved!', 'system');
+          loadStatsBar();
         }
       }
-    } catch (err) {
+    } catch {
       hideTyping();
       addBubble('Network error. Check your connection.', 'system');
     }
 
     btn.disabled = false;
     input.focus();
-    chat.scrollTop = chat.scrollHeight;
   }
 
   function quickSend(text) { sendMessage(text); }
 
-  async function deleteLastSession() {
-    if (!confirm('Remove the last logged session? This cannot be undone.')) return;
-    const res = await fetch('/delete_last_session', { method: 'POST', headers: authHeaders() });
-    const data = await res.json();
-    if (data.ok) {
-      addBubble('Last session removed. Day rotation is now corrected.', 'system');
-      await loadDayInfo();
-    }
-  }
-
-  async function resetProfile() {
-    if (!confirm('This will delete your profile and restart onboarding. Are you sure?')) return;
-    await fetch('/reset_profile', { method: 'POST', headers: authHeaders() });
-    chat.innerHTML = '';
-    await fetch('/reset', { method: 'POST', headers: authHeaders() });
-    addBubble('Profile reset! Refreshing...', 'system');
-    setTimeout(() => location.reload(), 1000);
-  }
-
   function logWeight() {
     const kg = prompt('Enter your weight in kg (e.g. 97.5):');
-    if (kg && !isNaN(parseFloat(kg))) {
-      sendMessage('My weight today is ' + parseFloat(kg) + ' kg');
-    }
+    if (kg && !isNaN(parseFloat(kg))) sendMessage('My weight today is ' + parseFloat(kg) + ' kg');
   }
 
   async function resetChat() {
@@ -375,18 +564,28 @@
     addBubble('New session started! Tap "Today\'s Workout" to begin.', 'system');
   }
 
-  async function loadDayInfo() {
-    try {
-      const res  = await fetch('/day_info', { headers: authHeaders() });
-      const data = await res.json();
-      document.getElementById('day-label').textContent = 'Day ' + data.day + ': ' + data.name;
-    } catch {
-      document.getElementById('day-label').textContent = 'Ready to train';
+  async function deleteLastSession() {
+    if (!confirm('Remove the last logged session?')) return;
+    const res  = await fetch('/delete_last_session', { method: 'POST', headers: authHeaders() });
+    const data = await res.json();
+    if (data.ok) {
+      addBubble('Last session removed. Day rotation corrected.', 'system');
+      loadStatsBar();
     }
   }
 
+  async function resetProfile() {
+    if (!confirm('Delete your profile and restart onboarding?')) return;
+    await fetch('/reset_profile', { method: 'POST', headers: authHeaders() });
+    chat.innerHTML = '';
+    await fetch('/reset', { method: 'POST', headers: authHeaders() });
+    addBubble('Profile reset! Refreshing...', 'system');
+    setTimeout(() => location.reload(), 1000);
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
   async function init() {
-    await loadDayInfo();
+    await loadStatsBar();
     const res  = await fetch('/chat_history', { headers: authHeaders() });
     const data = await res.json();
     if (data.history && data.history.length > 0) {
@@ -394,33 +593,23 @@
         if (m.role !== 'system') addBubble(m.content, m.role === 'user' ? 'user' : 'coach');
       });
     } else {
-      // Check if profile is complete; if not, start onboarding
       const ps = await fetch('/profile_status', { headers: authHeaders() });
       const pd = await ps.json();
-      if (pd.complete) {
-        sendMessage("What's my workout today?");
-      } else {
-        sendMessage("Hi! I'm new here, let's get started.");
-      }
+      sendMessage(pd.complete ? "What's my workout today?" : "Hi! I'm new here, let's get started.");
     }
   }
 
-  // ── Startup ───────────────────────────────────────────────────────────────
   window.onload = () => {
     if (password) {
-      // Already have a password in session — verify it silently
       fetch('/day_info', { headers: authHeaders() }).then(r => {
-        if (r.status === 401) {
-          sessionStorage.removeItem('wc_pwd');
-          password = '';
-        } else {
+        if (r.status === 401) { sessionStorage.removeItem('wc_pwd'); password = ''; }
+        else {
           document.getElementById('lock-screen').style.display = 'none';
           document.getElementById('app').style.display = 'flex';
           init();
         }
       });
     }
-    // else: lock screen stays visible (default)
   };
 </script>
 </body>
