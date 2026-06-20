@@ -201,6 +201,16 @@ def profile_status():
     return jsonify({"complete": profile_complete(profile)})
 
 
+@flask_app.route("/reset_profile", methods=["POST"])
+@require_auth
+def reset_profile():
+    from agent_core import _col
+    _col("profile").delete_one({"_id": "user"})
+    reset_history("web")
+    reset_history("discord")
+    return jsonify({"ok": True})
+
+
 @flask_app.route("/health")
 def health():
     return "OK", 200

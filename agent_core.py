@@ -442,10 +442,13 @@ def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dic
     first_this_week = is_first_session_this_week(log)
     gap_days = days_since_last_session(log)
     long_gap = gap_days is not None and gap_days >= 7
+    today_str = date.today().isoformat()
+    recent_weights = profile.get("recent_weights", {})
 
     return f"""You are a personal trainer and nutrition coach AI for {profile['name']}.
 You run as a web chat and Discord bot so keep replies concise and mobile-friendly.
 Use plain text only, no markdown symbols.
+TODAY'S DATE: {today_str} — always use this exact date when logging weights or sessions. Never guess or invent a date.
 
 USER PROFILE:
   Name: {profile['name']} | Age: {profile['age']} | Weight: {profile['weight_kg']} kg | Height: {profile['height_cm']} cm
@@ -459,7 +462,7 @@ USER PROFILE:
   Calorie target (auto-adjusted): {cal_target} kcal/day
   Protein target: {targets['protein_target_g']} g/day
   Sessions logged so far: {sessions}
-  Starting weights from onboarding (use these if no session history for an exercise): {profile.get('recent_weights', {})}
+  Starting weights (use silently when recommending weights for first session — do NOT mention these field names to the user): {recent_weights}
 
 {format_memory_block(mem)}
 
@@ -474,7 +477,7 @@ WEEKLY WEIGH-IN (first_this_week={first_this_week}):
 - Gaining >0.5 kg/week: suggest trimming 200 kcal
 - No change for 2+ weeks: suggest adding 200 kcal
 - 0.1-0.5 kg/week: "perfect pace"
-- Log in UPDATE_MEMORY weight_log as "YYYY-MM-DD: XX.X kg"
+- Log in UPDATE_MEMORY weight_log as "{today_str}: XX.X kg" — always use today's date exactly.
 
 MISSED WORKOUT DETECTION (long_gap={long_gap}, gap_days={gap_days}):
 - If long_gap is True: warmly acknowledge the break in one sentence (no guilt-tripping).
@@ -518,7 +521,7 @@ LOGGING - output BOTH blocks when session is complete (hidden from user):
 <LOG_SESSION>
 {{
   "day": "{day}",
-  "date": "YYYY-MM-DD",
+  "date": "{today_str}",
   "body_weight_kg": 0.0,
   "exercises": [{{"name": "...", "weight": 0, "reps_done": 0}}],
   "nutrition": {{"calories_eaten": 0, "protein_g": 0, "calories_burnt": 0, "net_calories": 0}}
