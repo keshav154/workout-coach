@@ -150,9 +150,18 @@ def try_parse_expense(text: str) -> Optional[dict]:
     match = re.search(r"<LOG_EXPENSE>\s*(\{.*?\})\s*</LOG_EXPENSE>", text, re.DOTALL)
     if match:
         try:
-            return json.loads(match.group(1))
+            raw = json.loads(match.group(1))
+            # Normalize keys — strip extra surrounding quotes the LLM sometimes adds
+            return {k.strip('"\'').strip(): v for k, v in raw.items()}
         except Exception:
-            return None
+            pass
+    # Fallback: try to extract amount directly from text
+    amount_match = re.search(r'["\']?amount["\']?\s*[=:]\s*([0-9]+(?:\.[0-9]+)?)', text, re.IGNORECASE)
+    if amount_match:
+        try:
+            return {"amount": float(amount_match.group(1)), "description": "", "category": "Other", "note": ""}
+        except Exception:
+            pass
     return None
 
 

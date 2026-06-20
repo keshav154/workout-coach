@@ -161,6 +161,64 @@ def chat():
     if not user_text:
         return jsonify({"error": "empty message"}), 400
 
+    # Expense summary commands
+    cmd = user_text.lower().strip()
+    if cmd in ("!expenses today", "!spending today", "!today"):
+        return jsonify({"reply": today_summary()})
+    if cmd in ("!expenses", "!expenses month", "!spending", "!monthly", "!summary"):
+        return jsonify({"reply": monthly_summary()})
+    if cmd.startswith("!budget "):
+        parts = user_text.split()
+        if len(parts) == 3:
+            try:
+                save_budget(parts[1].capitalize(), float(parts[2]))
+                return jsonify({"reply": f"Budget set: {parts[1].capitalize()} = Rs {float(parts[2]):,.0f}/month"})
+            except ValueError:
+                pass
+        return jsonify({"reply": "Usage: !budget Food 5000"})
+    if cmd in ("!review", "!analyse", "!analyze"):
+        prompt, err = build_review_prompt()
+        if err:
+            return jsonify({"reply": err})
+        try:
+            resp = groq.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+            )
+            return jsonify({"reply": resp.choices[0].message.content or "Could not generate review."})
+        except Exception as e:
+            log.error(f"Web review error: {e}")
+            return jsonify({"error": "Could not generate review."}), 500
+
+    # Route expense messages to expense agent
+    if is_expense_message(user_text):
+        history = load_history("web_expense")
+        history.append({"role": "user", "content": user_text})
+        try:
+            messages = [{"role": "system", "content": build_expense_prompt()}] + history
+            resp = groq.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                temperature=0.3,
+            )
+            full    = resp.choices[0].message.content or ""
+            parsed  = try_parse_expense(full)
+            display = re.sub(r"<LOG_EXPENSE>.*?</LOG_EXPENSE>", "", full, flags=re.DOTALL).strip()
+            if parsed and parsed.get("amount", 0) > 0:
+                log_expense(
+                    amount=float(parsed["amount"]),
+                    description=parsed.get("description", user_text),
+                    category=parsed.get("category", "Other"),
+                    note=parsed.get("note", ""),
+                )
+            history.append({"role": "assistant", "content": display})
+            save_history("web_expense", history[-10:])
+            return jsonify({"reply": display})
+        except Exception as e:
+            log.error(f"Web expense error: {e}")
+            return jsonify({"error": "Could not log expense. Try again."}), 500
+
     history = load_history("web")
     history.append({"role": "user", "content": user_text})
 
@@ -392,7 +450,9 @@ def whatsapp_webhook():
                 temperature=0.3,
             )
             full   = resp.choices[0].message.content or ""
+            log.info(f"Expense LLM response: {full[:300]}")
             parsed = try_parse_expense(full)
+            log.info(f"Parsed expense: {parsed}")
             display = re.sub(r"<LOG_EXPENSE>.*?</LOG_EXPENSE>", "", full, flags=re.DOTALL).strip()
 
             if parsed and parsed.get("amount", 0) > 0:
@@ -402,13 +462,16 @@ def whatsapp_webhook():
                     category=parsed.get("category", "Other"),
                     note=parsed.get("note", ""),
                 )
+                twiml.message(display or f"Logged Rs {parsed['amount']} under {parsed.get('category','Other')}.")
+            else:
+                log.warning(f"No expense parsed from: {full[:200]}")
+                twiml.message(display or "Logged! Type !expenses to see today's summary.")
 
             history.append({"role": "assistant", "content": display})
             save_history("whatsapp_expense", history[-10:])
-            twiml.message(display)
 
         except Exception as e:
-            log.error(f"WhatsApp expense error: {e}")
+            log.error(f"WhatsApp expense error: {e}", exc_info=True)
             twiml.message("Could not log expense. Try: spent 500 on groceries")
 
         return str(twiml)
