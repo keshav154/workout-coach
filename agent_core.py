@@ -6,6 +6,7 @@ import os
 import re
 from datetime import date
 
+import certifi
 from pymongo import MongoClient
 
 # ── MongoDB setup ────────────────────────────────────────────────────────────
@@ -15,7 +16,11 @@ def _db():
     global _client
     if _client is None:
         uri = os.environ["MONGODB_URI"]
-        _client = MongoClient(uri, serverSelectionTimeoutMS=10000)
+        _client = MongoClient(
+            uri,
+            tlsCAFile=certifi.where(),
+            serverSelectionTimeoutMS=10000,
+        )
     return _client["workout_coach"]
 
 def _col(name: str):

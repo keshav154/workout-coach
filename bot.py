@@ -36,11 +36,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 # ── Config ───────────────────────────────────────────────────────────────────
-GROQ_KEY        = os.environ["GROQ_API_KEY"]
-DISCORD_TOKEN   = os.environ.get("DISCORD_BOT_TOKEN", "")
-DISCORD_USER_ID = os.environ.get("DISCORD_USER_ID", "")
-FLASK_SECRET    = os.environ.get("FLASK_SECRET", "change-me")
-WEB_PASSWORD    = os.environ.get("WEB_PASSWORD", "")   # set this on Render
+GROQ_KEY        = os.environ["GROQ_API_KEY"].strip()
+DISCORD_TOKEN   = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+DISCORD_USER_ID = os.environ.get("DISCORD_USER_ID", "").strip()
+FLASK_SECRET    = os.environ.get("FLASK_SECRET", "change-me").strip()
+WEB_PASSWORD    = os.environ.get("WEB_PASSWORD", "").strip()
 
 
 def require_auth(f):
