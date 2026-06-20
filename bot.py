@@ -241,7 +241,9 @@ def make_discord_client():
     async def on_message(message: discord.Message):
         if message.author == client.user:
             return
+        log.info(f"Discord message from {message.author} (id={message.author.id}): {message.content[:50]}")
         if DISCORD_USER_ID and str(message.author.id) != str(DISCORD_USER_ID):
+            log.warning(f"Discord: ignoring message from {message.author.id}, expected {DISCORD_USER_ID}")
             return
 
         text = message.content.strip()
@@ -333,8 +335,12 @@ def run_discord():
     if not DISCORD_TOKEN:
         log.warning("DISCORD_BOT_TOKEN not set - Discord bot disabled.")
         return
-    client = make_discord_client()
-    client.run(DISCORD_TOKEN)
+    try:
+        log.info(f"Starting Discord bot, token starts with: {DISCORD_TOKEN[:10]}...")
+        client = make_discord_client()
+        client.run(DISCORD_TOKEN)
+    except Exception as e:
+        log.error(f"Discord bot crashed: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
