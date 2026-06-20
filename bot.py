@@ -1,11 +1,8 @@
 """
-Workout Bot — Flask web server + Discord bot running together on Render.
-- Web UI: https://your-app.onrender.com  (chat in browser)
-- Discord: message the bot in your Discord server
-Both share the same agent_core logic, workout_log.json and memory.json.
+Workout Bot — Flask web UI + Discord bot on Render.
+Data persisted in MongoDB Atlas (free tier).
 """
 
-import json
 import logging
 import os
 import re
@@ -13,18 +10,21 @@ import threading
 
 import discord
 import requests
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, render_template, request
+
 from openai import OpenAI
 
 from agent_core import (
-    DATA_DIR,
     PROGRAM,
     apply_memory_update,
     build_system_prompt,
     get_last_session_for_day,
     get_next_day,
+    load_history,
     load_log,
     load_memory,
+    reset_history,
+    save_history,
     save_memory,
     save_session,
     try_parse_log,
@@ -34,19 +34,15 @@ from agent_core import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-# ── Config ──────────────────────────────────────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────────────
 GROQ_KEY        = os.environ["GROQ_API_KEY"]
 DISCORD_TOKEN   = os.environ.get("DISCORD_BOT_TOKEN", "")
-FLASK_SECRET    = os.environ.get("FLASK_SECRET", "workout-secret-key-change-me")
-DISCORD_USER_ID = os.environ.get("DISCORD_USER_ID", "")   # your Discord user ID
+DISCORD_USER_ID = os.environ.get("DISCORD_USER_ID", "")
+FLASK_SECRET    = os.environ.get("FLASK_SECRET", "change-me")
 
 groq = OpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1")
 
-WEB_HISTORY_FILE    = DATA_DIR / "web_history.json"
-DISCORD_HISTORY_FILE = DATA_DIR / "discord_history.json"
-
-
-# ── Shared agent logic ───────────────────────────────────────────────────────
+# ── Shared agent call ────────────────────────────────────────────────────────
 def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dict | None]:
     workout_log = load_log()
     mem         = load_memory()
@@ -67,7 +63,6 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
     parsed_mem = try_parse_memory_update(full)
     display    = re.sub(r"<(LOG_SESSION|UPDATE_MEMORY)>.*?</\1>", "", full, flags=re.DOTALL).strip()
 
-    # Persist log + memory
     if parsed_log:
         save_session(workout_log, parsed_log)
     if parsed_mem:
@@ -77,29 +72,20 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
     return display, parsed_log, parsed_mem
 
 
-def load_history(path) -> list:
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
+def log_suffix(parsed_log: dict | None) -> str:
+    if not parsed_log:
+        return ""
+    parts = ["Session logged!"]
+    bw = parsed_log.get("body_weight_kg")
+    if bw:
+        parts.append(f"Weight: {bw} kg")
+    n = parsed_log.get("nutrition", {})
+    if n.get("calories_eaten"):
+        parts.append(f"{n['calories_eaten']} kcal | {n.get('protein_g','?')}g protein")
+    return "\n\n" + " | ".join(parts)
 
 
-def save_history(path, history: list) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(history[-20:], f)   # keep last 20 messages
-
-
-def append_and_save(path, role: str, content: str) -> list:
-    history = load_history(path)
-    history.append({"role": role, "content": content})
-    if len(history) > 20:
-        history = history[-20:]
-    save_history(path, history)
-    return history
-
-
-# ── Flask web app ────────────────────────────────────────────────────────────
+# ── Flask web app ─────────────────────────────────────────────────────────────
 flask_app = Flask(__name__)
 flask_app.secret_key = FLASK_SECRET
 
@@ -115,13 +101,7 @@ def chat():
     if not user_text:
         return jsonify({"error": "empty message"}), 400
 
-    history = load_history(WEB_HISTORY_FILE)
-
-    # Handle reset command
-    if user_text.lower() in ("/reset", "reset"):
-        save_history(WEB_HISTORY_FILE, [])
-        return jsonify({"reply": "Conversation reset. Ask me what your workout is today!"})
-
+    history = load_history("web")
     history.append({"role": "user", "content": user_text})
 
     try:
@@ -130,33 +110,22 @@ def chat():
         log.error(f"Web agent error: {e}")
         return jsonify({"error": "AI error, please try again"}), 500
 
-    suffix = ""
-    if parsed_log:
-        n = parsed_log.get("nutrition", {})
-        bw = parsed_log.get("body_weight_kg", "")
-        parts = ["Session logged!"]
-        if bw:
-            parts.append(f"Weight: {bw} kg")
-        if n.get("calories_eaten"):
-            parts.append(f"{n['calories_eaten']} kcal | {n.get('protein_g','?')}g protein")
-        suffix = "\n\n" + " | ".join(parts)
-
+    reply += log_suffix(parsed_log)
     history.append({"role": "assistant", "content": reply})
-    save_history(WEB_HISTORY_FILE, history)
+    save_history("web", history)
 
-    return jsonify({"reply": reply + suffix})
+    return jsonify({"reply": reply})
 
 
 @flask_app.route("/reset", methods=["POST"])
 def reset_web():
-    save_history(WEB_HISTORY_FILE, [])
+    reset_history("web")
     return jsonify({"ok": True})
 
 
 @flask_app.route("/chat_history")
 def chat_history():
-    history = load_history(WEB_HISTORY_FILE)
-    return jsonify({"history": history})
+    return jsonify({"history": load_history("web")})
 
 
 @flask_app.route("/day_info")
@@ -172,14 +141,14 @@ def health():
     return "OK", 200
 
 
-# ── Discord bot ──────────────────────────────────────────────────────────────
+# ── Discord bot ───────────────────────────────────────────────────────────────
 HELP_MSG = """Commands:
-!workout  — today's workout
-!done     — log session + nutrition
-!weight 97.5 — log your weight
-!summary  — last session recap
-!reset    — fresh conversation
-!help     — this menu
+!workout  - today's workout
+!done     - log session + nutrition
+!weight 97.5 - log your weight
+!summary  - last session recap
+!reset    - fresh conversation
+!help     - this menu
 
 Or just type anything to chat with your coach!"""
 
@@ -197,8 +166,6 @@ def make_discord_client():
     async def on_message(message: discord.Message):
         if message.author == client.user:
             return
-
-        # Security: only respond to your account
         if DISCORD_USER_ID and str(message.author.id) != str(DISCORD_USER_ID):
             return
 
@@ -207,11 +174,10 @@ def make_discord_client():
             return
 
         async with message.channel.typing():
-            history = load_history(DISCORD_HISTORY_FILE)
+            history = load_history("discord")
 
-            # Commands
             if text in ("!workout", "!start"):
-                save_history(DISCORD_HISTORY_FILE, [])
+                reset_history("discord")
                 history = []
                 user_msg = "What's my workout today? Also ask me my weight."
 
@@ -249,7 +215,7 @@ def make_discord_client():
                 return
 
             elif text == "!reset":
-                save_history(DISCORD_HISTORY_FILE, [])
+                reset_history("discord")
                 await message.channel.send("Conversation reset. Send !workout to begin.")
                 return
 
@@ -273,42 +239,27 @@ def make_discord_client():
                 await message.channel.send("Something went wrong. Please try again.")
                 return
 
-            if parsed_log:
-                n  = parsed_log.get("nutrition", {})
-                bw = parsed_log.get("body_weight_kg", "")
-                parts = ["Session logged!"]
-                if bw:
-                    parts.append(f"Weight: {bw} kg")
-                if n.get("calories_eaten"):
-                    parts.append(f"{n['calories_eaten']} kcal | {n.get('protein_g','?')}g protein")
-                reply += "\n\n" + " | ".join(parts)
-
+            reply += log_suffix(parsed_log)
             history.append({"role": "assistant", "content": reply})
-            save_history(DISCORD_HISTORY_FILE, history)
+            save_history("discord", history)
 
-            # Discord has a 2000 char limit per message
             for i in range(0, max(len(reply), 1), 1900):
                 await message.channel.send(reply[i:i + 1900])
 
     return client
 
 
-# ── Startup: run Flask + Discord together ────────────────────────────────────
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    flask_app.run(host="0.0.0.0", port=port)
-
-
+# ── Start both services ───────────────────────────────────────────────────────
 def run_discord():
     if not DISCORD_TOKEN:
-        log.warning("DISCORD_BOT_TOKEN not set — Discord bot disabled.")
+        log.warning("DISCORD_BOT_TOKEN not set - Discord bot disabled.")
         return
     client = make_discord_client()
     client.run(DISCORD_TOKEN)
 
 
 if __name__ == "__main__":
-    # Run Discord bot in background thread, Flask in main thread
     discord_thread = threading.Thread(target=run_discord, daemon=True)
     discord_thread.start()
-    run_flask()
+    port = int(os.environ.get("PORT", 5000))
+    flask_app.run(host="0.0.0.0", port=port)
