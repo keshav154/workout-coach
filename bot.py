@@ -15,6 +15,17 @@ from flask import Flask, jsonify, render_template, request
 
 from openai import OpenAI
 
+from expense_core import (
+    build_expense_prompt,
+    build_review_prompt,
+    get_budget,
+    is_expense_message,
+    log_expense,
+    monthly_summary,
+    save_budget,
+    today_summary,
+    try_parse_expense,
+)
 from agent_core import (
     PROGRAM,
     apply_memory_update,
@@ -259,38 +270,133 @@ def whatsapp_webhook():
 
     log.info(f"WhatsApp message from {from_number}: {user_text[:50]}")
 
+    twiml = MessagingResponse()
+    cmd   = user_text.lower().strip()
+
+    # ── Expense commands ──────────────────────────────────────────────────────
+    if cmd in ("!expenses today", "!spending today", "!today"):
+        twiml.message(today_summary())
+        return str(twiml)
+
+    if cmd in ("!expenses", "!expenses month", "!spending", "!monthly", "!summary"):
+        twiml.message(monthly_summary())
+        return str(twiml)
+
+    if cmd.startswith("!budget "):
+        # Format: !budget Food 5000
+        parts = user_text.split()
+        if len(parts) == 3:
+            try:
+                cat    = parts[1].capitalize()
+                amount = float(parts[2])
+                save_budget(cat, amount)
+                twiml.message(f"Budget set: {cat} = Rs {amount:,.0f}/month")
+                return str(twiml)
+            except ValueError:
+                pass
+        twiml.message("Usage: !budget Food 5000")
+        return str(twiml)
+
+    if cmd in ("!review", "!review month", "!analyse", "!analyze"):
+        prompt, err = build_review_prompt()
+        if err:
+            twiml.message(err)
+            return str(twiml)
+        try:
+            resp = groq.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+            )
+            review = resp.choices[0].message.content or "Could not generate review."
+            for i in range(0, max(len(review), 1), 1500):
+                twiml.message(review[i:i + 1500])
+        except Exception as e:
+            log.error(f"WhatsApp review error: {e}")
+            twiml.message("Could not generate review. Try again.")
+        return str(twiml)
+
+    if cmd == "!help expense" or cmd == "!expense help":
+        twiml.message(
+            "Expense commands:\n"
+            "Just type: spent 500 on groceries\n"
+            "Or: paid 200 petrol\n"
+            "Or: 1200 amazon\n\n"
+            "!expenses today - today's spending\n"
+            "!expenses - this month's summary\n"
+            "!budget Food 5000 - set monthly budget\n"
+            "!review - AI analysis of this month's spending\n"
+        )
+        return str(twiml)
+
+    # ── Expense message (auto-detected) ───────────────────────────────────────
+    if is_expense_message(user_text):
+        history = load_history("whatsapp_expense")
+        history.append({"role": "user", "content": user_text})
+
+        try:
+            messages = [{"role": "system", "content": build_expense_prompt()}] + history
+            resp = groq.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                temperature=0.3,
+            )
+            full   = resp.choices[0].message.content or ""
+            parsed = try_parse_expense(full)
+            display = re.sub(r"<LOG_EXPENSE>.*?</LOG_EXPENSE>", "", full, flags=re.DOTALL).strip()
+
+            if parsed and parsed.get("amount", 0) > 0:
+                log_expense(
+                    amount=float(parsed["amount"]),
+                    description=parsed.get("description", user_text),
+                    category=parsed.get("category", "Other"),
+                    note=parsed.get("note", ""),
+                )
+
+            history.append({"role": "assistant", "content": display})
+            save_history("whatsapp_expense", history[-10:])
+            twiml.message(display)
+
+        except Exception as e:
+            log.error(f"WhatsApp expense error: {e}")
+            twiml.message("Could not log expense. Try: spent 500 on groceries")
+
+        return str(twiml)
+
+    # ── Workout coach ─────────────────────────────────────────────────────────
     history = load_history("whatsapp")
 
-    if user_text.lower() in ("!workout", "!start", "start", "hi", "hello"):
+    if cmd in ("!workout", "!start", "start", "hi", "hello"):
         reset_history("whatsapp")
         history = []
         user_msg = "What's my workout today?"
-    elif user_text.lower() == "!done":
+    elif cmd == "!done":
         user_msg = "I finished today's workout. Let's log it and go through my nutrition."
-    elif user_text.lower().startswith("!weight "):
+    elif cmd.startswith("!weight "):
         try:
             kg = float(user_text.split()[1])
             user_msg = f"My weight today is {kg} kg."
         except (ValueError, IndexError):
-            resp = MessagingResponse()
-            resp.message("Usage: !weight 97.5")
-            return str(resp)
-    elif user_text.lower() == "!reset":
+            twiml.message("Usage: !weight 97.5")
+            return str(twiml)
+    elif cmd == "!reset":
         reset_history("whatsapp")
-        resp = MessagingResponse()
-        resp.message("Conversation reset! Send 'hi' to begin.")
-        return str(resp)
-    elif user_text.lower() in ("!help", "help"):
-        resp = MessagingResponse()
-        resp.message(
-            "Commands:\n"
+        twiml.message("Conversation reset! Send 'hi' to begin.")
+        return str(twiml)
+    elif cmd in ("!help", "help"):
+        twiml.message(
+            "Workout commands:\n"
             "!workout - today's workout\n"
             "!done - log session + nutrition\n"
             "!weight 97.5 - log weight\n"
-            "!reset - fresh conversation\n"
-            "Or just type anything to chat!"
+            "!reset - fresh conversation\n\n"
+            "Expense tracking:\n"
+            "spent 500 on groceries\n"
+            "paid 200 petrol\n"
+            "!expenses - monthly summary\n"
+            "!expense help - more expense commands"
         )
-        return str(resp)
+        return str(twiml)
     else:
         user_msg = user_text
 
@@ -300,16 +406,13 @@ def whatsapp_webhook():
         reply, parsed_log, _, _ = ask_agent(history, source="whatsapp")
     except Exception as e:
         log.error(f"WhatsApp agent error: {e}")
-        resp = MessagingResponse()
-        resp.message("Something went wrong. Please try again.")
-        return str(resp)
+        twiml.message("Something went wrong. Please try again.")
+        return str(twiml)
 
     reply += log_suffix(parsed_log)
     history.append({"role": "assistant", "content": reply})
     save_history("whatsapp", history)
 
-    # Twilio has a 1600 char limit per message — split if needed
-    twiml = MessagingResponse()
     for i in range(0, max(len(reply), 1), 1500):
         twiml.message(reply[i:i + 1500])
     return str(twiml)
