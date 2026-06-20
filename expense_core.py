@@ -113,10 +113,13 @@ def is_expense_message(text: str) -> bool:
 
 
 # ── System prompt for expense parsing ────────────────────────────────────────
-EXPENSE_SYSTEM_PROMPT = f"""You are an expense tracking assistant for an Indian user.
-Today's date: {{today}}
+def build_expense_prompt() -> str:
+    today = date.today().isoformat()
+    categories = ", ".join(CATEGORIES)
+    return f"""You are an expense tracking assistant for an Indian user.
+Today's date: {today}
 Currency: Indian Rupees (Rs)
-Categories: {", ".join(CATEGORIES)}
+Categories: {categories}
 
 Your job:
 1. Parse the user's message to extract: amount (number), description, category.
@@ -139,11 +142,8 @@ Categorization rules:
 - Other: anything that doesn't fit above
 
 If amount is unclear, ask for clarification.
-Keep replies short. Plain text only. Use Rs not ₹ symbol.
+Keep replies short. Plain text only. Use Rs not symbol.
 """
-
-def build_expense_prompt() -> str:
-    return EXPENSE_SYSTEM_PROMPT.format(today=date.today().isoformat())
 
 
 def try_parse_expense(text: str) -> Optional[dict]:
