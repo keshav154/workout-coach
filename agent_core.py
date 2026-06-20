@@ -1,7 +1,9 @@
 """
 All workout logic — program definition, MongoDB storage, system prompt builder.
+Profile is stored in MongoDB; onboarding collects it on first run via chat.
 """
 
+import json
 import os
 import re
 from datetime import date
@@ -26,46 +28,84 @@ def _db():
 def _col(name: str):
     return _db()[name]
 
-# ── User profile ─────────────────────────────────────────────────────────────
-USER_PROFILE = {
-    "name":             "Keshav",
-    "weight_kg":        98,
-    "height_cm":        168,
-    "diet":             "vegetarian Indian",
-    "goal":             "build muscle",
-    "level":            "beginner",
-    "days_per_week":    4,
-    "session_min":      "45-60",
-    "tdee_estimate":    2300,
-    "calorie_target":   2450,
-    "protein_target_g": 160,
-}
+# ── User profile (MongoDB) ────────────────────────────────────────────────────
+def load_profile() -> dict | None:
+    doc = _col("profile").find_one({"_id": "user"})
+    if doc:
+        doc.pop("_id", None)
+        return doc
+    return None
 
-# ── 4-day body-part split ────────────────────────────────────────────────────
+def save_profile(profile: dict) -> None:
+    _col("profile").update_one(
+        {"_id": "user"},
+        {"$set": profile},
+        upsert=True,
+    )
+
+def profile_complete(profile: dict | None) -> bool:
+    if not profile:
+        return False
+    required = ["name", "age", "weight_kg", "height_cm", "goal", "level",
+                "days_per_week", "diet", "session_min", "activity_level"]
+    return all(profile.get(k) for k in required)
+
+def compute_targets(profile: dict) -> dict:
+    """Compute TDEE, calorie target, and protein target from profile."""
+    w = float(profile.get("weight_kg", 80))
+    h = float(profile.get("height_cm", 170))
+    a = int(profile.get("age", 25))
+    # Mifflin-St Jeor for males (default to male; can be extended)
+    bmr = 10 * w + 6.25 * h - 5 * a + 5
+    # Activity multiplier: sedentary=1.2, lightly active=1.375, moderately active=1.55
+    activity = profile.get("activity_level", "sedentary").lower()
+    if "moderate" in activity:
+        multiplier = 1.55
+    elif "light" in activity:
+        multiplier = 1.375
+    else:
+        multiplier = 1.2
+    tdee = int(bmr * multiplier)
+    goal = profile.get("goal", "recomposition").lower()
+    if "lose" in goal or "fat" in goal or "cut" in goal:
+        cal_target = tdee - 300
+    elif "gain" in goal or "muscle" in goal or "bulk" in goal:
+        cal_target = tdee + 200
+    else:  # recomposition
+        cal_target = tdee
+    protein_g = int(w * 2.0)  # 2g per kg bodyweight
+    return {
+        "tdee": tdee,
+        "calorie_target": cal_target,
+        "protein_target_g": protein_g,
+    }
+
+# ── 4-day body-part split (no treadmill; incline-decline bench) ──────────────
 PROGRAM = {
     "A": {
         "name":    "Chest + Triceps",
         "focus":   "chest, triceps",
         "warmup":  "5 min treadmill brisk walk, then 1 light set each exercise",
         "exercises": [
-            {"name": "Dumbbell Bench Press",           "sets": 4, "rep_range": "8-12"},
-            {"name": "Dumbbell Incline Bench Press",    "sets": 3, "rep_range": "8-12"},
-            {"name": "Dumbbell Chest Fly",              "sets": 3, "rep_range": "10-12"},
-            {"name": "Tricep Overhead Extension",       "sets": 3, "rep_range": "10-12"},
-            {"name": "Resistance Band Tricep Pushdown", "sets": 3, "rep_range": "12-15"},
+            {"name": "Dumbbell Flat Bench Press",          "sets": 4, "rep_range": "8-12"},
+            {"name": "Dumbbell Incline Bench Press",        "sets": 3, "rep_range": "8-12"},
+            {"name": "Dumbbell Decline Bench Press",        "sets": 3, "rep_range": "8-12"},
+            {"name": "Dumbbell Chest Fly (flat)",           "sets": 3, "rep_range": "10-12"},
+            {"name": "Tricep Overhead Extension",           "sets": 3, "rep_range": "10-12"},
+            {"name": "Resistance Band Tricep Pushdown",     "sets": 3, "rep_range": "12-15"},
         ],
     },
     "B": {
         "name":    "Back + Biceps",
-        "focus":   "lats, rhomboids, biceps",
-        "warmup":  "5 min treadmill brisk walk, then 1 light set each exercise",
+        "focus":   "lats, rhomboids, rear delts, biceps",
+        "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
         "exercises": [
-            {"name": "Dumbbell Bent-Over Row",          "sets": 4, "rep_range": "8-12"},
-            {"name": "Dumbbell Single-Arm Row",         "sets": 3, "rep_range": "8-12"},
-            {"name": "Resistance Band Lat Pulldown",    "sets": 3, "rep_range": "12-15"},
-            {"name": "Resistance Band Face Pull",       "sets": 3, "rep_range": "15"},
-            {"name": "Dumbbell Bicep Curl",             "sets": 3, "rep_range": "10-12"},
-            {"name": "Hammer Curl",                     "sets": 3, "rep_range": "10-12"},
+            {"name": "Dumbbell Bent-Over Row",              "sets": 4, "rep_range": "8-12"},
+            {"name": "Dumbbell Single-Arm Row",             "sets": 3, "rep_range": "8-12"},
+            {"name": "Resistance Band Lat Pulldown",        "sets": 3, "rep_range": "12-15"},
+            {"name": "Resistance Band Face Pull",           "sets": 3, "rep_range": "15"},
+            {"name": "Dumbbell Bicep Curl",                 "sets": 3, "rep_range": "10-12"},
+            {"name": "Hammer Curl",                         "sets": 3, "rep_range": "10-12"},
         ],
     },
     "C": {
@@ -73,25 +113,25 @@ PROGRAM = {
         "focus":   "deltoids, biceps, triceps",
         "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
         "exercises": [
-            {"name": "Dumbbell Overhead Press",         "sets": 4, "rep_range": "8-12"},
-            {"name": "Dumbbell Lateral Raise",          "sets": 3, "rep_range": "12-15"},
-            {"name": "Dumbbell Front Raise",            "sets": 3, "rep_range": "12-15"},
-            {"name": "Dumbbell Arnold Press",           "sets": 3, "rep_range": "10-12"},
-            {"name": "Dumbbell Bicep Curl",             "sets": 3, "rep_range": "10-12"},
-            {"name": "Tricep Overhead Extension",       "sets": 3, "rep_range": "10-12"},
+            {"name": "Dumbbell Overhead Press",             "sets": 4, "rep_range": "8-12"},
+            {"name": "Dumbbell Lateral Raise",              "sets": 3, "rep_range": "12-15"},
+            {"name": "Dumbbell Front Raise",                "sets": 3, "rep_range": "12-15"},
+            {"name": "Resistance Band Rear Delt Fly",       "sets": 3, "rep_range": "15"},
+            {"name": "Dumbbell Bicep Curl",                 "sets": 3, "rep_range": "10-12"},
+            {"name": "Tricep Overhead Extension",           "sets": 3, "rep_range": "10-12"},
         ],
     },
     "D": {
-        "name":    "Legs",
-        "focus":   "quads, hamstrings, glutes, calves",
+        "name":    "Legs + Core",
+        "focus":   "quads, hamstrings, glutes, calves, core",
         "warmup":  "5 min treadmill incline walk + bodyweight squats 2x15",
         "exercises": [
-            {"name": "Goblet Squat",                    "sets": 4, "rep_range": "10-12"},
-            {"name": "Romanian Deadlift",               "sets": 3, "rep_range": "10-12"},
-            {"name": "Dumbbell Reverse Lunge",          "sets": 3, "rep_range": "10 each"},
-            {"name": "Hip Thrust (shoulders on bench)", "sets": 3, "rep_range": "12-15"},
-            {"name": "Dumbbell Step-Up (on bench)",     "sets": 3, "rep_range": "10 each"},
-            {"name": "Calf Raises",                     "sets": 3, "rep_range": "15-20"},
+            {"name": "Goblet Squat",                        "sets": 4, "rep_range": "10-12"},
+            {"name": "Romanian Deadlift",                   "sets": 3, "rep_range": "10-12"},
+            {"name": "Dumbbell Reverse Lunge",              "sets": 3, "rep_range": "10 each"},
+            {"name": "Hip Thrust (shoulders on bench)",     "sets": 3, "rep_range": "12-15"},
+            {"name": "Dumbbell Step-Up (on bench)",         "sets": 3, "rep_range": "10 each"},
+            {"name": "Calf Raises",                         "sets": 3, "rep_range": "15-20"},
         ],
     },
 }
@@ -109,7 +149,7 @@ DEFAULT_MEMORY = {
     "weight_log":         [],
 }
 
-# ── Workout log (MongoDB) ────────────────────────────────────────────────────
+# ── Workout log (MongoDB) ─────────────────────────────────────────────────────
 def load_log() -> dict:
     doc = _col("workout_log").find_one({"_id": "log"})
     if doc:
@@ -118,18 +158,9 @@ def load_log() -> dict:
     return {"sessions": []}
 
 
-def save_log(log: dict) -> None:
-    _col("workout_log").update_one(
-        {"_id": "log"},
-        {"$set": log},
-        upsert=True,
-    )
-
-
 def save_session(log: dict, session_data: dict) -> None:
     if not session_data.get("date") or session_data["date"] == "YYYY-MM-DD":
         session_data["date"] = date.today().isoformat()
-    # Push new session directly in MongoDB (atomic, no race condition)
     _col("workout_log").update_one(
         {"_id": "log"},
         {"$push": {"sessions": session_data}},
@@ -153,7 +184,7 @@ def get_last_session_for_day(log: dict, day: str) -> dict | None:
     return None
 
 
-# ── Memory (MongoDB) ─────────────────────────────────────────────────────────
+# ── Memory (MongoDB) ──────────────────────────────────────────────────────────
 def load_memory() -> dict:
     doc = _col("memory").find_one({"_id": "mem"})
     if doc:
@@ -183,14 +214,23 @@ def try_parse_memory_update(text: str) -> dict | None:
     match = re.search(r"<UPDATE_MEMORY>\s*(\{.*?\})\s*</UPDATE_MEMORY>", text, re.DOTALL)
     if match:
         try:
-            import json
             return json.loads(match.group(1))
         except Exception:
             return None
     return None
 
 
-# ── Conversation history (MongoDB) ───────────────────────────────────────────
+def try_parse_profile_update(text: str) -> dict | None:
+    match = re.search(r"<SAVE_PROFILE>\s*(\{.*?\})\s*</SAVE_PROFILE>", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except Exception:
+            return None
+    return None
+
+
+# ── Conversation history (MongoDB) ────────────────────────────────────────────
 def load_history(source: str = "web") -> list:
     doc = _col("history").find_one({"_id": source})
     return doc.get("messages", []) if doc else []
@@ -212,7 +252,7 @@ def reset_history(source: str) -> None:
     )
 
 
-# ── Weight trend helpers ─────────────────────────────────────────────────────
+# ── Weight trend helpers ──────────────────────────────────────────────────────
 def get_weight_trend(mem: dict) -> str:
     entries = mem.get("weight_log", [])
     parsed = []
@@ -232,8 +272,7 @@ def get_weight_trend(mem: dict) -> str:
     delta = latest_kg - first_kg
     trend = "gained" if delta > 0 else "lost"
     return (f"last: {latest_kg} kg on {latest_date} | "
-            f"{trend} {abs(delta):.1f} kg over {len(parsed)} check-ins "
-            f"(from {first_kg} kg on {first_date})")
+            f"{trend} {abs(delta):.1f} kg since {first_date}")
 
 
 def get_adjusted_calorie_target(mem: dict, base: int) -> int:
@@ -256,7 +295,50 @@ def get_adjusted_calorie_target(mem: dict, base: int) -> int:
     return base
 
 
-# ── Prompt builders ──────────────────────────────────────────────────────────
+# ── Prompt builders ───────────────────────────────────────────────────────────
+ONBOARDING_PROMPT = """You are a friendly personal trainer and nutrition coach AI.
+A new user has just opened the app for the first time and has NO profile set up yet.
+
+Your ONLY job right now is to collect their profile through friendly conversation.
+Ask ONE question at a time, in this order:
+1. Their name
+2. Age
+3. Current weight in kg
+4. Height in cm
+5. Primary goal (lose fat / build muscle / body recomposition)
+6. Confirm their fitness level (beginner / some experience / intermediate)
+7. Confirm: 4 days per week training (or ask if different)
+8. Confirm: vegetarian Indian diet (or ask about diet)
+9. Any injuries or body parts to avoid?
+
+Once you have ALL 9 answers, output this hidden block (do not display to user):
+<SAVE_PROFILE>
+{
+  "name": "...",
+  "age": 0,
+  "weight_kg": 0.0,
+  "height_cm": 0.0,
+  "goal": "...",
+  "level": "...",
+  "days_per_week": 4,
+  "diet": "vegetarian Indian",
+  "session_min": "45-60",
+  "activity_level": "sedentary",
+  "injuries": "none"
+}
+</SAVE_PROFILE>
+
+Then immediately greet them warmly, summarize their plan (calorie target, protein target, 4-day split), and tell them to tap "Today's Workout" to start.
+
+Equipment available: adjustable dumbbells, incline-decline bench, treadmill, resistance bands.
+Keep messages short, warm, and encouraging. Mobile-friendly plain text only.
+"""
+
+
+def build_onboarding_prompt() -> str:
+    return ONBOARDING_PROMPT
+
+
 def format_memory_block(mem: dict) -> str:
     labels = {
         "preferences":        "Preferences",
@@ -308,21 +390,24 @@ def format_program_block(day: str, last_session: dict | None) -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dict) -> str:
-    p          = USER_PROFILE
-    cal_target = get_adjusted_calorie_target(mem, p["calorie_target"])
-    sessions   = len(log.get("sessions", []))
+def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dict, profile: dict) -> str:
+    targets = compute_targets(profile)
+    cal_target = get_adjusted_calorie_target(mem, targets["calorie_target"])
+    sessions = len(log.get("sessions", []))
+    injuries = profile.get("injuries", "none")
 
-    return f"""You are a personal trainer and nutrition coach AI for {p['name']}.
+    return f"""You are a personal trainer and nutrition coach AI for {profile['name']}.
 You run as a web chat and Discord bot so keep replies concise and mobile-friendly.
 Use plain text only, no markdown symbols.
 
 USER PROFILE:
-  Weight: {p['weight_kg']} kg | Height: {p['height_cm']} cm | BMI: {p['weight_kg']/(p['height_cm']/100)**2:.1f}
-  Diet: {p['diet']} | Goal: {p['goal']} | Level: {p['level']}
-  Equipment: adjustable dumbbells, bench, treadmill, resistance bands
+  Name: {profile['name']} | Age: {profile['age']} | Weight: {profile['weight_kg']} kg | Height: {profile['height_cm']} cm
+  Goal: {profile['goal']} | Level: {profile['level']} | Days/week: {profile['days_per_week']}
+  Diet: {profile['diet']} | Session: {profile['session_min']} min | Activity outside gym: {profile.get('activity_level','sedentary')}
+  Injuries: {injuries}
+  Equipment: adjustable dumbbells, incline-decline bench, treadmill, resistance bands
   Calorie target (auto-adjusted): {cal_target} kcal/day
-  Protein target: {p['protein_target_g']} g/day
+  Protein target: {targets['protein_target_g']} g/day
   Sessions logged so far: {sessions}
 
 {format_memory_block(mem)}
@@ -336,7 +421,7 @@ WEIGHT CHECK-IN (ask at start of every session):
 - Compare to last recorded and comment on pace.
 - Gaining >0.5 kg/week: "gaining a bit fast, trim 200 kcal"
 - No change 2+ sessions: "weight stalled, add 200 kcal"
-- 0.1-0.5 kg/week: "perfect pace, keep it up"
+- 0.1-0.5 kg/week: "on track, keep it up"
 - Log in UPDATE_MEMORY weight_log as "YYYY-MM-DD: XX.X kg"
 
 WORKOUT:
@@ -344,8 +429,9 @@ WORKOUT:
 - Reference past soreness or form cues from memory.
 - Suggest warm-up sets before heavy lifts.
 - Answer form questions concisely.
+- Beginner tip: start with lighter weights to learn the movement.
 
-NUTRITION (ask after workout):
+NUTRITION (ask after workout or when user asks):
 - Ask what they ate meal by meal.
 - Estimate calories + protein per item (Indian portions):
     Dal 1 bowl: 150 kcal, 9g protein
@@ -361,11 +447,14 @@ NUTRITION (ask after workout):
     Paratha 1: 200 kcal, 4g protein
     Sprouts 1 bowl: 80 kcal, 7g protein
     Moong dal chilla 2 pcs: 250 kcal, 14g protein
-- Ask smartwatch calories burnt.
-- Show summary: eaten vs {cal_target} kcal, protein vs {p['protein_target_g']}g, net calories.
+    Peanuts 30g: 170 kcal, 7g protein
+    Soya chunks 50g dry: 180 kcal, 26g protein
+- Ask smartwatch calories burnt if they have one.
+- Show summary: eaten vs {cal_target} kcal, protein vs {targets['protein_target_g']}g, net calories.
 - Suggest 1-2 specific Indian dishes to close protein gap.
   Options: paneer bhurji 150g=30g protein, rajma chawal=16g,
-  moong chilla 2pcs=14g, curd+sprouts=14g, milk+peanut butter shake=20g.
+  moong chilla 2pcs=14g, curd+sprouts=14g, milk+peanut butter shake=20g,
+  soya chunks sabzi=26g, tofu bhurji=16g.
 
 LOGGING - output BOTH blocks when session is complete (hidden from user):
 
@@ -403,7 +492,6 @@ def try_parse_log(text: str) -> dict | None:
     match = re.search(r"<LOG_SESSION>\s*(\{.*?\})\s*</LOG_SESSION>", text, re.DOTALL)
     if match:
         try:
-            import json
             return json.loads(match.group(1))
         except Exception:
             return None

@@ -371,7 +371,14 @@
         if (m.role !== 'system') addBubble(m.content, m.role === 'user' ? 'user' : 'coach');
       });
     } else {
-      sendMessage("What's my workout today?");
+      // Check if profile is complete; if not, start onboarding
+      const ps = await fetch('/profile_status', { headers: authHeaders() });
+      const pd = await ps.json();
+      if (pd.complete) {
+        sendMessage("What's my workout today?");
+      } else {
+        sendMessage("Hi! I'm new here, let's get started.");
+      }
     }
   }
 

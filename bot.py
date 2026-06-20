@@ -18,25 +18,30 @@ from openai import OpenAI
 from agent_core import (
     PROGRAM,
     apply_memory_update,
+    build_onboarding_prompt,
     build_system_prompt,
     get_last_session_for_day,
     get_next_day,
     load_history,
     load_log,
     load_memory,
+    load_profile,
+    profile_complete,
     reset_history,
     save_history,
     save_memory,
-    save_session,
+    save_profile,
     try_parse_log,
     try_parse_memory_update,
+    try_parse_profile_update,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-# ── Config ───────────────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 GROQ_KEY        = os.environ["GROQ_API_KEY"].strip()
+log.info(f"GROQ_API_KEY starts with: {GROQ_KEY[:8]}... length: {len(GROQ_KEY)}")
 DISCORD_TOKEN   = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
 DISCORD_USER_ID = os.environ.get("DISCORD_USER_ID", "").strip()
 FLASK_SECRET    = os.environ.get("FLASK_SECRET", "change-me").strip()
@@ -49,8 +54,7 @@ def require_auth(f):
     def decorated(*args, **kwargs):
         if not WEB_PASSWORD:
             return f(*args, **kwargs)
-        # HTML page itself is always served (JS handles the password screen)
-        if request.path == "/" or request.method == "GET" and request.path in ("/health",):
+        if request.path == "/" or (request.method == "GET" and request.path in ("/health",)):
             return f(*args, **kwargs)
         pwd = request.headers.get("X-Password", "")
         if pwd == WEB_PASSWORD:
@@ -58,15 +62,23 @@ def require_auth(f):
         return jsonify({"error": "unauthorized"}), 401
     return decorated
 
+
 groq = OpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1")
 
-# ── Shared agent call ────────────────────────────────────────────────────────
-def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dict | None]:
-    workout_log = load_log()
-    mem         = load_memory()
-    day         = get_next_day(workout_log)
-    last        = get_last_session_for_day(workout_log, day)
-    system      = build_system_prompt(day, last, workout_log, mem)
+
+# ── Shared agent call ─────────────────────────────────────────────────────────
+def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dict | None, dict | None]:
+    profile  = load_profile()
+    is_setup = profile_complete(profile)
+
+    if not is_setup:
+        system = build_onboarding_prompt()
+    else:
+        workout_log = load_log()
+        mem         = load_memory()
+        day         = get_next_day(workout_log)
+        last        = get_last_session_for_day(workout_log, day)
+        system      = build_system_prompt(day, last, workout_log, mem, profile)
 
     messages = [{"role": "system", "content": system}] + history
 
@@ -77,17 +89,34 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
     )
     full = resp.choices[0].message.content or ""
 
-    parsed_log = try_parse_log(full)
-    parsed_mem = try_parse_memory_update(full)
-    display    = re.sub(r"<(LOG_SESSION|UPDATE_MEMORY)>.*?</\1>", "", full, flags=re.DOTALL).strip()
+    parsed_log     = None
+    parsed_mem     = None
+    parsed_profile = try_parse_profile_update(full)
 
-    if parsed_log:
-        save_session(workout_log, parsed_log)
-    if parsed_mem:
-        apply_memory_update(mem, parsed_mem)
-        save_memory(mem)
+    if parsed_profile:
+        save_profile(parsed_profile)
+        # Reload to build normal prompt on next turn
+    elif is_setup:
+        workout_log = load_log()
+        mem         = load_memory()
+        parsed_log  = try_parse_log(full)
+        parsed_mem  = try_parse_memory_update(full)
+        if parsed_log:
+            from agent_core import save_session
+            save_session(workout_log, parsed_log)
+        if parsed_mem:
+            apply_memory_update(mem, parsed_mem)
+            save_memory(mem)
 
-    return display, parsed_log, parsed_mem
+    # Strip all hidden blocks before showing to user
+    display = re.sub(
+        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE)>.*?</\1>",
+        "",
+        full,
+        flags=re.DOTALL,
+    ).strip()
+
+    return display, parsed_log, parsed_mem, parsed_profile
 
 
 def log_suffix(parsed_log: dict | None) -> str:
@@ -103,7 +132,7 @@ def log_suffix(parsed_log: dict | None) -> str:
     return "\n\n" + " | ".join(parts)
 
 
-# ── Flask web app ─────────────────────────────────────────────────────────────
+# ── Flask web app ──────────────────────────────────────────────────────────────
 flask_app = Flask(__name__)
 flask_app.secret_key = FLASK_SECRET
 
@@ -125,7 +154,7 @@ def chat():
     history.append({"role": "user", "content": user_text})
 
     try:
-        reply, parsed_log, _ = ask_agent(history, source="web")
+        reply, parsed_log, _, parsed_profile = ask_agent(history, source="web")
     except Exception as e:
         log.error(f"Web agent error: {e}")
         return jsonify({"error": "AI error, please try again"}), 500
@@ -134,7 +163,10 @@ def chat():
     history.append({"role": "assistant", "content": reply})
     save_history("web", history)
 
-    return jsonify({"reply": reply})
+    return jsonify({
+        "reply": reply,
+        "profile_saved": bool(parsed_profile),
+    })
 
 
 @flask_app.route("/reset", methods=["POST"])
@@ -153,10 +185,20 @@ def chat_history():
 @flask_app.route("/day_info")
 @require_auth
 def day_info():
+    profile = load_profile()
+    if not profile_complete(profile):
+        return jsonify({"day": "?", "name": "Setup", "focus": "Profile setup in progress"})
     workout_log = load_log()
     day = get_next_day(workout_log)
     p   = PROGRAM.get(day, {})
     return jsonify({"day": day, "name": p.get("name", ""), "focus": p.get("focus", "")})
+
+
+@flask_app.route("/profile_status")
+@require_auth
+def profile_status():
+    profile = load_profile()
+    return jsonify({"complete": profile_complete(profile)})
 
 
 @flask_app.route("/health")
@@ -164,7 +206,7 @@ def health():
     return "OK", 200
 
 
-# ── Discord bot ───────────────────────────────────────────────────────────────
+# ── Discord bot ────────────────────────────────────────────────────────────────
 HELP_MSG = """Commands:
 !workout  - today's workout
 !done     - log session + nutrition
@@ -216,6 +258,10 @@ def make_discord_client():
                     return
 
             elif text == "!summary":
+                profile = load_profile()
+                if not profile_complete(profile):
+                    await message.channel.send("Complete your profile setup first by chatting with me!")
+                    return
                 workout_log = load_log()
                 sessions = workout_log.get("sessions", [])
                 if not sessions:
@@ -256,7 +302,7 @@ def make_discord_client():
             history.append({"role": "user", "content": user_msg})
 
             try:
-                reply, parsed_log, _ = ask_agent(history, source="discord")
+                reply, parsed_log, _, _ = ask_agent(history, source="discord")
             except Exception as e:
                 log.error(f"Discord agent error: {e}")
                 await message.channel.send("Something went wrong. Please try again.")
@@ -272,7 +318,7 @@ def make_discord_client():
     return client
 
 
-# ── Start both services ───────────────────────────────────────────────────────
+# ── Start both services ────────────────────────────────────────────────────────
 def run_discord():
     if not DISCORD_TOKEN:
         log.warning("DISCORD_BOT_TOKEN not set - Discord bot disabled.")
