@@ -43,6 +43,9 @@ from expense_core import (
     today_summary,
     try_parse_expense,
 )
+from trust import record_audit, undo_last, validate_expense, validate_session
+from ask_core import answer_question
+from monitor import get_status
 
 log = logging.getLogger(__name__)
 
@@ -53,13 +56,17 @@ HELP_MSG = (
     "!weight 97.5 - log weight\n"
     "!days 5 - set workouts per week\n"
     "!summary - last session recap\n"
+    "!undo - reverse the last log\n"
     "!reset - fresh conversation\n\n"
     "Expense tracking:\n"
     "spent 500 on groceries\n"
     "paid 200 petrol\n"
     "!expenses - monthly summary\n"
-    "!review - AI analysis of your spending\n"
-    "!expense help - more expense commands"
+    "!review - AI analysis of your spending\n\n"
+    "Ask anything:\n"
+    "!ask how many workouts in June\n"
+    "!ask what did I spend on food last month\n"
+    "!status - system health"
 )
 
 EXPENSE_HELP = (
@@ -72,6 +79,18 @@ EXPENSE_HELP = (
     "!budget Food 5000 - set monthly budget\n"
     "!review - AI analysis of this month's spending"
 )
+
+
+def _strip_hidden(text: str) -> str:
+    """Remove hidden control blocks, robust to an unclosed <THINK> tag."""
+    text = re.sub(
+        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE|THINK)>.*?</\1>",
+        "", text, flags=re.DOTALL,
+    )
+    if "<THINK>" in text:                       # unclosed reasoning block
+        text = re.sub(r"<THINK>.*$", "", text, flags=re.DOTALL)
+    text = re.sub(r"</?THINK>", "", text)       # stray tags
+    return text.strip()
 
 
 # ── Workout agent ─────────────────────────────────────────────────────────────
@@ -96,6 +115,7 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
     parsed_profile = try_parse_profile_update(full)
     pr_msgs        = []
 
+    validation_warning = ""
     if parsed_profile:
         save_profile(parsed_profile)
     elif is_setup:
@@ -104,8 +124,16 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         parsed_log  = try_parse_log(full)
         parsed_mem  = try_parse_memory_update(full)
         if parsed_log:
-            pr_msgs = detect_prs(workout_log, parsed_log)  # compare vs history first
-            save_session(workout_log, parsed_log)
+            ok, reason, cleaned = validate_session(parsed_log)
+            if ok:
+                parsed_log = cleaned
+                pr_msgs = detect_prs(workout_log, parsed_log)  # compare vs history first
+                save_session(workout_log, parsed_log)
+                record_audit("session",
+                             f"Day {parsed_log.get('day')} on {parsed_log.get('date')}")
+            else:
+                parsed_log = None          # don't save bad data
+                validation_warning = reason
         if parsed_mem:
             apply_memory_update(mem, parsed_mem)
         if pr_msgs:
@@ -113,15 +141,12 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         if parsed_mem or pr_msgs:
             save_memory(mem)
 
-    display = re.sub(
-        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE)>.*?</\1>",
-        "",
-        full,
-        flags=re.DOTALL,
-    ).strip()
+    display = _strip_hidden(full)
 
     if pr_msgs:
         display += "\n\n" + "\n".join(f"🎉 {m}" for m in pr_msgs)
+    if validation_warning:
+        display += f"\n\n⚠️ {validation_warning}"
 
     return display, parsed_log, parsed_mem, parsed_profile
 
@@ -184,12 +209,18 @@ def _handle_expense_message(text: str, source: str) -> str:
         display  = re.sub(r"<LOG_EXPENSE>.*?</LOG_EXPENSE>", "", full, flags=re.DOTALL).strip()
 
         if parsed and parsed.get("amount", 0) > 0:
-            log_expense(
+            ok, reason = validate_expense(parsed["amount"])
+            if not ok:
+                return reason
+            entry = log_expense(
                 amount=float(parsed["amount"]),
                 description=parsed.get("description", text),
                 category=parsed.get("category", "Other"),
                 note=parsed.get("note", ""),
             )
+            record_audit("expense",
+                         f"Rs {entry['amount']:,.0f} {entry['category']} — {entry['description']}",
+                         ref=entry.get("id"))
             reply = display or f"Logged Rs {parsed['amount']:,.0f} under {parsed.get('category','Other')}."
         else:
             log.warning(f"No expense parsed from: {full[:200]}")
@@ -304,6 +335,14 @@ def process_message(text: str, source: str = "web") -> str:
         return _generate_review()
     if cmd in ("!help expense", "!expense help"):
         return EXPENSE_HELP
+
+    # Cross-domain recall + system commands
+    if cmd.startswith("!ask"):
+        return answer_question(text[4:].strip())
+    if cmd == "!undo":
+        return undo_last()
+    if cmd == "!status":
+        return get_status()
 
     # Workout no-agent commands
     if cmd.startswith("!days"):

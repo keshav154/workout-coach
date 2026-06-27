@@ -29,7 +29,10 @@ from messaging import (
     transcribe_and_process,
 )
 from reports import build_daily_nudge, build_weekly_report
-from notifier import download_telegram_file, notify, send_telegram
+from notifier import download_telegram_file, notify, send_telegram, send_telegram_document
+from alerts import run_checks
+from monitor import alert_admin, get_status, record_event
+from trust import export_all
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -190,6 +193,21 @@ def health():
     return "OK", 200
 
 
+@flask_app.route("/status")
+@require_auth
+def status_route():
+    return jsonify({"status": get_status()})
+
+
+@flask_app.errorhandler(500)
+def on_500(e):
+    try:
+        alert_admin(f"500 on {request.method} {request.path}: {e}")
+    except Exception:
+        pass
+    return jsonify({"error": "internal error"}), 500
+
+
 # ── Scheduled jobs (hit by an external cron with ?secret=) ─────────────────────
 def _cron_authorized() -> bool:
     if not CRON_SECRET:
@@ -201,6 +219,7 @@ def _cron_authorized() -> bool:
 def cron_daily():
     if not _cron_authorized():
         return "forbidden", 403
+    record_event("cron_daily")
     msg = build_daily_nudge()
     sent = notify(msg) if msg else False
     log.info(f"Daily cron: nudge={'sent' if sent else 'skipped'}")
@@ -211,10 +230,46 @@ def cron_daily():
 def cron_weekly():
     if not _cron_authorized():
         return "forbidden", 403
+    record_event("cron_weekly")
     msg  = build_weekly_report()
     sent = notify(msg)
     log.info(f"Weekly cron: report={'sent' if sent else 'failed'}")
     return jsonify({"sent": sent, "message": msg})
+
+
+@flask_app.route("/cron/check", methods=["GET", "POST"])
+def cron_check():
+    if not _cron_authorized():
+        return "forbidden", 403
+    record_event("cron_check")
+    try:
+        msgs = run_checks()
+    except Exception as e:
+        log.error(f"Smart-check cron failed: {e}", exc_info=True)
+        alert_admin(f"Smart-check cron failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    for m in msgs:
+        notify(m)
+    log.info(f"Smart-check cron: {len(msgs)} alert(s) sent")
+    return jsonify({"sent": len(msgs), "alerts": msgs})
+
+
+@flask_app.route("/cron/backup", methods=["GET", "POST"])
+def cron_backup():
+    if not _cron_authorized():
+        return "forbidden", 403
+    record_event("cron_backup")
+    from datetime import datetime
+    try:
+        dump = export_all()
+        fname = f"coachx_backup_{datetime.utcnow().strftime('%Y%m%d')}.json"
+        sent = send_telegram_document(dump, fname, caption="CoachX weekly backup")
+        log.info(f"Backup cron: {'sent' if sent else 'failed'} ({len(dump)} bytes)")
+        return jsonify({"sent": sent, "bytes": len(dump)})
+    except Exception as e:
+        log.error(f"Backup cron failed: {e}", exc_info=True)
+        alert_admin(f"Backup failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── WhatsApp webhook (Twilio) ──────────────────────────────────────────────────

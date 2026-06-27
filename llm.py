@@ -3,6 +3,7 @@ Single Groq LLM client shared across the app.
 """
 
 import base64
+import json
 import logging
 import os
 
@@ -28,6 +29,59 @@ def chat(messages: list, temperature: float = 0.7) -> str:
         temperature=temperature,
     )
     return resp.choices[0].message.content or ""
+
+
+def reason_loop(messages: list, tools: list, tool_impls: dict,
+                max_steps: int = 5, temperature: float = 0.2) -> str:
+    """
+    ReAct-style reasoning loop: the model thinks, optionally calls a tool,
+    observes the result, and repeats until it produces a final answer.
+    `tool_impls` maps tool name -> python callable(**args) returning a string.
+    """
+    for _ in range(max_steps):
+        resp = _client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=tools,
+            temperature=temperature,
+        )
+        msg = resp.choices[0].message
+        if not msg.tool_calls:
+            return msg.content or ""
+
+        # Record the assistant's tool-call turn
+        messages.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in msg.tool_calls
+            ],
+        })
+        # Execute each requested tool and feed results back
+        for tc in msg.tool_calls:
+            name = tc.function.name
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except Exception:
+                args = {}
+            try:
+                result = tool_impls[name](**args) if name in tool_impls else f"Unknown tool: {name}"
+            except Exception as e:
+                log.error(f"Tool {name} failed: {e}")
+                result = f"Tool error: {e}"
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": str(result)[:4000],
+            })
+
+    # Ran out of steps — force a final answer without further tools
+    final = _client.chat.completions.create(
+        model=MODEL, messages=messages, temperature=temperature,
+    )
+    return final.choices[0].message.content or "I couldn't finish reasoning through that."
 
 
 def transcribe(file_bytes: bytes, filename: str = "voice.ogg") -> str:

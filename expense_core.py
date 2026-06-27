@@ -22,7 +22,8 @@ def log_expense(amount: float, description: str, category: str, note: str = "") 
         "category":    category,
         "note":        note,
     }
-    _col("expenses").insert_one(entry)
+    result = _col("expenses").insert_one(entry)
+    entry["id"] = str(result.inserted_id)
     entry.pop("_id", None)
     return entry
 

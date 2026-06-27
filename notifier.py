@@ -76,6 +76,31 @@ def send_telegram(body: str, chat_id: str | None = None) -> bool:
         return False
 
 
+def send_telegram_document(content, filename: str, caption: str = "", chat_id: str | None = None) -> bool:
+    """Send a file (e.g. a JSON backup) to Telegram."""
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    chat_id = chat_id or TELEGRAM_CHAT_ID
+    if not (TELEGRAM_BOT_TOKEN and chat_id):
+        log.warning("Telegram not configured; cannot send document.")
+        return False
+    url = TG_API.format(token=TELEGRAM_BOT_TOKEN, method="sendDocument")
+    try:
+        r = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption[:1000]},
+            files={"document": (filename, content)},
+            timeout=30,
+        )
+        if r.status_code != 200:
+            log.error(f"Telegram sendDocument failed {r.status_code}: {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        log.error(f"Telegram sendDocument error: {e}", exc_info=True)
+        return False
+
+
 def send_whatsapp(body: str) -> bool:
     """Send an outbound WhatsApp message via Twilio REST. Returns success."""
     if not body:
