@@ -1,37 +1,19 @@
 """
-Workout Bot — Flask web UI + Discord bot on Render.
-Data persisted in MongoDB Atlas (free tier).
+CoachX — Flask web UI + WhatsApp (Twilio) + Discord bot on Render.
+All message routing lives in messaging.process_message; this file is just transport.
+Data persisted in MongoDB Atlas.
 """
 
 import functools
 import logging
 import os
-import re
 import threading
 
 import discord
-import requests
 from flask import Flask, jsonify, render_template, request
 
-from openai import OpenAI
-
-from expense_core import (
-    build_expense_prompt,
-    build_review_prompt,
-    get_budget,
-    is_expense_message,
-    log_expense,
-    monthly_summary,
-    save_budget,
-    today_summary,
-    try_parse_expense,
-)
 from agent_core import (
     PROGRAM,
-    apply_memory_update,
-    build_onboarding_prompt,
-    build_system_prompt,
-    get_last_session_for_day,
     get_next_day,
     load_history,
     load_log,
@@ -39,24 +21,26 @@ from agent_core import (
     load_profile,
     profile_complete,
     reset_history,
-    save_history,
-    save_memory,
-    save_profile,
-    try_parse_log,
-    try_parse_memory_update,
-    try_parse_profile_update,
 )
+from messaging import HELP_MSG, process_message
+from reports import build_daily_nudge, build_weekly_report
+from notifier import notify, send_telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-GROQ_KEY        = os.environ["GROQ_API_KEY"].strip()
-log.info(f"GROQ_API_KEY starts with: {GROQ_KEY[:8]}... length: {len(GROQ_KEY)}")
 DISCORD_TOKEN   = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
 DISCORD_USER_ID = os.environ.get("DISCORD_USER_ID", "").strip()
 FLASK_SECRET    = os.environ.get("FLASK_SECRET", "change-me").strip()
 WEB_PASSWORD    = os.environ.get("WEB_PASSWORD", "").strip()
+CRON_SECRET     = os.environ.get("CRON_SECRET", "").strip()
+
+TWILIO_AUTH_TOKEN       = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+ALLOWED_WHATSAPP_NUMBER = os.environ.get("ALLOWED_WHATSAPP_NUMBER", "").strip()
+
+TELEGRAM_CHAT_ID        = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 
 
 def require_auth(f):
@@ -74,75 +58,6 @@ def require_auth(f):
     return decorated
 
 
-groq = OpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1")
-
-
-# ── Shared agent call ─────────────────────────────────────────────────────────
-def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dict | None, dict | None]:
-    profile  = load_profile()
-    is_setup = profile_complete(profile)
-
-    if not is_setup:
-        system = build_onboarding_prompt()
-    else:
-        workout_log = load_log()
-        mem         = load_memory()
-        day         = get_next_day(workout_log)
-        last        = get_last_session_for_day(workout_log, day)
-        system      = build_system_prompt(day, last, workout_log, mem, profile)
-
-    messages = [{"role": "system", "content": system}] + history
-
-    resp = groq.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=messages,
-        temperature=0.7,
-    )
-    full = resp.choices[0].message.content or ""
-
-    parsed_log     = None
-    parsed_mem     = None
-    parsed_profile = try_parse_profile_update(full)
-
-    if parsed_profile:
-        save_profile(parsed_profile)
-        # Reload to build normal prompt on next turn
-    elif is_setup:
-        workout_log = load_log()
-        mem         = load_memory()
-        parsed_log  = try_parse_log(full)
-        parsed_mem  = try_parse_memory_update(full)
-        if parsed_log:
-            from agent_core import save_session
-            save_session(workout_log, parsed_log)
-        if parsed_mem:
-            apply_memory_update(mem, parsed_mem)
-            save_memory(mem)
-
-    # Strip all hidden blocks before showing to user
-    display = re.sub(
-        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE)>.*?</\1>",
-        "",
-        full,
-        flags=re.DOTALL,
-    ).strip()
-
-    return display, parsed_log, parsed_mem, parsed_profile
-
-
-def log_suffix(parsed_log: dict | None) -> str:
-    if not parsed_log:
-        return ""
-    parts = ["Session logged!"]
-    bw = parsed_log.get("body_weight_kg")
-    if bw:
-        parts.append(f"Weight: {bw} kg")
-    n = parsed_log.get("nutrition", {})
-    if n.get("calories_eaten"):
-        parts.append(f"{n['calories_eaten']} kcal | {n.get('protein_g','?')}g protein")
-    return "\n\n" + " | ".join(parts)
-
-
 # ── Flask web app ──────────────────────────────────────────────────────────────
 flask_app = Flask(__name__)
 flask_app.secret_key = FLASK_SECRET
@@ -156,92 +71,23 @@ def index():
 
 @flask_app.route("/chat", methods=["POST"])
 @require_auth
-def chat():
+def chat_route():
     user_text = (request.json or {}).get("message", "").strip()
     if not user_text:
         return jsonify({"error": "empty message"}), 400
-
-    # Expense summary commands
-    cmd = user_text.lower().strip()
-    if cmd in ("!expenses today", "!spending today", "!today"):
-        return jsonify({"reply": today_summary()})
-    if cmd in ("!expenses", "!expenses month", "!spending", "!monthly", "!summary"):
-        return jsonify({"reply": monthly_summary()})
-    if cmd.startswith("!budget "):
-        parts = user_text.split()
-        if len(parts) == 3:
-            try:
-                save_budget(parts[1].capitalize(), float(parts[2]))
-                return jsonify({"reply": f"Budget set: {parts[1].capitalize()} = Rs {float(parts[2]):,.0f}/month"})
-            except ValueError:
-                pass
-        return jsonify({"reply": "Usage: !budget Food 5000"})
-    if cmd in ("!review", "!analyse", "!analyze"):
-        prompt, err = build_review_prompt()
-        if err:
-            return jsonify({"reply": err})
-        try:
-            resp = groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-            )
-            return jsonify({"reply": resp.choices[0].message.content or "Could not generate review."})
-        except Exception as e:
-            log.error(f"Web review error: {e}")
-            return jsonify({"error": "Could not generate review."}), 500
-
-    # Route expense messages to expense agent
-    if is_expense_message(user_text):
-        history = load_history("web_expense")
-        history.append({"role": "user", "content": user_text})
-        try:
-            messages = [{"role": "system", "content": build_expense_prompt()}] + history
-            resp = groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                temperature=0.3,
-            )
-            full    = resp.choices[0].message.content or ""
-            parsed  = try_parse_expense(full)
-            display = re.sub(r"<LOG_EXPENSE>.*?</LOG_EXPENSE>", "", full, flags=re.DOTALL).strip()
-            if parsed and parsed.get("amount", 0) > 0:
-                log_expense(
-                    amount=float(parsed["amount"]),
-                    description=parsed.get("description", user_text),
-                    category=parsed.get("category", "Other"),
-                    note=parsed.get("note", ""),
-                )
-            history.append({"role": "assistant", "content": display})
-            save_history("web_expense", history[-10:])
-            return jsonify({"reply": display})
-        except Exception as e:
-            log.error(f"Web expense error: {e}")
-            return jsonify({"error": "Could not log expense. Try again."}), 500
-
-    history = load_history("web")
-    history.append({"role": "user", "content": user_text})
-
     try:
-        reply, parsed_log, _, parsed_profile = ask_agent(history, source="web")
+        reply = process_message(user_text, source="web")
     except Exception as e:
-        log.error(f"Web agent error: {e}")
-        return jsonify({"error": "AI error, please try again"}), 500
-
-    reply += log_suffix(parsed_log)
-    history.append({"role": "assistant", "content": reply})
-    save_history("web", history)
-
-    return jsonify({
-        "reply": reply,
-        "profile_saved": bool(parsed_profile),
-    })
+        log.error(f"Web chat error: {e}", exc_info=True)
+        return jsonify({"error": "Something went wrong, please try again"}), 500
+    return jsonify({"reply": reply})
 
 
 @flask_app.route("/reset", methods=["POST"])
 @require_auth
 def reset_web():
     reset_history("web")
+    reset_history("web_expense")
     return jsonify({"ok": True})
 
 
@@ -266,14 +112,13 @@ def day_info():
 @flask_app.route("/stats")
 @require_auth
 def stats():
-    from agent_core import get_weight_trend
+    from datetime import date, timedelta
     workout_log = load_log()
     mem         = load_memory()
     sessions    = workout_log.get("sessions", [])
     day         = get_next_day(workout_log)
     p           = PROGRAM.get(day, {})
 
-    # Last weight from memory
     weight_entries = mem.get("weight_log", [])
     last_weight = None
     if weight_entries:
@@ -282,16 +127,12 @@ def stats():
         except Exception:
             pass
 
-    # Sessions this week
-    from datetime import date, timedelta
     today      = date.today()
     week_start = today - timedelta(days=today.weekday())
     sessions_this_week = sum(
-        1 for s in sessions
-        if s.get("date", "") >= week_start.isoformat()
+        1 for s in sessions if s.get("date", "") >= week_start.isoformat()
     )
 
-    # Recent sessions (last 5)
     recent = []
     for s in reversed(sessions[-5:]):
         d = s.get("day", "?")
@@ -304,20 +145,19 @@ def stats():
         })
 
     return jsonify({
-        "total_sessions":    len(sessions),
-        "last_weight":       last_weight,
-        "next_day":          day,
-        "next_name":         p.get("name", ""),
+        "total_sessions":     len(sessions),
+        "last_weight":        last_weight,
+        "next_day":           day,
+        "next_name":          p.get("name", ""),
         "sessions_this_week": sessions_this_week,
-        "recent_sessions":   recent,
+        "recent_sessions":    recent,
     })
 
 
 @flask_app.route("/profile_status")
 @require_auth
 def profile_status():
-    profile = load_profile()
-    return jsonify({"complete": profile_complete(profile)})
+    return jsonify({"complete": profile_complete(load_profile())})
 
 
 @flask_app.route("/reset_profile", methods=["POST"])
@@ -326,7 +166,9 @@ def reset_profile():
     from agent_core import _col
     _col("profile").delete_one({"_id": "user"})
     reset_history("web")
+    reset_history("web_expense")
     reset_history("discord")
+    reset_history("whatsapp")
     return jsonify({"ok": True})
 
 
@@ -334,10 +176,7 @@ def reset_profile():
 @require_auth
 def delete_last_session():
     from agent_core import _col
-    result = _col("workout_log").update_one(
-        {"_id": "log"},
-        {"$pop": {"sessions": 1}}
-    )
+    result = _col("workout_log").update_one({"_id": "log"}, {"$pop": {"sessions": 1}})
     return jsonify({"ok": True, "modified": result.modified_count})
 
 
@@ -346,32 +185,49 @@ def health():
     return "OK", 200
 
 
-# ── WhatsApp bot (Twilio) ──────────────────────────────────────────────────────
-TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
-TWILIO_AUTH_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
-TWILIO_WHATSAPP_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "").strip()  # e.g. whatsapp:+14155238886
-ALLOWED_WHATSAPP_NUMBER = os.environ.get("ALLOWED_WHATSAPP_NUMBER", "").strip()  # e.g. whatsapp:+919876543210
+# ── Scheduled jobs (hit by an external cron with ?secret=) ─────────────────────
+def _cron_authorized() -> bool:
+    if not CRON_SECRET:
+        return True  # not configured -> allow (set CRON_SECRET to lock down)
+    return request.args.get("secret", "") == CRON_SECRET
 
 
+@flask_app.route("/cron/daily", methods=["GET", "POST"])
+def cron_daily():
+    if not _cron_authorized():
+        return "forbidden", 403
+    msg = build_daily_nudge()
+    sent = notify(msg) if msg else False
+    log.info(f"Daily cron: nudge={'sent' if sent else 'skipped'}")
+    return jsonify({"sent": sent, "message": msg})
+
+
+@flask_app.route("/cron/weekly", methods=["GET", "POST"])
+def cron_weekly():
+    if not _cron_authorized():
+        return "forbidden", 403
+    msg  = build_weekly_report()
+    sent = notify(msg)
+    log.info(f"Weekly cron: report={'sent' if sent else 'failed'}")
+    return jsonify({"sent": sent, "message": msg})
+
+
+# ── WhatsApp webhook (Twilio) ──────────────────────────────────────────────────
 @flask_app.route("/whatsapp", methods=["POST"])
 def whatsapp_webhook():
     from twilio.twiml.messaging_response import MessagingResponse
     from twilio.request_validator import RequestValidator
 
-    # Validate request is from Twilio
     if TWILIO_AUTH_TOKEN:
         validator = RequestValidator(TWILIO_AUTH_TOKEN)
         signature = request.headers.get("X-Twilio-Signature", "")
-        url = request.url
-        valid = validator.validate(url, request.form, signature)
-        if not valid:
+        if not validator.validate(request.url, request.form, signature):
             log.warning("WhatsApp: invalid Twilio signature")
             return "Forbidden", 403
 
     from_number = request.form.get("From", "")
     user_text   = request.form.get("Body", "").strip()
 
-    # Only respond to the allowed number
     if ALLOWED_WHATSAPP_NUMBER and from_number != ALLOWED_WHATSAPP_NUMBER:
         log.warning(f"WhatsApp: ignoring message from {from_number}")
         return str(MessagingResponse())
@@ -379,170 +235,56 @@ def whatsapp_webhook():
     log.info(f"WhatsApp message from {from_number}: {user_text[:50]}")
 
     twiml = MessagingResponse()
-    cmd   = user_text.lower().strip()
-
-    # ── Expense commands ──────────────────────────────────────────────────────
-    if cmd in ("!expenses today", "!spending today", "!today"):
-        twiml.message(today_summary())
-        return str(twiml)
-
-    if cmd in ("!expenses", "!expenses month", "!spending", "!monthly", "!summary"):
-        twiml.message(monthly_summary())
-        return str(twiml)
-
-    if cmd.startswith("!budget "):
-        # Format: !budget Food 5000
-        parts = user_text.split()
-        if len(parts) == 3:
-            try:
-                cat    = parts[1].capitalize()
-                amount = float(parts[2])
-                save_budget(cat, amount)
-                twiml.message(f"Budget set: {cat} = Rs {amount:,.0f}/month")
-                return str(twiml)
-            except ValueError:
-                pass
-        twiml.message("Usage: !budget Food 5000")
-        return str(twiml)
-
-    if cmd in ("!review", "!review month", "!analyse", "!analyze"):
-        prompt, err = build_review_prompt()
-        if err:
-            twiml.message(err)
-            return str(twiml)
-        try:
-            resp = groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-            )
-            review = resp.choices[0].message.content or "Could not generate review."
-            for i in range(0, max(len(review), 1), 1500):
-                twiml.message(review[i:i + 1500])
-        except Exception as e:
-            log.error(f"WhatsApp review error: {e}")
-            twiml.message("Could not generate review. Try again.")
-        return str(twiml)
-
-    if cmd == "!help expense" or cmd == "!expense help":
-        twiml.message(
-            "Expense commands:\n"
-            "Just type: spent 500 on groceries\n"
-            "Or: paid 200 petrol\n"
-            "Or: 1200 amazon\n\n"
-            "!expenses today - today's spending\n"
-            "!expenses - this month's summary\n"
-            "!budget Food 5000 - set monthly budget\n"
-            "!review - AI analysis of this month's spending\n"
-        )
-        return str(twiml)
-
-    # ── Expense message (auto-detected) ───────────────────────────────────────
-    if is_expense_message(user_text):
-        history = load_history("whatsapp_expense")
-        history.append({"role": "user", "content": user_text})
-
-        try:
-            messages = [{"role": "system", "content": build_expense_prompt()}] + history
-            resp = groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                temperature=0.3,
-            )
-            full   = resp.choices[0].message.content or ""
-            log.info(f"Expense LLM response: {full[:300]}")
-            parsed = try_parse_expense(full)
-            log.info(f"Parsed expense: {parsed}")
-            display = re.sub(r"<LOG_EXPENSE>.*?</LOG_EXPENSE>", "", full, flags=re.DOTALL).strip()
-
-            if parsed and parsed.get("amount", 0) > 0:
-                log_expense(
-                    amount=float(parsed["amount"]),
-                    description=parsed.get("description", user_text),
-                    category=parsed.get("category", "Other"),
-                    note=parsed.get("note", ""),
-                )
-                twiml.message(display or f"Logged Rs {parsed['amount']} under {parsed.get('category','Other')}.")
-            else:
-                log.warning(f"No expense parsed from: {full[:200]}")
-                twiml.message(display or "Logged! Type !expenses to see today's summary.")
-
-            history.append({"role": "assistant", "content": display})
-            save_history("whatsapp_expense", history[-10:])
-
-        except Exception as e:
-            log.error(f"WhatsApp expense error: {e}", exc_info=True)
-            twiml.message("Could not log expense. Try: spent 500 on groceries")
-
-        return str(twiml)
-
-    # ── Workout coach ─────────────────────────────────────────────────────────
-    history = load_history("whatsapp")
-
-    if cmd in ("!workout", "!start", "start", "hi", "hello"):
-        reset_history("whatsapp")
-        history = []
-        user_msg = "What's my workout today?"
-    elif cmd == "!done":
-        user_msg = "I finished today's workout. Let's log it and go through my nutrition."
-    elif cmd.startswith("!weight "):
-        try:
-            kg = float(user_text.split()[1])
-            user_msg = f"My weight today is {kg} kg."
-        except (ValueError, IndexError):
-            twiml.message("Usage: !weight 97.5")
-            return str(twiml)
-    elif cmd == "!reset":
-        reset_history("whatsapp")
-        twiml.message("Conversation reset! Send 'hi' to begin.")
-        return str(twiml)
-    elif cmd in ("!help", "help"):
-        twiml.message(
-            "Workout commands:\n"
-            "!workout - today's workout\n"
-            "!done - log session + nutrition\n"
-            "!weight 97.5 - log weight\n"
-            "!reset - fresh conversation\n\n"
-            "Expense tracking:\n"
-            "spent 500 on groceries\n"
-            "paid 200 petrol\n"
-            "!expenses - monthly summary\n"
-            "!expense help - more expense commands"
-        )
-        return str(twiml)
-    else:
-        user_msg = user_text
-
-    history.append({"role": "user", "content": user_msg})
-
     try:
-        reply, parsed_log, _, _ = ask_agent(history, source="whatsapp")
+        reply = process_message(user_text, source="whatsapp")
     except Exception as e:
-        log.error(f"WhatsApp agent error: {e}")
+        log.error(f"WhatsApp error: {e}", exc_info=True)
         twiml.message("Something went wrong. Please try again.")
         return str(twiml)
-
-    reply += log_suffix(parsed_log)
-    history.append({"role": "assistant", "content": reply})
-    save_history("whatsapp", history)
 
     for i in range(0, max(len(reply), 1), 1500):
         twiml.message(reply[i:i + 1500])
     return str(twiml)
 
 
+# ── Telegram webhook ───────────────────────────────────────────────────────────
+@flask_app.route("/telegram", methods=["POST"])
+def telegram_webhook():
+    # Verify the secret token Telegram echoes back (set via setWebhook)
+    if TELEGRAM_WEBHOOK_SECRET:
+        got = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if got != TELEGRAM_WEBHOOK_SECRET:
+            log.warning("Telegram: bad webhook secret")
+            return "forbidden", 403
+
+    update = request.get_json(silent=True) or {}
+    msg    = update.get("message") or update.get("edited_message")
+    if not msg:
+        return jsonify({"ok": True})
+
+    chat_id = str(msg.get("chat", {}).get("id", ""))
+    text    = (msg.get("text") or "").strip()
+    log.info(f"Telegram message from chat {chat_id}: {text[:50]}")
+
+    # Lock to the owner's chat once TELEGRAM_CHAT_ID is configured
+    if TELEGRAM_CHAT_ID and chat_id != TELEGRAM_CHAT_ID:
+        log.warning(f"Telegram: ignoring chat {chat_id}, expected {TELEGRAM_CHAT_ID}")
+        return jsonify({"ok": True})
+
+    if not text:
+        return jsonify({"ok": True})
+
+    try:
+        reply = process_message(text, source="telegram")
+    except Exception as e:
+        log.error(f"Telegram error: {e}", exc_info=True)
+        reply = "Something went wrong. Please try again."
+
+    send_telegram(reply, chat_id)
+    return jsonify({"ok": True})
+
+
 # ── Discord bot ────────────────────────────────────────────────────────────────
-HELP_MSG = """Commands:
-!workout  - today's workout
-!done     - log session + nutrition
-!weight 97.5 - log your weight
-!summary  - last session recap
-!reset    - fresh conversation
-!help     - this menu
-
-Or just type anything to chat with your coach!"""
-
-
 def make_discord_client():
     intents = discord.Intents.default()
     intents.message_content = True
@@ -566,86 +308,20 @@ def make_discord_client():
             return
 
         async with message.channel.typing():
-            history = load_history("discord")
-
-            if text in ("!workout", "!start"):
-                reset_history("discord")
-                history = []
-                user_msg = "What's my workout today? Also ask me my weight."
-
-            elif text == "!done":
-                user_msg = "I finished today's workout. Let's log it and go through my nutrition."
-
-            elif text.startswith("!weight "):
-                try:
-                    kg = float(text.split()[1])
-                    user_msg = f"My weight today is {kg} kg."
-                except (ValueError, IndexError):
-                    await message.channel.send("Usage: !weight 97.5")
-                    return
-
-            elif text == "!summary":
-                profile = load_profile()
-                if not profile_complete(profile):
-                    await message.channel.send("Complete your profile setup first by chatting with me!")
-                    return
-                workout_log = load_log()
-                sessions = workout_log.get("sessions", [])
-                if not sessions:
-                    await message.channel.send("No sessions logged yet. Start with !workout")
-                    return
-                last = sessions[-1]
-                day  = last.get("day", "?")
-                p    = PROGRAM.get(day, {})
-                lines = [f"Last session: Day {day} - {p.get('name','')} ({last.get('date','?')})", ""]
-                bw = last.get("body_weight_kg")
-                if bw:
-                    lines.append(f"Weight: {bw} kg")
-                for ex in last.get("exercises", []):
-                    lines.append(f"  {ex['name']}: {ex.get('weight','?')}kg x {ex.get('reps_done','?')} reps")
-                n = last.get("nutrition", {})
-                if n.get("calories_eaten"):
-                    lines += ["", f"Nutrition: {n['calories_eaten']} kcal | {n.get('protein_g','?')}g protein",
-                              f"Burnt: {n.get('calories_burnt','?')} kcal | Net: {n.get('net_calories','?')} kcal"]
-                await message.channel.send("\n".join(lines))
-                return
-
-            elif text == "!reset":
-                reset_history("discord")
-                await message.channel.send("Conversation reset. Send !workout to begin.")
-                return
-
-            elif text in ("!help", "!commands"):
-                await message.channel.send(HELP_MSG)
-                return
-
-            elif text.startswith("!"):
-                await message.channel.send(HELP_MSG)
-                return
-
-            else:
-                user_msg = text
-
-            history.append({"role": "user", "content": user_msg})
-
             try:
-                reply, parsed_log, _, _ = ask_agent(history, source="discord")
+                reply = process_message(text, source="discord")
             except Exception as e:
-                log.error(f"Discord agent error: {e}")
+                log.error(f"Discord error: {e}", exc_info=True)
                 await message.channel.send("Something went wrong. Please try again.")
                 return
 
-            reply += log_suffix(parsed_log)
-            history.append({"role": "assistant", "content": reply})
-            save_history("discord", history)
-
-            for i in range(0, max(len(reply), 1), 1900):
-                await message.channel.send(reply[i:i + 1900])
+        for i in range(0, max(len(reply), 1), 1900):
+            await message.channel.send(reply[i:i + 1900])
 
     return client
 
 
-# ── Start both services ────────────────────────────────────────────────────────
+# ── Start services ─────────────────────────────────────────────────────────────
 def run_discord():
     if not DISCORD_TOKEN:
         log.warning("DISCORD_BOT_TOKEN not set - Discord bot disabled.")
@@ -659,7 +335,6 @@ def run_discord():
 
 
 if __name__ == "__main__":
-    discord_thread = threading.Thread(target=run_discord, daemon=True)
-    discord_thread.start()
+    threading.Thread(target=run_discord, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     flask_app.run(host="0.0.0.0", port=port)
