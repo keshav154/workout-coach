@@ -2,6 +2,7 @@
 Single Groq LLM client shared across the app.
 """
 
+import base64
 import logging
 import os
 
@@ -12,7 +13,10 @@ log = logging.getLogger(__name__)
 GROQ_KEY = os.environ["GROQ_API_KEY"].strip()
 log.info(f"GROQ_API_KEY starts with: {GROQ_KEY[:8]}... length: {len(GROQ_KEY)}")
 
-MODEL   = "llama-3.3-70b-versatile"
+MODEL         = "llama-3.3-70b-versatile"
+WHISPER_MODEL = os.environ.get("GROQ_WHISPER_MODEL", "whisper-large-v3").strip()
+VISION_MODEL  = os.environ.get("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct").strip()
+
 _client = OpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1")
 
 
@@ -21,6 +25,32 @@ def chat(messages: list, temperature: float = 0.7) -> str:
     resp = _client.chat.completions.create(
         model=MODEL,
         messages=messages,
+        temperature=temperature,
+    )
+    return resp.choices[0].message.content or ""
+
+
+def transcribe(file_bytes: bytes, filename: str = "voice.ogg") -> str:
+    """Transcribe an audio clip via Groq Whisper. Returns the text."""
+    resp = _client.audio.transcriptions.create(
+        model=WHISPER_MODEL,
+        file=(filename, file_bytes),
+    )
+    return (getattr(resp, "text", "") or "").strip()
+
+
+def vision(image_bytes: bytes, prompt: str, mime: str = "image/jpeg", temperature: float = 0.3) -> str:
+    """Ask the vision model about an image. Returns the text content."""
+    b64 = base64.b64encode(image_bytes).decode()
+    resp = _client.chat.completions.create(
+        model=VISION_MODEL,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+            ],
+        }],
         temperature=temperature,
     )
     return resp.choices[0].message.content or ""

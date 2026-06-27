@@ -21,11 +21,15 @@ from agent_core import (
     load_profile,
     profile_complete,
     reset_history,
-    save_health_data,
 )
-from messaging import HELP_MSG, process_message
+from messaging import (
+    HELP_MSG,
+    analyze_meal_photo,
+    process_message,
+    transcribe_and_process,
+)
 from reports import build_daily_nudge, build_weekly_report
-from notifier import notify, send_telegram
+from notifier import download_telegram_file, notify, send_telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -186,51 +190,6 @@ def health():
     return "OK", 200
 
 
-# ── Samsung Health ingest (MacroDroid / Tasker -> webhook) ─────────────────────
-HEALTH_SECRET = os.environ.get("HEALTH_SECRET", "").strip() or CRON_SECRET
-
-
-@flask_app.route("/health_data", methods=["GET", "POST"])
-def health_data_ingest():
-    if HEALTH_SECRET and request.args.get("secret", "") != HEALTH_SECRET:
-        return "forbidden", 403
-
-    body = request.get_json(silent=True) or {}
-
-    def val(*keys):
-        for k in keys:
-            v = request.args.get(k)
-            if v is None:
-                v = body.get(k)
-            if v not in (None, "", "null"):
-                return v
-        return None
-
-    def num(*keys):
-        v = val(*keys)
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-
-    from datetime import date as _date
-    day_str = val("date") or _date.today().isoformat()
-
-    data = {
-        "steps":           num("steps"),
-        "calories_burned": num("calories", "calories_burned", "cal"),
-        "sleep_hours":     num("sleep", "sleep_hours"),
-        "resting_hr":      num("hr", "resting_hr", "heart_rate"),
-    }
-    data = {k: v for k, v in data.items() if v is not None}
-    if not data:
-        return jsonify({"ok": False, "error": "no recognized fields"}), 400
-
-    save_health_data(day_str, data)
-    log.info(f"Health data saved for {day_str}: {data}")
-    return jsonify({"ok": True, "date": day_str, "saved": data})
-
-
 # ── Scheduled jobs (hit by an external cron with ?secret=) ─────────────────────
 def _cron_authorized() -> bool:
     if not CRON_SECRET:
@@ -309,19 +268,34 @@ def telegram_webhook():
         return jsonify({"ok": True})
 
     chat_id = str(msg.get("chat", {}).get("id", ""))
-    text    = (msg.get("text") or "").strip()
-    log.info(f"Telegram message from chat {chat_id}: {text[:50]}")
 
     # Lock to the owner's chat once TELEGRAM_CHAT_ID is configured
     if TELEGRAM_CHAT_ID and chat_id != TELEGRAM_CHAT_ID:
         log.warning(f"Telegram: ignoring chat {chat_id}, expected {TELEGRAM_CHAT_ID}")
         return jsonify({"ok": True})
 
-    if not text:
-        return jsonify({"ok": True})
+    voice = msg.get("voice") or msg.get("audio")
+    photo = msg.get("photo")
 
     try:
-        reply = process_message(text, source="telegram")
+        if voice:
+            log.info(f"Telegram voice note from chat {chat_id}")
+            data = download_telegram_file(voice.get("file_id"))
+            reply = transcribe_and_process(data, source="telegram") if data \
+                else "Couldn't download that voice note."
+        elif photo:
+            log.info(f"Telegram photo from chat {chat_id}")
+            largest = photo[-1]  # last entry is the highest resolution
+            data    = download_telegram_file(largest.get("file_id"))
+            caption = (msg.get("caption") or "").strip()
+            reply = analyze_meal_photo(data, caption, source="telegram") if data \
+                else "Couldn't download that photo."
+        else:
+            text = (msg.get("text") or "").strip()
+            log.info(f"Telegram message from chat {chat_id}: {text[:50]}")
+            if not text:
+                return jsonify({"ok": True})
+            reply = process_message(text, source="telegram")
     except Exception as e:
         log.error(f"Telegram error: {e}", exc_info=True)
         reply = "Something went wrong. Please try again."

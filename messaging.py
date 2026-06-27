@@ -10,7 +10,7 @@ the reply text. `source` is the history-key prefix (e.g. "web", "whatsapp",
 import logging
 import re
 
-from llm import chat
+from llm import chat, transcribe, vision
 from agent_core import (
     PROGRAM,
     apply_memory_update,
@@ -27,6 +27,7 @@ from agent_core import (
     reset_history,
     save_history,
     save_memory,
+    save_profile,
     save_session,
     try_parse_log,
     try_parse_memory_update,
@@ -50,6 +51,7 @@ HELP_MSG = (
     "!workout - today's workout\n"
     "!done - log session + nutrition\n"
     "!weight 97.5 - log weight\n"
+    "!days 5 - set workouts per week\n"
     "!summary - last session recap\n"
     "!reset - fresh conversation\n\n"
     "Expense tracking:\n"
@@ -232,6 +234,50 @@ def _handle_workout_message(text: str, cmd: str, source: str) -> str:
     return reply
 
 
+# ── Voice notes (Groq Whisper) ────────────────────────────────────────────────
+def transcribe_and_process(audio_bytes: bytes, source: str = "telegram", filename: str = "voice.ogg") -> str:
+    """Transcribe a voice note, run it through the normal router, echo what was heard."""
+    try:
+        text = transcribe(audio_bytes, filename=filename)
+    except Exception as e:
+        log.error(f"Transcription error: {e}", exc_info=True)
+        return "Couldn't understand that voice note. Please try again or type it."
+    if not text:
+        return "I couldn't hear anything in that voice note."
+    reply = process_message(text, source=source)
+    return f'🎤 "{text}"\n\n{reply}'
+
+
+# ── Meal photo logging (Groq vision) ──────────────────────────────────────────
+MEAL_PROMPT = (
+    "You are a nutrition assistant for an Indian vegetarian user. "
+    "Look at this meal photo and identify each food item with estimated calories and "
+    "protein using typical Indian portion sizes. Then end with a line:\n"
+    "TOTAL: <kcal> kcal | <grams>g protein\n"
+    "Be concise. Plain text only, no markdown."
+)
+
+
+def analyze_meal_photo(image_bytes: bytes, caption: str = "", source: str = "telegram",
+                       mime: str = "image/jpeg") -> str:
+    """Estimate a meal's calories/protein from a photo and remember it for later tally."""
+    prompt = MEAL_PROMPT + (f"\nUser note about this meal: {caption}" if caption else "")
+    try:
+        result = vision(image_bytes, prompt, mime=mime)
+    except Exception as e:
+        log.error(f"Meal vision error: {e}", exc_info=True)
+        return "Couldn't analyze that photo. You can type what you ate instead."
+    if not result.strip():
+        return "Couldn't read that meal photo. Try a clearer shot or type what you ate."
+
+    # Store in the coach's history so it counts toward today's nutrition tally
+    history = load_history(source)
+    history.append({"role": "user", "content": f"I ate this meal (estimated from a photo): {result}"})
+    history.append({"role": "assistant", "content": "Noted your meal."})
+    save_history(source, history)
+    return result
+
+
 # ── Main router ───────────────────────────────────────────────────────────────
 def process_message(text: str, source: str = "web") -> str:
     """Route any message to the right handler and return reply text."""
@@ -260,6 +306,16 @@ def process_message(text: str, source: str = "web") -> str:
         return EXPENSE_HELP
 
     # Workout no-agent commands
+    if cmd.startswith("!days"):
+        parts = text.split()
+        if len(parts) == 2 and parts[1].isdigit() and 1 <= int(parts[1]) <= 7:
+            profile = load_profile()
+            if not profile_complete(profile):
+                return "Finish your profile setup first by chatting with me!"
+            profile["days_per_week"] = int(parts[1])
+            save_profile(profile)
+            return f"Updated: training {parts[1]} days per week. Your weekly target now reflects this."
+        return "Usage: !days 5"
     if cmd == "!summary":
         return _last_session_summary()
     if cmd in ("!help", "help", "!commands"):

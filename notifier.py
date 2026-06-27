@@ -24,6 +24,33 @@ TWILIO_WHATSAPP_FROM    = os.environ.get("TWILIO_WHATSAPP_FROM", "").strip()
 ALLOWED_WHATSAPP_NUMBER = os.environ.get("ALLOWED_WHATSAPP_NUMBER", "").strip()
 
 
+def download_telegram_file(file_id: str) -> bytes | None:
+    """Resolve a Telegram file_id and download its bytes. Returns None on failure."""
+    if not (TELEGRAM_BOT_TOKEN and file_id):
+        return None
+    try:
+        r = requests.get(
+            TG_API.format(token=TELEGRAM_BOT_TOKEN, method="getFile"),
+            params={"file_id": file_id}, timeout=15,
+        )
+        if r.status_code != 200:
+            log.error(f"Telegram getFile failed {r.status_code}: {r.text[:150]}")
+            return None
+        path = (r.json().get("result") or {}).get("file_path")
+        if not path:
+            return None
+        fr = requests.get(
+            f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{path}", timeout=30,
+        )
+        if fr.status_code != 200:
+            log.error(f"Telegram file download failed {fr.status_code}")
+            return None
+        return fr.content
+    except Exception as e:
+        log.error(f"Telegram file download error: {e}", exc_info=True)
+        return None
+
+
 def send_telegram(body: str, chat_id: str | None = None) -> bool:
     """Send a Telegram message. Splits messages over Telegram's 4096-char limit."""
     if not body:

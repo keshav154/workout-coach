@@ -74,11 +74,13 @@ def build_weekly_report() -> str:
     days_per_week = profile.get("days_per_week", 4) if profile else 4
     weight_trend  = get_weight_trend(mem)
     spending      = monthly_summary()
+    prs_this_week = [pr for pr in mem.get("personal_records", [])][-5:]
 
     workout_block = (
         f"Workouts this week: {len(week_sessions)} of {days_per_week} target\n"
         f"Workout dates: {', '.join(week_days) if week_days else 'none'}\n"
-        f"Body weight trend: {weight_trend}"
+        f"Body weight trend: {weight_trend}\n"
+        f"Recent PRs: {'; '.join(prs_this_week) if prs_this_week else 'none logged'}"
     )
 
     prompt = f"""You are a friendly personal coach writing {name}'s Sunday weekly recap.
@@ -91,10 +93,10 @@ SPENDING THIS MONTH:
 {spending}
 
 Write a warm recap (under 200 words) that:
-1. Celebrates what went well this week
+1. Celebrates what went well this week (call out any PRs by name)
 2. Notes if they hit or missed their workout target ({days_per_week}/week)
 3. Gives one honest observation about spending
-4. Ends with one specific goal for next week (fitness + money)
+4. Ends with one specific goal for next week covering fitness AND money
 
 Plain text only, no markdown. Use Rs not the rupee symbol. Be encouraging but honest."""
 

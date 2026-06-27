@@ -134,9 +134,23 @@ PROGRAM = {
             {"name": "Calf Raises",                         "sets": 3, "rep_range": "15-20", "form": "Full range — stretch at bottom, pause and squeeze at top."},
         ],
     },
+    "E": {
+        "name":    "Cardio + Core",
+        "focus":   "conditioning, core, fat loss",
+        "warmup":  "5 min treadmill easy walk to raise heart rate",
+        "exercises": [
+            {"name": "Treadmill Intervals",   "sets": 1, "rep_range": "20 min", "scheme": "20 min: 1 min fast / 2 min walk, repeat", "form": "Push the pace on the fast minute, fully recover on the walk."},
+            {"name": "Treadmill Incline Walk", "sets": 1, "rep_range": "10 min", "scheme": "10 min steady at 8-12 incline",          "form": "Tall posture, no holding the rails, brisk pace."},
+            {"name": "Plank",                 "sets": 3, "rep_range": "30-60 sec", "scheme": "3 x 30-60 sec hold", "form": "Straight line head to heels, brace your core, don't sag hips."},
+            {"name": "Mountain Climbers",     "sets": 3, "rep_range": "20 each", "form": "Hips low, drive knees to chest quickly, steady breathing."},
+            {"name": "Dumbbell Russian Twist", "sets": 3, "rep_range": "15 each", "form": "Lean back slightly, rotate from the torso, control the dumbbell."},
+            {"name": "Lying Leg Raise",       "sets": 3, "rep_range": "12-15", "form": "Lower legs slowly, keep lower back pressed to the floor."},
+            {"name": "Bicycle Crunch",        "sets": 3, "rep_range": "20 each", "form": "Opposite elbow to knee, slow and controlled, full extension."},
+        ],
+    },
 }
 
-DAY_ROTATION = ["A", "B", "C", "D"]
+DAY_ROTATION = ["A", "B", "C", "D", "E"]
 
 DEFAULT_MEMORY = {
     "preferences":        [],
@@ -221,42 +235,6 @@ def detect_prs(log: dict, new_session: dict) -> list[str]:
             btxt = f"{bw:g}kg x {br:g}"
             prs.append(f"New PR on {name}: {wtxt} (previous best {btxt})")
     return prs
-
-
-# ── Samsung Health / wearable data (MongoDB) ──────────────────────────────────
-def save_health_data(day_str: str, data: dict) -> None:
-    """Upsert a day's wearable data (steps, calories burned, sleep, resting HR)."""
-    clean = {k: v for k, v in data.items() if v is not None}
-    if not clean:
-        return
-    _col("health_data").update_one(
-        {"_id": day_str},
-        {"$set": clean},
-        upsert=True,
-    )
-
-
-def get_health_data(day_str: str) -> dict | None:
-    doc = _col("health_data").find_one({"_id": day_str})
-    if doc:
-        doc.pop("_id", None)
-        return doc
-    return None
-
-
-def format_health_block(day_str: str) -> str:
-    """One-line summary of today's wearable data for the system prompt, or ''."""
-    d = get_health_data(day_str)
-    if not d:
-        return ""
-    parts = []
-    if d.get("steps"):           parts.append(f"{int(d['steps']):,} steps")
-    if d.get("calories_burned"): parts.append(f"{int(d['calories_burned'])} kcal burned")
-    if d.get("sleep_hours"):     parts.append(f"{d['sleep_hours']}h sleep")
-    if d.get("resting_hr"):      parts.append(f"resting HR {int(d['resting_hr'])}")
-    if not parts:
-        return ""
-    return "TODAY'S WEARABLE DATA (from Samsung Health): " + " | ".join(parts)
 
 
 # ── Memory (MongoDB) ──────────────────────────────────────────────────────────
@@ -439,7 +417,7 @@ Ask ONE question at a time, in this order:
 4. Height in cm
 5. Primary goal (lose fat / build muscle / body recomposition)
 6. Confirm their fitness level (beginner / some experience / intermediate)
-7. Confirm: 4 days per week training (or ask if different)
+7. Confirm: 5 days per week training (or ask if different)
 8. Confirm: vegetarian Indian diet (or ask about diet)
 9. Any injuries or body parts to avoid?
 10. Have they been working out recently? (yes / no / used to but stopped)
@@ -457,7 +435,7 @@ Once you have ALL answers, output this hidden block (do not display to user):
   "height_cm": 0.0,
   "goal": "...",
   "level": "...",
-  "days_per_week": 4,
+  "days_per_week": 5,
   "diet": "vegetarian Indian",
   "session_min": "45-60",
   "activity_level": "sedentary",
@@ -475,7 +453,7 @@ Once you have ALL answers, output this hidden block (do not display to user):
 Fill recent_weights with the closest available dumbbell weights based on what they told you.
 If they are a complete beginner with no recent training, set all weights to 0 (coach will guide them live).
 
-Then immediately greet them warmly, show their calorie target, protein target, and tell them the 4-day split (A: Chest+Triceps, B: Back+Biceps, C: Shoulders+Arms, D: Legs+Core). Tell them to tap "Today's Workout" to begin.
+Then immediately greet them warmly, show their calorie target, protein target, and tell them the 5-day split (A: Chest+Triceps, B: Back+Biceps, C: Shoulders+Arms, D: Legs+Core, E: Cardio+Core). Tell them to tap "Today's Workout" to begin.
 
 Equipment available: adjustable dumbbells (4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg), incline-decline bench, treadmill, resistance bands.
 Keep messages short, warm, and encouraging. Mobile-friendly plain text only.
@@ -518,7 +496,10 @@ def format_program_block(day: str, last_session: dict | None) -> str:
         "Exercises:",
     ]
     for ex in p["exercises"]:
-        line = f"  - {ex['name']}  |  {ex['sets']} sets x {ex['rep_range']} reps"
+        if ex.get("scheme"):
+            line = f"  - {ex['name']}  |  {ex['scheme']}"
+        else:
+            line = f"  - {ex['name']}  |  {ex['sets']} sets x {ex['rep_range']} reps"
         if last_session:
             prev = next(
                 (e for e in last_session.get("exercises", []) if e["name"] == ex["name"]),
@@ -539,18 +520,17 @@ def format_program_block(day: str, last_session: dict | None) -> str:
 
 def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dict, profile: dict) -> str:
     targets = compute_targets(profile)
+    today_str = date.today().isoformat()
     cal_target = get_adjusted_calorie_target(mem, targets["calorie_target"])
     sessions = len(log.get("sessions", []))
     injuries = profile.get("injuries", "none")
     first_this_week = is_first_session_this_week(log)
     gap_days = days_since_last_session(log)
     long_gap = gap_days is not None and gap_days >= 7
-    today_str = date.today().isoformat()
     recent_weights = profile.get("recent_weights", {})
     consecutive_days = get_consecutive_workout_days(log)
     suggest_deload = should_suggest_deload(log)
     exercises_done = {e["name"] for s in log.get("sessions", []) for e in s.get("exercises", [])}
-    health_block = format_health_block(today_str)
 
     return f"""You are a personal trainer and nutrition coach AI for {profile['name']}.
 You run as a web chat and Discord bot so keep replies concise and mobile-friendly.
@@ -571,18 +551,11 @@ USER PROFILE:
   Sessions logged so far: {sessions}
   Starting weights (use silently when recommending weights for first session — do NOT mention these field names to the user): {recent_weights}
 
-{health_block}
-
 {format_memory_block(mem)}
 
 {format_program_block(day, last_session)}
 
 YOUR RESPONSIBILITIES:
-
-WEARABLE DATA:
-- If wearable data is shown above, use the calories burned for net-calorie math instead of asking the user.
-- If sleep was under 6 hours, suggest going a bit lighter or extra warm-up today.
-- Acknowledge a big step count or good sleep briefly when relevant.
 
 WEEKLY WEIGH-IN (first_this_week={first_this_week}):
 - Ask weight ONLY if first_this_week is True (first session of this calendar week).
