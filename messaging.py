@@ -80,14 +80,19 @@ EXPENSE_HELP = (
 
 
 def _strip_hidden(text: str) -> str:
-    """Remove hidden control blocks, robust to an unclosed <THINK> tag."""
+    """Strip private reasoning + control blocks, robust across models/formats."""
+    # Primary mechanism: keep only what follows the explicit reply marker.
+    if "===REPLY===" in text:
+        text = text.rsplit("===REPLY===", 1)[-1]
+    # Remove well-formed control/reasoning blocks (case-insensitive).
     text = re.sub(
-        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE|LOG_EXPENSE|THINK)>.*?</\1>",
-        "", text, flags=re.DOTALL,
+        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE|LOG_EXPENSE|THINK|THINKING)>.*?</\1>",
+        "", text, flags=re.DOTALL | re.IGNORECASE,
     )
-    if "<THINK>" in text:                       # unclosed reasoning block
-        text = re.sub(r"<THINK>.*$", "", text, flags=re.DOTALL)
-    text = re.sub(r"</?THINK>", "", text)       # stray tags
+    # Fallback: drop an unclosed/loose reasoning block if the marker was absent.
+    if re.search(r"<\s*think", text, re.IGNORECASE):
+        text = re.sub(r"<\s*think.*$", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"</?\s*think\w*\s*>", "", text, flags=re.IGNORECASE)  # stray tags
     return text.strip()
 
 
