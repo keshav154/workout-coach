@@ -16,6 +16,7 @@ from agent_core import (
     apply_memory_update,
     build_onboarding_prompt,
     build_system_prompt,
+    detect_prs,
     get_last_session_for_day,
     get_next_day,
     load_history,
@@ -91,18 +92,23 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
     parsed_log     = None
     parsed_mem     = None
     parsed_profile = try_parse_profile_update(full)
+    pr_msgs        = []
 
     if parsed_profile:
         save_profile(parsed_profile)
     elif is_setup:
-        workout_log = load_log()
+        workout_log = load_log()   # state BEFORE this session is saved
         mem         = load_memory()
         parsed_log  = try_parse_log(full)
         parsed_mem  = try_parse_memory_update(full)
         if parsed_log:
+            pr_msgs = detect_prs(workout_log, parsed_log)  # compare vs history first
             save_session(workout_log, parsed_log)
         if parsed_mem:
             apply_memory_update(mem, parsed_mem)
+        if pr_msgs:
+            apply_memory_update(mem, {"personal_records": pr_msgs})
+        if parsed_mem or pr_msgs:
             save_memory(mem)
 
     display = re.sub(
@@ -111,6 +117,9 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         full,
         flags=re.DOTALL,
     ).strip()
+
+    if pr_msgs:
+        display += "\n\n" + "\n".join(f"🎉 {m}" for m in pr_msgs)
 
     return display, parsed_log, parsed_mem, parsed_profile
 

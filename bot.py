@@ -21,6 +21,7 @@ from agent_core import (
     load_profile,
     profile_complete,
     reset_history,
+    save_health_data,
 )
 from messaging import HELP_MSG, process_message
 from reports import build_daily_nudge, build_weekly_report
@@ -183,6 +184,51 @@ def delete_last_session():
 @flask_app.route("/health")
 def health():
     return "OK", 200
+
+
+# ── Samsung Health ingest (MacroDroid / Tasker -> webhook) ─────────────────────
+HEALTH_SECRET = os.environ.get("HEALTH_SECRET", "").strip() or CRON_SECRET
+
+
+@flask_app.route("/health_data", methods=["GET", "POST"])
+def health_data_ingest():
+    if HEALTH_SECRET and request.args.get("secret", "") != HEALTH_SECRET:
+        return "forbidden", 403
+
+    body = request.get_json(silent=True) or {}
+
+    def val(*keys):
+        for k in keys:
+            v = request.args.get(k)
+            if v is None:
+                v = body.get(k)
+            if v not in (None, "", "null"):
+                return v
+        return None
+
+    def num(*keys):
+        v = val(*keys)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    from datetime import date as _date
+    day_str = val("date") or _date.today().isoformat()
+
+    data = {
+        "steps":           num("steps"),
+        "calories_burned": num("calories", "calories_burned", "cal"),
+        "sleep_hours":     num("sleep", "sleep_hours"),
+        "resting_hr":      num("hr", "resting_hr", "heart_rate"),
+    }
+    data = {k: v for k, v in data.items() if v is not None}
+    if not data:
+        return jsonify({"ok": False, "error": "no recognized fields"}), 400
+
+    save_health_data(day_str, data)
+    log.info(f"Health data saved for {day_str}: {data}")
+    return jsonify({"ok": True, "date": day_str, "saved": data})
 
 
 # ── Scheduled jobs (hit by an external cron with ?secret=) ─────────────────────

@@ -184,6 +184,81 @@ def get_last_session_for_day(log: dict, day: str) -> dict | None:
     return None
 
 
+# ── Personal record detection ─────────────────────────────────────────────────
+def _num(v) -> float:
+    """Parse a leading number out of values like '12', '10-12', '10 each', '24kg'."""
+    try:
+        return float(str(v).split("-")[0].split()[0].replace("kg", "").strip())
+    except (ValueError, AttributeError, IndexError):
+        return 0.0
+
+
+def detect_prs(log: dict, new_session: dict) -> list[str]:
+    """Compare a new session against all prior sessions; return PR celebration lines."""
+    prev_best: dict[str, tuple[float, float]] = {}
+    for s in log.get("sessions", []):
+        for ex in s.get("exercises", []):
+            name = ex.get("name")
+            if not name:
+                continue
+            cur = (_num(ex.get("weight")), _num(ex.get("reps_done")))
+            if name not in prev_best or cur > prev_best[name]:
+                prev_best[name] = cur
+
+    prs = []
+    for ex in new_session.get("exercises", []):
+        name = ex.get("name")
+        w    = _num(ex.get("weight"))
+        r    = _num(ex.get("reps_done"))
+        if not name or w <= 0:
+            continue
+        best = prev_best.get(name)
+        if best is None:
+            continue  # first time doing it — not a PR to celebrate
+        bw, br = best
+        if w > bw or (w == bw and r > br):
+            wtxt = f"{w:g}kg x {r:g} reps"
+            btxt = f"{bw:g}kg x {br:g}"
+            prs.append(f"New PR on {name}: {wtxt} (previous best {btxt})")
+    return prs
+
+
+# ── Samsung Health / wearable data (MongoDB) ──────────────────────────────────
+def save_health_data(day_str: str, data: dict) -> None:
+    """Upsert a day's wearable data (steps, calories burned, sleep, resting HR)."""
+    clean = {k: v for k, v in data.items() if v is not None}
+    if not clean:
+        return
+    _col("health_data").update_one(
+        {"_id": day_str},
+        {"$set": clean},
+        upsert=True,
+    )
+
+
+def get_health_data(day_str: str) -> dict | None:
+    doc = _col("health_data").find_one({"_id": day_str})
+    if doc:
+        doc.pop("_id", None)
+        return doc
+    return None
+
+
+def format_health_block(day_str: str) -> str:
+    """One-line summary of today's wearable data for the system prompt, or ''."""
+    d = get_health_data(day_str)
+    if not d:
+        return ""
+    parts = []
+    if d.get("steps"):           parts.append(f"{int(d['steps']):,} steps")
+    if d.get("calories_burned"): parts.append(f"{int(d['calories_burned'])} kcal burned")
+    if d.get("sleep_hours"):     parts.append(f"{d['sleep_hours']}h sleep")
+    if d.get("resting_hr"):      parts.append(f"resting HR {int(d['resting_hr'])}")
+    if not parts:
+        return ""
+    return "TODAY'S WEARABLE DATA (from Samsung Health): " + " | ".join(parts)
+
+
 # ── Memory (MongoDB) ──────────────────────────────────────────────────────────
 def load_memory() -> dict:
     doc = _col("memory").find_one({"_id": "mem"})
@@ -475,6 +550,7 @@ def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dic
     consecutive_days = get_consecutive_workout_days(log)
     suggest_deload = should_suggest_deload(log)
     exercises_done = {e["name"] for s in log.get("sessions", []) for e in s.get("exercises", [])}
+    health_block = format_health_block(today_str)
 
     return f"""You are a personal trainer and nutrition coach AI for {profile['name']}.
 You run as a web chat and Discord bot so keep replies concise and mobile-friendly.
@@ -495,11 +571,18 @@ USER PROFILE:
   Sessions logged so far: {sessions}
   Starting weights (use silently when recommending weights for first session — do NOT mention these field names to the user): {recent_weights}
 
+{health_block}
+
 {format_memory_block(mem)}
 
 {format_program_block(day, last_session)}
 
 YOUR RESPONSIBILITIES:
+
+WEARABLE DATA:
+- If wearable data is shown above, use the calories burned for net-calorie math instead of asking the user.
+- If sleep was under 6 hours, suggest going a bit lighter or extra warm-up today.
+- Acknowledge a big step count or good sleep briefly when relevant.
 
 WEEKLY WEIGH-IN (first_this_week={first_this_week}):
 - Ask weight ONLY if first_this_week is True (first session of this calendar week).
