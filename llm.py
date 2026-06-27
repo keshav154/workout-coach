@@ -1,5 +1,7 @@
 """
-Single Groq LLM client shared across the app.
+LLM clients. The reasoning brain is provider-configurable (Groq, Moonshot/Kimi,
+etc. — anything OpenAI-compatible). Audio transcription + vision stay on Groq,
+which is free and reliable for those (Moonshot has no Whisper endpoint).
 """
 
 import base64
@@ -11,14 +13,27 @@ from openai import OpenAI
 
 log = logging.getLogger(__name__)
 
-GROQ_KEY = os.environ["GROQ_API_KEY"].strip()
-log.info(f"GROQ_API_KEY starts with: {GROQ_KEY[:8]}... length: {len(GROQ_KEY)}")
+GROQ_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 
-MODEL         = "llama-3.3-70b-versatile"
+# ── Primary reasoning brain (configurable provider) ───────────────────────────
+# Point at Kimi:   LLM_API_KEY=<moonshot key>
+#                  LLM_BASE_URL=https://api.moonshot.ai/v1
+#                  LLM_MODEL=kimi-k2-0905-preview   (or kimi-latest)
+# Default: Groq Llama.
+LLM_API_KEY  = os.environ.get("LLM_API_KEY", GROQ_KEY).strip()
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.groq.com/openai/v1").strip()
+MODEL        = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile").strip()
+
+if not LLM_API_KEY:
+    raise RuntimeError("Set LLM_API_KEY (or GROQ_API_KEY) for the chat model.")
+
+_client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+log.info(f"LLM brain: base={LLM_BASE_URL} model={MODEL}")
+
+# ── Groq client for audio (Whisper) + vision ──────────────────────────────────
 WHISPER_MODEL = os.environ.get("GROQ_WHISPER_MODEL", "whisper-large-v3").strip()
 VISION_MODEL  = os.environ.get("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct").strip()
-
-_client = OpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1")
+_groq_client  = OpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1") if GROQ_KEY else None
 
 
 def chat(messages: list, temperature: float = 0.7) -> str:
@@ -86,7 +101,9 @@ def reason_loop(messages: list, tools: list, tool_impls: dict,
 
 def transcribe(file_bytes: bytes, filename: str = "voice.ogg") -> str:
     """Transcribe an audio clip via Groq Whisper. Returns the text."""
-    resp = _client.audio.transcriptions.create(
+    if _groq_client is None:
+        raise RuntimeError("GROQ_API_KEY not set — voice transcription unavailable.")
+    resp = _groq_client.audio.transcriptions.create(
         model=WHISPER_MODEL,
         file=(filename, file_bytes),
     )
@@ -95,9 +112,11 @@ def transcribe(file_bytes: bytes, filename: str = "voice.ogg") -> str:
 
 def vision(image_bytes: bytes, prompt: str, mime: str = "image/jpeg", temperature: float = 0.3) -> str:
     """Ask the vision model about an image. Returns the text content."""
+    client = _groq_client or _client       # prefer Groq for vision; fall back to brain
+    model  = VISION_MODEL if _groq_client else MODEL
     b64 = base64.b64encode(image_bytes).decode()
-    resp = _client.chat.completions.create(
-        model=VISION_MODEL,
+    resp = client.chat.completions.create(
+        model=model,
         messages=[{
             "role": "user",
             "content": [

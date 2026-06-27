@@ -98,19 +98,34 @@ def today_summary() -> str:
 
 
 # ── Expense detection ─────────────────────────────────────────────────────────
-EXPENSE_TRIGGERS = re.compile(
-    r"^(\$|rs\.?|rupees?|inr)?\s*\d|"
-    r"\b(spent|paid|bought|purchased|expense|cost|charged|bill)\b",
+# Strong verbs that almost always mean a purchase.
+EXPENSE_KEYWORDS = re.compile(
+    r"\b(spent|paid|bought|purchased|expense|cost|costs|charged|recharge|"
+    r"shopping|ordered|subscription)\b",
+    re.IGNORECASE,
+)
+# An explicit currency amount, e.g. "rs 500", "$20", "inr 1200".
+CURRENCY_AMOUNT = re.compile(r"^\s*(\$|rs\.?|inr|rupees?)\s*\d", re.IGNORECASE)
+# A leading amount immediately followed by a word, e.g. "1200 amazon".
+LEADING_AMOUNT = re.compile(r"^\s*\d+(?:\.\d+)?\s*(?:rs|rupees?|inr|\$)?\s+[a-z]", re.IGNORECASE)
+# Words that mean this is fitness/health talk, NOT money — overrides everything.
+NON_EXPENSE = re.compile(
+    r"\b(weight|kg|kgs|kilo|kilos|reps?|sets?|feeling|feel|slept|sleep|"
+    r"hours?|steps?|calories?|protein|workout|tired|sore)\b",
     re.IGNORECASE,
 )
 
-COMMAND_PATTERN = re.compile(
-    r"^!(expenses?|spending|budget|summary|monthly|today)",
-    re.IGNORECASE,
-)
 
 def is_expense_message(text: str) -> bool:
-    return bool(EXPENSE_TRIGGERS.search(text)) or bool(COMMAND_PATTERN.match(text))
+    if NON_EXPENSE.search(text):
+        return False
+    if EXPENSE_KEYWORDS.search(text):
+        return True
+    if CURRENCY_AMOUNT.search(text):
+        return True
+    if LEADING_AMOUNT.search(text):
+        return True
+    return False
 
 
 # ── System prompt for expense parsing ────────────────────────────────────────

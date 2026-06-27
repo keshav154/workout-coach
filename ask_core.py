@@ -8,7 +8,7 @@ import logging
 from collections import defaultdict
 from datetime import date
 
-from llm import reason_loop
+from llm import chat, reason_loop
 from agent_core import (
     PROGRAM,
     get_weight_trend,
@@ -145,6 +145,26 @@ TOOL_IMPLS = {
 }
 
 
+def _answer_without_tools(question: str) -> str:
+    """Fallback for providers/models that don't support tool calling: dump all
+    data into one prompt and answer in a single call."""
+    context = "\n\n".join([
+        query_profile(),
+        query_weight(),
+        query_workouts(),
+        query_spending(),
+    ])
+    messages = [
+        {"role": "system", "content": (
+            f"You are the user's personal data analyst. Today is {date.today().isoformat()}. "
+            "Answer ONLY from the DATA provided. Never invent numbers; if it's not there, say so. "
+            "Be concise and specific with dates, counts and amounts. Use Rs for rupees. Plain text only."
+        )},
+        {"role": "user", "content": f"DATA:\n{context}\n\nQUESTION: {question}"},
+    ]
+    return chat(messages, temperature=0.2) or "I couldn't find an answer in your data."
+
+
 def answer_question(question: str) -> str:
     if not question.strip():
         return ("Ask me anything about your training, weight, meals, or spending.\n"
@@ -165,5 +185,10 @@ def answer_question(question: str) -> str:
     try:
         return reason_loop(messages, TOOLS, TOOL_IMPLS, max_steps=5) or "I couldn't find an answer."
     except Exception as e:
-        log.error(f"ask reasoning error: {e}", exc_info=True)
-        return "Couldn't process that question. Try rephrasing."
+        # Model/provider may not support tool calling — fall back to single-shot.
+        log.warning(f"Tool-calling reasoning failed ({e}); using no-tools fallback.")
+        try:
+            return _answer_without_tools(question)
+        except Exception as e2:
+            log.error(f"ask fallback error: {e2}", exc_info=True)
+            return "Couldn't process that question. Try rephrasing."

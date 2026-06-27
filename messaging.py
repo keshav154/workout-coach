@@ -34,9 +34,7 @@ from agent_core import (
     try_parse_profile_update,
 )
 from expense_core import (
-    build_expense_prompt,
     build_review_prompt,
-    is_expense_message,
     log_expense,
     monthly_summary,
     save_budget,
@@ -84,7 +82,7 @@ EXPENSE_HELP = (
 def _strip_hidden(text: str) -> str:
     """Remove hidden control blocks, robust to an unclosed <THINK> tag."""
     text = re.sub(
-        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE|THINK)>.*?</\1>",
+        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE|LOG_EXPENSE|THINK)>.*?</\1>",
         "", text, flags=re.DOTALL,
     )
     if "<THINK>" in text:                       # unclosed reasoning block
@@ -116,6 +114,7 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
     pr_msgs        = []
 
     validation_warning = ""
+    expense_suffix     = ""
     if parsed_profile:
         save_profile(parsed_profile)
     elif is_setup:
@@ -141,10 +140,30 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         if parsed_mem or pr_msgs:
             save_memory(mem)
 
+        # Unified brain may also log an expense in the same turn
+        parsed_expense = try_parse_expense(full)
+        if parsed_expense and parsed_expense.get("amount", 0) > 0:
+            ok, reason = validate_expense(parsed_expense["amount"])
+            if ok:
+                entry = log_expense(
+                    amount=float(parsed_expense["amount"]),
+                    description=parsed_expense.get("description", ""),
+                    category=parsed_expense.get("category", "Other"),
+                    note=parsed_expense.get("note", ""),
+                )
+                record_audit("expense",
+                             f"Rs {entry['amount']:,.0f} {entry['category']} — {entry['description']}",
+                             ref=entry.get("id"))
+                expense_suffix = f"\n\n💸 Logged Rs {entry['amount']:,.0f} under {entry['category']}."
+            else:
+                validation_warning = (validation_warning + " " + reason).strip()
+
     display = _strip_hidden(full)
 
     if pr_msgs:
         display += "\n\n" + "\n".join(f"🎉 {m}" for m in pr_msgs)
+    if expense_suffix:
+        display += expense_suffix
     if validation_warning:
         display += f"\n\n⚠️ {validation_warning}"
 
@@ -196,42 +215,6 @@ def _generate_review() -> str:
     except Exception as e:
         log.error(f"Review error: {e}")
         return "Could not generate review. Try again."
-
-
-def _handle_expense_message(text: str, source: str) -> str:
-    key     = f"{source}_expense"
-    history = load_history(key)
-    history.append({"role": "user", "content": text})
-    try:
-        messages = [{"role": "system", "content": build_expense_prompt()}] + history
-        full     = chat(messages, temperature=0.3)
-        parsed   = try_parse_expense(full)
-        display  = re.sub(r"<LOG_EXPENSE>.*?</LOG_EXPENSE>", "", full, flags=re.DOTALL).strip()
-
-        if parsed and parsed.get("amount", 0) > 0:
-            ok, reason = validate_expense(parsed["amount"])
-            if not ok:
-                return reason
-            entry = log_expense(
-                amount=float(parsed["amount"]),
-                description=parsed.get("description", text),
-                category=parsed.get("category", "Other"),
-                note=parsed.get("note", ""),
-            )
-            record_audit("expense",
-                         f"Rs {entry['amount']:,.0f} {entry['category']} — {entry['description']}",
-                         ref=entry.get("id"))
-            reply = display or f"Logged Rs {parsed['amount']:,.0f} under {parsed.get('category','Other')}."
-        else:
-            log.warning(f"No expense parsed from: {full[:200]}")
-            reply = display or "Got it. Type !expenses to see your summary."
-
-        history.append({"role": "assistant", "content": reply})
-        save_history(key, history[-10:])
-        return reply
-    except Exception as e:
-        log.error(f"Expense error: {e}", exc_info=True)
-        return "Could not log expense. Try: spent 500 on groceries"
 
 
 def _handle_workout_message(text: str, cmd: str, source: str) -> str:
@@ -364,9 +347,7 @@ def process_message(text: str, source: str = "web") -> str:
         reset_history(f"{source}_expense")
         return "Conversation reset! Send 'hi' to begin."
 
-    # Auto-detected expense logging
-    if is_expense_message(text):
-        return _handle_expense_message(text, source)
-
-    # Conversational coaching
+    # Everything else goes to the single unified brain, which sees the full
+    # conversation history and decides intent (workout / weight / nutrition /
+    # expense) with full context — no brittle regex routing.
     return _handle_workout_message(text, cmd, source)
