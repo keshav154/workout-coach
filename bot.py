@@ -77,6 +77,68 @@ def index():
     return render_template("index.html")
 
 
+# ── PWA: manifest, service worker, icon (served openly so the app can install) ─
+@flask_app.route("/manifest.webmanifest")
+def manifest():
+    return jsonify({
+        "name": "CoachX",
+        "short_name": "CoachX",
+        "description": "Your personal AI fitness & finance coach",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#0a0a0f",
+        "theme_color": "#0a0a0f",
+        "icons": [
+            {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml",
+             "purpose": "any maskable"},
+        ],
+    }), 200, {"Content-Type": "application/manifest+json"}
+
+
+@flask_app.route("/sw.js")
+def service_worker():
+    js = """
+const CACHE = 'coachx-v2';
+self.addEventListener('install', e => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
+});
+self.addEventListener('activate', e => {
+  e.waitUntil(Promise.all([
+    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))),
+    self.clients.claim(),
+  ]));
+});
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return;                 // never cache POSTs (chat/log)
+  if (req.mode === 'navigate') {                    // app shell: network, fallback to cache
+    e.respondWith(fetch(req).catch(() => caches.match('/')));
+  }
+});
+""".strip()
+    return js, 200, {"Content-Type": "application/javascript"}
+
+
+@flask_app.route("/icon.svg")
+def app_icon():
+    svg = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6c63ff"/>
+      <stop offset="1" stop-color="#ff6584"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <path d="M286 80 154 300h84l-28 132 132-220h-84z" fill="#fff"/>
+</svg>
+""".strip()
+    return svg, 200, {"Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400"}
+
+
 @flask_app.route("/chat", methods=["POST"])
 @require_auth
 def chat_route():
