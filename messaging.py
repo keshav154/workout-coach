@@ -7,6 +7,7 @@ the reply text. `source` is the history-key prefix (e.g. "web", "whatsapp",
 "discord"); expense history is stored under f"{source}_expense".
 """
 
+import json
 import logging
 import re
 
@@ -44,27 +45,30 @@ from expense_core import (
 from trust import record_audit, undo_last, validate_expense, validate_session
 from ask_core import answer_question
 from monitor import get_status
+from progression import format_progression_block, progress_summary
+from checkin import format_checkin_block, parse_checkin_command, save_checkin
+from goals import (
+    clear_goals,
+    format_goals_block,
+    goals_status,
+    parse_goal_command,
+    set_goal,
+)
 
 log = logging.getLogger(__name__)
 
 HELP_MSG = (
-    "Workout commands:\n"
-    "!workout - today's workout\n"
-    "!done - log session + nutrition\n"
-    "!weight 97.5 - log weight\n"
-    "!days 5 - set workouts per week\n"
-    "!summary - last session recap\n"
-    "!undo - reverse the last log\n"
-    "!reset - fresh conversation\n\n"
-    "Expense tracking:\n"
-    "spent 500 on groceries\n"
-    "paid 200 petrol\n"
-    "!expenses - monthly summary\n"
-    "!review - AI analysis of your spending\n\n"
-    "Ask anything:\n"
-    "!ask how many workouts in June\n"
-    "!ask what did I spend on food last month\n"
-    "!status - system health"
+    "Just talk to me normally — no commands needed. For example:\n\n"
+    "\"what's my workout today?\"\n"
+    "\"done, benched 18kg for 10\"\n"
+    "\"slept 6 hours, feeling sore\"\n"
+    "\"I want to reach 90kg by September\"\n"
+    "\"spent 500 on groceries\"\n"
+    "\"how much did I spend on food this month?\"\n"
+    "\"how's my progress / any plateaus?\"\n"
+    "\"undo that\"\n\n"
+    "Optional shortcuts if you prefer: !workout, !done, !progress, "
+    "!goals, !expenses, !review, !undo, !status, !reset."
 )
 
 EXPENSE_HELP = (
@@ -79,6 +83,16 @@ EXPENSE_HELP = (
 )
 
 
+def _parse_block(tag: str, text: str) -> dict | None:
+    m = re.search(rf"<{tag}>\s*(\{{.*?\}})\s*</{tag}>", text, re.DOTALL | re.IGNORECASE)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            return None
+    return None
+
+
 def _strip_hidden(text: str) -> str:
     """Strip private reasoning + control blocks, robust across models/formats."""
     # Primary mechanism: keep only what follows the explicit reply marker.
@@ -86,9 +100,10 @@ def _strip_hidden(text: str) -> str:
         text = text.rsplit("===REPLY===", 1)[-1]
     # Remove well-formed control/reasoning blocks (case-insensitive).
     text = re.sub(
-        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE|LOG_EXPENSE|THINK|THINKING)>.*?</\1>",
+        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE|LOG_EXPENSE|CHECKIN|SET_GOAL|UPDATE_PROFILE|UNDO|THINK|THINKING)>.*?</\1>",
         "", text, flags=re.DOTALL | re.IGNORECASE,
     )
+    text = re.sub(r"<UNDO\s*/?>", "", text, flags=re.IGNORECASE)   # self-closing undo
     # Fallback: drop an unclosed/loose reasoning block if the marker was absent.
     if re.search(r"<\s*think", text, re.IGNORECASE):
         text = re.sub(r"<\s*think.*$", "", text, flags=re.DOTALL | re.IGNORECASE)
@@ -108,7 +123,13 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         mem         = load_memory()
         day         = get_next_day(workout_log)
         last        = get_last_session_for_day(workout_log, day)
-        system      = build_system_prompt(day, last, workout_log, mem, profile)
+        extra = "\n\n".join(filter(None, [
+            format_checkin_block(log=workout_log),
+            format_progression_block(workout_log),
+            format_goals_block(),
+            "SPENDING THIS MONTH (for any money questions):\n" + monthly_summary(),
+        ]))
+        system = build_system_prompt(day, last, workout_log, mem, profile, extra_context=extra)
 
     messages = [{"role": "system", "content": system}] + history
     full     = chat(messages, temperature=0.7)
@@ -144,6 +165,28 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
             apply_memory_update(mem, {"personal_records": pr_msgs})
         if parsed_mem or pr_msgs:
             save_memory(mem)
+
+        # Natural-language actions (check-in, goal, undo, profile tweak)
+        ck = _parse_block("CHECKIN", full)
+        if ck and any(ck.get(k) is not None for k in ("sleep_hours", "energy", "soreness")):
+            save_checkin(sleep_hours=ck.get("sleep_hours"), energy=ck.get("energy"),
+                         soreness=ck.get("soreness"))
+            expense_suffix += "\n\n✅ Check-in saved."
+        gl = _parse_block("SET_GOAL", full)
+        if gl and gl.get("target"):
+            set_goal(kind=gl.get("kind", "weight"), target=gl["target"],
+                     by_date=gl.get("by_date"), exercise=gl.get("exercise"))
+            expense_suffix += "\n\n🎯 Goal set."
+        if re.search(r"<UNDO\s*/?>|<UNDO>\s*</UNDO>", full, re.IGNORECASE):
+            expense_suffix += "\n\n" + undo_last()
+        up = _parse_block("UPDATE_PROFILE", full)
+        if up and up.get("days_per_week"):
+            try:
+                profile["days_per_week"] = int(up["days_per_week"])
+                save_profile(profile)
+                expense_suffix += f"\n\n📅 Now training {profile['days_per_week']} days/week."
+            except (ValueError, TypeError):
+                pass
 
         # Unified brain may also log an expense in the same turn
         parsed_expense = try_parse_expense(full)
@@ -331,6 +374,32 @@ def process_message(text: str, source: str = "web") -> str:
         return undo_last()
     if cmd == "!status":
         return get_status()
+
+    # Progression, check-in, goals
+    if cmd in ("!progress", "!progression"):
+        return progress_summary()
+    if cmd.startswith("!checkin"):
+        parsed = parse_checkin_command(text)
+        if not parsed:
+            return ("Daily check-in — log sleep, energy, soreness:\n"
+                    "!checkin 7 8 3   (sleep hours, energy 1-10, soreness 1-10)\n"
+                    "or !checkin sleep=7 energy=8 soreness=3")
+        save_checkin(**parsed)
+        return "Check-in saved. " + format_checkin_block()
+    if cmd in ("!goals", "!goal") and len(text.split()) == 1:
+        return goals_status()
+    if cmd.startswith("!goal clear"):
+        n = clear_goals()
+        return f"Cleared {n} goal(s)."
+    if cmd.startswith("!goal "):
+        parsed = parse_goal_command(text)
+        if not parsed:
+            return ("Set a goal:\n"
+                    "!goal weight 90 by 2026-09-01\n"
+                    "!goal lift bench 24\n"
+                    "!goals to view, !goal clear to reset")
+        set_goal(**parsed)
+        return "Goal set!\n\n" + goals_status()
 
     # Workout no-agent commands
     if cmd.startswith("!days"):

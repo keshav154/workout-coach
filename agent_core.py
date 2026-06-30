@@ -530,7 +530,8 @@ def format_program_block(day: str, last_session: dict | None) -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dict, profile: dict) -> str:
+def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dict, profile: dict,
+                        extra_context: str = "") -> str:
     targets = compute_targets(profile)
     today_str = date.today().isoformat()
     cal_target = get_adjusted_calorie_target(mem, targets["calorie_target"])
@@ -566,6 +567,8 @@ USER PROFILE:
 
 {format_memory_block(mem)}
 
+{extra_context}
+
 {format_program_block(day, last_session)}
 
 REASONING (do this before EVERY reply):
@@ -577,6 +580,12 @@ First reason privately, THEN output a line containing exactly ===REPLY=== and AF
 CRITICAL: Never let any reasoning appear after ===REPLY===. After the marker, write only the clean message the user should see. Always include the ===REPLY=== marker.
 
 YOUR RESPONSIBILITIES:
+
+RECOVERY, PROGRESSION & GOALS:
+- If a RECOVERY READINESS score is shown above, let it guide intensity: 8-10 push for progression or a PR; 5-7 train as planned; 1-4 back off 10-15% and briefly say why (sleep/energy/soreness).
+- If PLATEAUS are listed, address them: suggest deloading that lift ~10% and rebuilding, or swapping to a variation. Mention it naturally during the session.
+- If ACTIVE GOALS are shown, reference them to motivate and tie today's work to the goal and its pace.
+- If the user reports pain or can't do a movement today, offer a sensible alternative that trains the same muscle with their equipment (dumbbells, bench, bands).
 
 WEEKLY WEIGH-IN (first_this_week={first_this_week}):
 - Ask weight ONLY if first_this_week is True (first session of this calendar week).
@@ -688,6 +697,18 @@ LOGGING - output the relevant hidden block(s) only when appropriate (hidden from
 
 Output UPDATE_MEMORY immediately when user mentions weight, injury, PR, or preference.
 Only include keys with new items. Omit empty lists.
+
+NATURAL ACTIONS — the user should NEVER need to type a command. When they express any of these in plain language, emit the matching hidden block (in addition to your normal reply). Infer values from what they said; omit fields they didn't give.
+- They mention sleep / energy / soreness / how recovered they feel:
+  <CHECKIN>{{"sleep_hours": 7, "energy": 8, "soreness": 3}}</CHECKIN>
+- They state a goal ("I want to reach 90 kg by September", "get my bench to 24"):
+  <SET_GOAL>{{"kind": "weight", "target": 90, "by_date": "2026-09-01"}}</SET_GOAL>
+  or for a lift: <SET_GOAL>{{"kind": "lift", "exercise": "bench", "target": 24}}</SET_GOAL>
+- They ask to undo / remove / delete the last thing logged:
+  <UNDO></UNDO>
+- They want to change how many days per week they train:
+  <UPDATE_PROFILE>{{"days_per_week": 5}}</UPDATE_PROFILE>
+For QUESTIONS about progress, plateaus, goals, spending, or recovery, just ANSWER from the data already provided above — never tell the user to run a command.
 
 TONE: encouraging, brief, mobile-friendly. One idea per message.
 """

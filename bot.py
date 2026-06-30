@@ -224,6 +224,66 @@ def stats():
     })
 
 
+@flask_app.route("/today_program")
+@require_auth
+def today_program():
+    from agent_core import get_last_session_for_day
+    profile = load_profile()
+    if not profile_complete(profile):
+        return jsonify({"ready": False})
+    workout_log = load_log()
+    day  = get_next_day(workout_log)
+    p    = PROGRAM.get(day, {})
+    last = get_last_session_for_day(workout_log, day)
+    exercises = []
+    for ex in p.get("exercises", []):
+        prev = None
+        if last:
+            prev = next((e for e in last.get("exercises", []) if e["name"] == ex["name"]), None)
+        exercises.append({
+            "name":        ex["name"],
+            "sets":        ex["sets"],
+            "rep_range":   ex["rep_range"],
+            "scheme":      ex.get("scheme"),
+            "last_weight": prev.get("weight") if prev else None,
+            "last_reps":   prev.get("reps_done") if prev else None,
+        })
+    return jsonify({"ready": True, "day": day, "name": p.get("name", ""), "exercises": exercises})
+
+
+@flask_app.route("/log_workout", methods=["POST"])
+@require_auth
+def log_workout():
+    from datetime import date as _date
+    from agent_core import (apply_memory_update, detect_prs, load_memory,
+                            save_memory, save_session)
+    from trust import record_audit, validate_session
+
+    data      = request.json or {}
+    day       = data.get("day")
+    exercises = [e for e in data.get("exercises", []) if e.get("weight") or e.get("reps_done")]
+    if not day or not exercises:
+        return jsonify({"error": "Nothing to log — fill in at least one exercise."}), 400
+
+    session = {"day": day, "date": _date.today().isoformat(), "exercises": exercises}
+    if data.get("body_weight_kg"):
+        session["body_weight_kg"] = data["body_weight_kg"]
+
+    ok, reason, cleaned = validate_session(session)
+    if not ok:
+        return jsonify({"error": reason}), 400
+
+    workout_log = load_log()
+    prs = detect_prs(workout_log, cleaned)
+    save_session(workout_log, cleaned)
+    record_audit("session", f"Day {day} (workout mode) on {cleaned['date']}")
+    if prs:
+        mem = load_memory()
+        apply_memory_update(mem, {"personal_records": prs})
+        save_memory(mem)
+    return jsonify({"ok": True, "prs": prs})
+
+
 @flask_app.route("/profile_status")
 @require_auth
 def profile_status():
