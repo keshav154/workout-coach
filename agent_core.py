@@ -80,77 +80,89 @@ def compute_targets(profile: dict) -> dict:
         "protein_target_g": protein_g,
     }
 
-# ── 4-day body-part split (no treadmill; incline-decline bench) ──────────────
+# ── 6-day Push/Pull/Legs x2 (each muscle trained twice per week) ─────────────
 PROGRAM = {
     "A": {
-        "name":    "Chest + Triceps",
-        "focus":   "chest, triceps",
-        "warmup":  "5 min treadmill brisk walk, then 1 light set each exercise",
+        "name":    "Push (Chest focus)",
+        "focus":   "chest, front/side delts, triceps",
+        "warmup":  "5 min treadmill brisk walk, then 1 light set each press",
         "exercises": [
-            {"name": "Dumbbell Flat Bench Press",          "sets": 4, "rep_range": "8-12",  "form": "Retract shoulder blades, lower dumbbells to mid-chest, press straight up."},
-            {"name": "Dumbbell Incline Bench Press",        "sets": 3, "rep_range": "8-12",  "form": "Set bench to 30-45 degrees, keep elbows at 45 degrees from body."},
-            {"name": "Dumbbell Decline Bench Press",        "sets": 3, "rep_range": "8-12",  "form": "Lower chest target, keep core tight, controlled descent."},
-            {"name": "Dumbbell Chest Fly (flat)",           "sets": 3, "rep_range": "10-12", "form": "Slight bend in elbows throughout, feel the stretch at the bottom."},
-            {"name": "Tricep Overhead Extension",           "sets": 3, "rep_range": "10-12", "form": "Keep elbows pointing forward, only forearms move."},
-            {"name": "Resistance Band Tricep Pushdown",     "sets": 3, "rep_range": "12-15", "form": "Elbows pinned to sides, full extension at bottom, squeeze triceps."},
+            {"name": "Dumbbell Flat Bench Press",      "sets": 4, "rep_range": "8-12",  "form": "Retract shoulder blades, lower to mid-chest, press straight up."},
+            {"name": "Dumbbell Incline Bench Press",   "sets": 4, "rep_range": "8-12",  "form": "Bench at 30-45 degrees, targets upper chest."},
+            {"name": "Dumbbell Flat Chest Fly",        "sets": 3, "rep_range": "10-12", "form": "Slight elbow bend, wide arc, stretch at the bottom."},
+            {"name": "Dumbbell Overhead Press",        "sets": 3, "rep_range": "8-12",  "form": "Press straight up, brace core — front delts."},
+            {"name": "Dumbbell Lateral Raise",         "sets": 3, "rep_range": "12-15", "form": "Lead with elbows, stop at shoulder height — side delts."},
+            {"name": "Tricep Overhead Extension",      "sets": 3, "rep_range": "10-12", "form": "Elbows forward, only forearms move."},
         ],
     },
     "B": {
-        "name":    "Back + Biceps",
-        "focus":   "lats, rhomboids, rear delts, biceps",
+        "name":    "Pull (Back thickness)",
+        "focus":   "lats, mid-back, traps, rear delts, biceps",
         "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
         "exercises": [
-            {"name": "Dumbbell Bent-Over Row",              "sets": 4, "rep_range": "8-12",  "form": "Hinge at hips 45 degrees, pull to hip, squeeze shoulder blade at top."},
-            {"name": "Dumbbell Single-Arm Row",             "sets": 3, "rep_range": "8-12",  "form": "Support on bench, pull elbow past torso, keep back flat."},
-            {"name": "Resistance Band Lat Pulldown",        "sets": 3, "rep_range": "12-15", "form": "Pull elbows down and back, lean slightly back, squeeze lats."},
-            {"name": "Resistance Band Face Pull",           "sets": 3, "rep_range": "15",    "form": "Pull to forehead level, elbows high, externally rotate at end."},
-            {"name": "Dumbbell Bicep Curl",                 "sets": 3, "rep_range": "10-12", "form": "Elbows fixed at sides, full range, squeeze at top."},
-            {"name": "Hammer Curl",                         "sets": 3, "rep_range": "10-12", "form": "Neutral grip (thumbs up), targets brachialis for arm thickness."},
+            {"name": "Dumbbell Bent-Over Row",         "sets": 4, "rep_range": "8-12",  "form": "Hinge ~45 degrees, pull to hip, squeeze shoulder blades."},
+            {"name": "Dumbbell Single-Arm Row",        "sets": 3, "rep_range": "8-12",  "form": "Support on bench, pull elbow past torso, flat back."},
+            {"name": "Resistance Band Lat Pulldown",   "sets": 3, "rep_range": "12-15", "form": "Pull elbows down and back, squeeze lats."},
+            {"name": "Dumbbell Shrug",                 "sets": 3, "rep_range": "12-15", "form": "Lift shoulders straight to ears, pause — traps."},
+            {"name": "Resistance Band Face Pull",      "sets": 3, "rep_range": "15",    "form": "Pull to forehead, elbows high — rear delts/posture."},
+            {"name": "Dumbbell Bicep Curl",            "sets": 3, "rep_range": "10-12", "form": "Elbows fixed at sides, full range, squeeze at top."},
         ],
     },
     "C": {
-        "name":    "Shoulders + Arms",
-        "focus":   "deltoids, biceps, triceps",
-        "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
+        "name":    "Legs (Quad focus)",
+        "focus":   "quads, glutes, calves",
+        "warmup":  "5 min treadmill incline walk + bodyweight squats 2x15",
         "exercises": [
-            {"name": "Dumbbell Overhead Press",             "sets": 4, "rep_range": "8-12",  "form": "Press straight up, don't flare elbows too wide, slight forward lean ok."},
-            {"name": "Dumbbell Lateral Raise",              "sets": 3, "rep_range": "12-15", "form": "Lead with elbows, slight forward angle, stop at shoulder height."},
-            {"name": "Dumbbell Front Raise",                "sets": 3, "rep_range": "12-15", "form": "Slight bend in elbow, raise to eye level, controlled descent."},
-            {"name": "Resistance Band Rear Delt Fly",       "sets": 3, "rep_range": "15",    "form": "Hinge forward, arms wide, squeeze rear delts at peak."},
-            {"name": "Dumbbell Bicep Curl",                 "sets": 3, "rep_range": "10-12", "form": "Elbows fixed at sides, full range, squeeze at top."},
-            {"name": "Tricep Overhead Extension",           "sets": 3, "rep_range": "10-12", "form": "Keep elbows pointing forward, only forearms move."},
+            {"name": "Goblet Squat",                   "sets": 4, "rep_range": "10-12", "form": "Dumbbell at chest, squat deep, knees over toes, chest up."},
+            {"name": "Bulgarian Split Squat (bench)",  "sets": 3, "rep_range": "10 each","form": "Rear foot on bench, drop straight down, drive through front heel."},
+            {"name": "Dumbbell Reverse Lunge",         "sets": 3, "rep_range": "10 each","form": "Step back, front knee ~90 degrees, don't let it cave in."},
+            {"name": "Romanian Deadlift",              "sets": 3, "rep_range": "10-12", "form": "Hinge at hips, soft knees, hamstring stretch, flat back."},
+            {"name": "Hip Thrust (shoulders on bench)","sets": 3, "rep_range": "12-15", "form": "Drive through heels, squeeze glutes at top."},
+            {"name": "Calf Raises",                    "sets": 4, "rep_range": "15-20", "form": "Full range — stretch at bottom, squeeze at top."},
         ],
     },
     "D": {
-        "name":    "Legs + Core",
-        "focus":   "quads, hamstrings, glutes, calves, core",
-        "warmup":  "5 min treadmill incline walk + bodyweight squats 2x15",
+        "name":    "Push (Shoulder focus)",
+        "focus":   "all 3 delts, upper chest, triceps",
+        "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
         "exercises": [
-            {"name": "Goblet Squat",                        "sets": 4, "rep_range": "10-12", "form": "Hold dumbbell at chest, squat deep, knees track over toes, chest up."},
-            {"name": "Romanian Deadlift",                   "sets": 3, "rep_range": "10-12", "form": "Hinge at hips, soft knee bend, feel hamstring stretch, back flat."},
-            {"name": "Dumbbell Reverse Lunge",              "sets": 3, "rep_range": "10 each","form": "Step back, front knee at 90 degrees, don't let it cave inward."},
-            {"name": "Hip Thrust (shoulders on bench)",     "sets": 3, "rep_range": "12-15", "form": "Drive through heels, squeeze glutes at top, chin tucked."},
-            {"name": "Dumbbell Step-Up (on bench)",         "sets": 3, "rep_range": "10 each","form": "Drive through the heel on the bench, don't push off back foot."},
-            {"name": "Calf Raises",                         "sets": 3, "rep_range": "15-20", "form": "Full range — stretch at bottom, pause and squeeze at top."},
+            {"name": "Dumbbell Overhead Press",        "sets": 4, "rep_range": "8-12",  "form": "Press straight up, don't over-flare elbows."},
+            {"name": "Dumbbell Arnold Press",          "sets": 3, "rep_range": "10-12", "form": "Rotate palms in-to-out as you press — full delt hit."},
+            {"name": "Dumbbell Lateral Raise",         "sets": 4, "rep_range": "12-15", "form": "Lead with elbows — side delts, the key to width."},
+            {"name": "Dumbbell Front Raise",           "sets": 3, "rep_range": "12-15", "form": "Slight elbow bend, raise to eye level — front delts."},
+            {"name": "Dumbbell Incline Bench Press",   "sets": 3, "rep_range": "8-12",  "form": "Upper-chest press to round out the push."},
+            {"name": "Dumbbell Skull Crusher (bench)", "sets": 3, "rep_range": "10-12", "form": "Lower dumbbells beside head, extend, elbows tucked — triceps."},
         ],
     },
     "E": {
-        "name":    "Cardio + Core",
-        "focus":   "conditioning, core, fat loss",
-        "warmup":  "5 min treadmill easy walk to raise heart rate",
+        "name":    "Pull (Back width + arms)",
+        "focus":   "lats, rear delts, traps, biceps, forearms",
+        "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
         "exercises": [
-            {"name": "Treadmill Intervals",   "sets": 1, "rep_range": "20 min", "scheme": "20 min: 1 min fast / 2 min walk, repeat", "form": "Push the pace on the fast minute, fully recover on the walk."},
-            {"name": "Treadmill Incline Walk", "sets": 1, "rep_range": "10 min", "scheme": "10 min steady at 8-12 incline",          "form": "Tall posture, no holding the rails, brisk pace."},
-            {"name": "Plank",                 "sets": 3, "rep_range": "30-60 sec", "scheme": "3 x 30-60 sec hold", "form": "Straight line head to heels, brace your core, don't sag hips."},
-            {"name": "Mountain Climbers",     "sets": 3, "rep_range": "20 each", "form": "Hips low, drive knees to chest quickly, steady breathing."},
-            {"name": "Dumbbell Russian Twist", "sets": 3, "rep_range": "15 each", "form": "Lean back slightly, rotate from the torso, control the dumbbell."},
-            {"name": "Lying Leg Raise",       "sets": 3, "rep_range": "12-15", "form": "Lower legs slowly, keep lower back pressed to the floor."},
-            {"name": "Bicycle Crunch",        "sets": 3, "rep_range": "20 each", "form": "Opposite elbow to knee, slow and controlled, full extension."},
+            {"name": "Dumbbell Single-Arm Row",        "sets": 4, "rep_range": "8-12",  "form": "Heavy, full stretch and squeeze each rep."},
+            {"name": "Resistance Band Lat Pulldown",   "sets": 3, "rep_range": "12-15", "form": "Wide pull, drive elbows down — lat width."},
+            {"name": "Dumbbell Pullover (on bench)",   "sets": 3, "rep_range": "10-12", "form": "Arc dumbbell behind head, stretch lats, pull over."},
+            {"name": "Dumbbell Upright Row",           "sets": 3, "rep_range": "12-15", "form": "Pull up the body to chest height, elbows lead — traps/side delts."},
+            {"name": "Resistance Band Rear Delt Fly",  "sets": 3, "rep_range": "15",    "form": "Hinge forward, arms wide, squeeze rear delts."},
+            {"name": "Hammer Curl",                    "sets": 4, "rep_range": "10-12", "form": "Neutral grip — biceps and forearm thickness."},
+        ],
+    },
+    "F": {
+        "name":    "Legs (Posterior focus)",
+        "focus":   "hamstrings, glutes, quads, calves",
+        "warmup":  "5 min treadmill incline walk + bodyweight squats 2x15",
+        "exercises": [
+            {"name": "Romanian Deadlift",              "sets": 4, "rep_range": "10-12", "form": "Hinge deep, feel the hamstring stretch, flat back — main hamstring lift."},
+            {"name": "Hip Thrust (shoulders on bench)","sets": 4, "rep_range": "12-15", "form": "Drive through heels, hard glute squeeze at the top."},
+            {"name": "Goblet Squat",                   "sets": 3, "rep_range": "10-12", "form": "Deep squat, chest up, controlled."},
+            {"name": "Dumbbell Step-Up (on bench)",    "sets": 3, "rep_range": "10 each","form": "Drive through the bench-foot heel, don't push off the back foot."},
+            {"name": "Dumbbell Reverse Lunge",         "sets": 3, "rep_range": "10 each","form": "Controlled step back, upright torso."},
+            {"name": "Calf Raises",                    "sets": 4, "rep_range": "15-20", "form": "Full range, pause and squeeze at the top."},
         ],
     },
 }
 
-DAY_ROTATION = ["A", "B", "C", "D", "E"]
+DAY_ROTATION = ["A", "B", "C", "D", "E", "F"]
 
 DEFAULT_MEMORY = {
     "preferences":        [],
@@ -417,7 +429,7 @@ Ask ONE question at a time, in this order:
 4. Height in cm
 5. Primary goal (lose fat / build muscle / body recomposition)
 6. Confirm their fitness level (beginner / some experience / intermediate)
-7. Confirm: 5 days per week training (or ask if different)
+7. Confirm: 6 days per week training (Push/Pull/Legs twice) — or ask if different
 8. Confirm: vegetarian Indian diet (or ask about diet)
 9. Any injuries or body parts to avoid?
 10. Have they been working out recently? (yes / no / used to but stopped)
@@ -435,7 +447,7 @@ Once you have ALL answers, output this hidden block (do not display to user):
   "height_cm": 0.0,
   "goal": "...",
   "level": "...",
-  "days_per_week": 5,
+  "days_per_week": 6,
   "diet": "vegetarian Indian",
   "session_min": "45-60",
   "activity_level": "sedentary",
@@ -453,7 +465,7 @@ Once you have ALL answers, output this hidden block (do not display to user):
 Fill recent_weights with the closest available dumbbell weights based on what they told you.
 If they are a complete beginner with no recent training, set all weights to 0 (coach will guide them live).
 
-Then immediately greet them warmly, show their calorie target, protein target, and tell them the 5-day split (A: Chest+Triceps, B: Back+Biceps, C: Shoulders+Arms, D: Legs+Core, E: Cardio+Core). Tell them to tap "Today's Workout" to begin.
+Then immediately greet them warmly, show their calorie target, protein target, and tell them the 6-day Push/Pull/Legs split that trains every muscle twice a week (A: Push-chest, B: Pull-back, C: Legs-quad, D: Push-shoulders, E: Pull-width+arms, F: Legs-posterior). Tell them to tap "Today's Workout" to begin.
 
 Equipment available: adjustable dumbbells (4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg), incline-decline bench, treadmill, resistance bands.
 Keep messages short, warm, and encouraging. Mobile-friendly plain text only.
@@ -581,8 +593,10 @@ MISSED WORKOUT DETECTION (long_gap={long_gap}, gap_days={gap_days}):
 - Resume normal progressive overload from next session onward.
 
 REST DAY SUGGESTION (consecutive_days={consecutive_days}):
-- If consecutive_days >= 3: recommend taking tomorrow as a rest day before starting the next session.
-- Mention it briefly at the end of the workout, not as a warning.
+- This is a 6-day Push/Pull/Legs cycle (A-F). The natural rest day is AFTER completing Legs (Posterior) / day F, i.e. after 6 sessions in a row.
+- If consecutive_days >= 6: recommend taking tomorrow as a full rest day before restarting the cycle at Push (Chest).
+- If consecutive_days is 3-5 but recovery readiness is low, gently offer an optional rest day — but don't push it; the split is designed to be run on consecutive days.
+- Mention it briefly at the end of the workout, never as a warning.
 
 DELOAD WEEK (suggest_deload={suggest_deload}):
 - If suggest_deload is True: tell the user this is deload week — use 60% of normal weights, same sets/reps.
