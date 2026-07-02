@@ -268,9 +268,11 @@ def _generate_review() -> str:
 def _handle_workout_message(text: str, cmd: str, source: str) -> str:
     history = load_history(source)
 
-    if cmd in ("!workout", "!start", "start", "hi", "hello"):
-        reset_history(source)
-        history = []
+    if cmd in ("!workout", "!start"):
+        # Explicit workout command — keep history for continuity, just ask.
+        user_msg = "What's my workout today?"
+    elif cmd in ("start", "hi", "hello", "hey") and not history:
+        # First-ever greeting starts things off; later greetings are normal chat.
         user_msg = "What's my workout today?"
     elif cmd == "!done":
         user_msg = "I finished today's workout. Let's log it and go through my nutrition."

@@ -182,7 +182,8 @@ def day_info():
 @flask_app.route("/stats")
 @require_auth
 def stats():
-    from datetime import date, timedelta
+    from datetime import timedelta
+    from agent_core import today as _today
     workout_log = load_log()
     mem         = load_memory()
     sessions    = workout_log.get("sessions", [])
@@ -197,7 +198,7 @@ def stats():
         except Exception:
             pass
 
-    today      = date.today()
+    today      = _today()
     week_start = today - timedelta(days=today.weekday())
     sessions_this_week = sum(
         1 for s in sessions if s.get("date", "") >= week_start.isoformat()
@@ -254,18 +255,33 @@ def today_program():
 @flask_app.route("/log_workout", methods=["POST"])
 @require_auth
 def log_workout():
-    from datetime import date as _date
     from agent_core import (apply_memory_update, detect_prs, load_memory,
-                            save_memory, save_session)
+                            save_memory, save_session, today_iso)
     from trust import record_audit, validate_session
 
     data      = request.json or {}
     day       = data.get("day")
-    exercises = [e for e in data.get("exercises", []) if e.get("weight") or e.get("reps_done")]
-    if not day or not exercises:
+    raw       = [e for e in data.get("exercises", []) if e.get("weight") or e.get("reps_done") or e.get("sets")]
+    if not day or not raw:
         return jsonify({"error": "Nothing to log — fill in at least one exercise."}), 400
 
-    session = {"day": day, "date": _date.today().isoformat(), "exercises": exercises}
+    # Normalize: keep per-set detail, and derive a summary weight/reps_done
+    # (the heaviest set) so PR detection and progression keep working.
+    exercises = []
+    for e in raw:
+        sets = [s for s in (e.get("sets") or []) if s.get("weight") or s.get("reps")]
+        item = {"name": e.get("name")}
+        if sets:
+            top = max(sets, key=lambda s: (float(s.get("weight") or 0), float(s.get("reps") or 0)))
+            item["weight"]    = float(top.get("weight") or 0)
+            item["reps_done"] = int(float(top.get("reps") or 0))
+            item["sets"]      = sets
+        else:
+            item["weight"]    = float(e.get("weight") or 0)
+            item["reps_done"] = int(float(e.get("reps_done") or 0))
+        exercises.append(item)
+
+    session = {"day": day, "date": today_iso(), "exercises": exercises}
     if data.get("body_weight_kg"):
         session["body_weight_kg"] = data["body_weight_kg"]
 
@@ -308,6 +324,39 @@ def delete_last_session():
     from agent_core import _col
     result = _col("workout_log").update_one({"_id": "log"}, {"$pop": {"sessions": 1}})
     return jsonify({"ok": True, "modified": result.modified_count})
+
+
+@flask_app.route("/repair_data", methods=["POST"])
+@require_auth
+def repair_data():
+    """Clean up existing sessions: drop duplicates (same date+day, keep the
+    latest), clamp future/invalid dates to today, and re-sort by date so the
+    day rotation is correct."""
+    from datetime import datetime
+    from agent_core import _col, today_iso
+    doc = _col("workout_log").find_one({"_id": "log"}) or {}
+    sessions = doc.get("sessions", [])
+    today = today_iso()
+
+    fixed_dates = 0
+    for s in sessions:
+        d = s.get("date", "")
+        try:
+            if not d or datetime.strptime(d, "%Y-%m-%d").date().isoformat() > today:
+                s["date"] = today; fixed_dates += 1
+        except ValueError:
+            s["date"] = today; fixed_dates += 1
+
+    # Dedup by (date, day), keeping the last occurrence
+    seen = {}
+    for s in sessions:
+        seen[(s.get("date"), s.get("day"))] = s
+    result = sorted(seen.values(), key=lambda s: s.get("date", ""))
+    removed = len(sessions) - len(result)
+
+    _col("workout_log").update_one({"_id": "log"}, {"$set": {"sessions": result}}, upsert=True)
+    return jsonify({"ok": True, "removed_duplicates": removed,
+                    "fixed_dates": fixed_dates, "remaining": len(result)})
 
 
 @flask_app.route("/health")

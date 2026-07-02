@@ -4,16 +4,15 @@ score derived from it — no wearable required. Feeds the coach's intensity call
 """
 
 import logging
-from datetime import date
 
-from agent_core import _col, get_consecutive_workout_days, load_log
+from agent_core import _col, get_consecutive_workout_days, load_log, today_iso
 
 log = logging.getLogger(__name__)
 
 
 def save_checkin(sleep_hours: float | None = None, energy: int | None = None,
                  soreness: int | None = None, note: str = "", day_str: str | None = None) -> dict:
-    day_str = day_str or date.today().isoformat()
+    day_str = day_str or today_iso()
     data = {}
     if sleep_hours is not None: data["sleep_hours"] = float(sleep_hours)
     if energy is not None:      data["energy"] = int(energy)
@@ -27,7 +26,7 @@ def save_checkin(sleep_hours: float | None = None, energy: int | None = None,
 
 
 def get_checkin(day_str: str | None = None) -> dict | None:
-    day_str = day_str or date.today().isoformat()
+    day_str = day_str or today_iso()
     doc = _col("checkin").find_one({"_id": day_str})
     if doc:
         doc.pop("_id", None)
@@ -37,7 +36,7 @@ def get_checkin(day_str: str | None = None) -> dict | None:
 
 def recovery_score(day_str: str | None = None, log: dict | None = None) -> tuple[int, list[str]]:
     """1-10 readiness from today's check-in (sleep, energy, soreness) + training streak."""
-    day_str = day_str or date.today().isoformat()
+    day_str = day_str or today_iso()
     log = log or load_log()
     score, reasons = 7, []
 
@@ -67,7 +66,7 @@ def recovery_score(day_str: str | None = None, log: dict | None = None) -> tuple
 
 
 def format_checkin_block(day_str: str | None = None, log: dict | None = None) -> str:
-    day_str = day_str or date.today().isoformat()
+    day_str = day_str or today_iso()
     c = get_checkin(day_str)
     score, reasons = recovery_score(day_str, log)
     lines = []

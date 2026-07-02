@@ -5,11 +5,11 @@ Philosophy: optimistic writes, but every write is validated and reversible.
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import datetime
 
 from bson import ObjectId
 
-from agent_core import _col
+from agent_core import _col, today
 
 log = logging.getLogger(__name__)
 
@@ -20,18 +20,18 @@ BACKUP_COLLECTIONS = ["profile", "workout_log", "memory", "expenses", "budget", 
 def validate_session(s: dict) -> tuple[bool, str, dict]:
     """Sanity-check a parsed session. Returns (ok, reason_if_not, cleaned)."""
     s = dict(s)
-    today = date.today()
+    now = today()
 
     # Date: never future, never garbage — default to today
     d = s.get("date")
     if not d or d == "YYYY-MM-DD":
-        s["date"] = today.isoformat()
+        s["date"] = now.isoformat()
     else:
         try:
-            if datetime.strptime(d, "%Y-%m-%d").date() > today:
-                s["date"] = today.isoformat()
+            if datetime.strptime(d, "%Y-%m-%d").date() > now:
+                s["date"] = now.isoformat()
         except ValueError:
-            s["date"] = today.isoformat()
+            s["date"] = now.isoformat()
 
     bw = s.get("body_weight_kg")
     if bw:

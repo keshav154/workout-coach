@@ -6,10 +6,22 @@ Profile is stored in MongoDB; onboarding collects it on first run via chat.
 import json
 import os
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import certifi
 from pymongo import MongoClient
+
+# ── Local time ────────────────────────────────────────────────────────────────
+# Render runs in UTC; the user is in IST (UTC+5:30). Compute "today" in the
+# user's timezone so dates and the day rotation are correct near midnight.
+_TZ_OFFSET_MIN = int(os.environ.get("APP_TZ_OFFSET_MIN", "330"))  # 330 = IST
+_APP_TZ = timezone(timedelta(minutes=_TZ_OFFSET_MIN))
+
+def today() -> date:
+    return datetime.now(_APP_TZ).date()
+
+def today_iso() -> str:
+    return today().isoformat()
 
 # ── MongoDB setup ────────────────────────────────────────────────────────────
 _client = None
@@ -186,7 +198,23 @@ def load_log() -> dict:
 
 def save_session(log: dict, session_data: dict) -> None:
     if not session_data.get("date") or session_data["date"] == "YYYY-MM-DD":
-        session_data["date"] = date.today().isoformat()
+        session_data["date"] = today_iso()
+    d   = session_data["date"]
+    day = session_data.get("day")
+
+    # Idempotent: if a session for the same date AND day already exists, replace
+    # it instead of appending a duplicate (prevents double-logging across
+    # Telegram + web workout mode, or the model re-logging on a later turn).
+    doc = _col("workout_log").find_one({"_id": "log"}) or {}
+    sessions = doc.get("sessions", [])
+    for i in range(len(sessions) - 1, -1, -1):
+        if sessions[i].get("date") == d and sessions[i].get("day") == day:
+            _col("workout_log").update_one(
+                {"_id": "log"},
+                {"$set": {f"sessions.{i}": session_data}},
+                upsert=True,
+            )
+            return
     _col("workout_log").update_one(
         {"_id": "log"},
         {"$push": {"sessions": session_data}},
@@ -198,7 +226,15 @@ def get_next_day(log: dict) -> str:
     sessions = log.get("sessions", [])
     if not sessions:
         return "A"
-    last_day = sessions[-1]["day"]
+    # Use the day of the most recent session BY DATE (robust to out-of-order
+    # inserts). Among sessions sharing the latest date, take the last logged.
+    max_date = max((s.get("date", "") for s in sessions), default="")
+    last_day = None
+    for s in sessions:
+        if s.get("date", "") == max_date and s.get("day") in DAY_ROTATION:
+            last_day = s["day"]
+    if last_day not in DAY_ROTATION:
+        last_day = sessions[-1].get("day", "A")
     idx = DAY_ROTATION.index(last_day)
     return DAY_ROTATION[(idx + 1) % len(DAY_ROTATION)]
 
@@ -347,7 +383,7 @@ def get_consecutive_workout_days(log: dict) -> int:
         return 0
     dates = sorted(set(s["date"] for s in sessions if "date" in s), reverse=True)
     streak = 0
-    expected = date.today()
+    expected = today()
     for d in dates:
         try:
             session_date = datetime.strptime(d, "%Y-%m-%d").date()
@@ -373,8 +409,8 @@ def is_first_session_this_week(log: dict) -> bool:
     sessions = log.get("sessions", [])
     if not sessions:
         return True
-    today = date.today()
-    week_start = today - timedelta(days=today.weekday())  # Monday
+    now = today()
+    week_start = now - timedelta(days=now.weekday())  # Monday
     for s in sessions:
         try:
             d = datetime.strptime(s["date"], "%Y-%m-%d").date()
@@ -392,7 +428,7 @@ def days_since_last_session(log: dict) -> int | None:
         return None
     try:
         last_date = datetime.strptime(sessions[-1]["date"], "%Y-%m-%d").date()
-        return (date.today() - last_date).days
+        return (today() - last_date).days
     except (ValueError, KeyError):
         return None
 
@@ -533,7 +569,7 @@ def format_program_block(day: str, last_session: dict | None) -> str:
 def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dict, profile: dict,
                         extra_context: str = "") -> str:
     targets = compute_targets(profile)
-    today_str = date.today().isoformat()
+    today_str = today_iso()
     cal_target = get_adjusted_calorie_target(mem, targets["calorie_target"])
     sessions = len(log.get("sessions", []))
     injuries = profile.get("injuries", "none")

@@ -139,12 +139,13 @@
     .wk-ex { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 9px; }
     .wk-ex-name { font-weight: 700; font-size: 14px; }
     .wk-ex-meta { font-size: 11.5px; color: var(--muted); margin: 3px 0 9px; }
-    .wk-ex-inputs { display: flex; gap: 8px; }
-    .wk-ex-inputs input {
+    .wk-set-row { display: flex; gap: 8px; align-items: center; margin-bottom: 7px; }
+    .wk-set-label { font-size: 11px; color: var(--muted); width: 42px; flex-shrink: 0; }
+    .wk-set-row input {
       flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text);
       border-radius: 10px; padding: 9px 12px; font-size: 14px; outline: none; text-align: center;
     }
-    .wk-ex-inputs input:focus { border-color: var(--accent); }
+    .wk-set-row input:focus { border-color: var(--accent); }
     .wk-save {
       width: 100%; margin-top: 6px; background: linear-gradient(135deg, var(--accent), #8b5cf6);
       border: none; color: #fff; padding: 15px; border-radius: 14px; font-size: 15px; font-weight: 700;
@@ -391,6 +392,7 @@
   <button class="sheet-btn" onclick="closeSheet(); quickSend('!ask summarize my month')"><span class="ico">🔎</span>Ask about my data</button>
   <button class="sheet-btn" onclick="closeSheet(); quickSend('!status')"><span class="ico">🩺</span>System status</button>
   <button class="sheet-btn" onclick="closeSheet(); deleteLastSession()"><span class="ico">↩️</span>Undo last log</button>
+  <button class="sheet-btn" onclick="closeSheet(); repairData()"><span class="ico">🧹</span>Fix workout data</button>
   <button class="sheet-btn" onclick="closeSheet(); resetChat()"><span class="ico">✨</span>New session</button>
   <button class="sheet-btn danger" onclick="closeSheet(); resetProfile()"><span class="ico">🗑️</span>Reset profile</button>
 </div>
@@ -434,28 +436,42 @@
   }
 
   // ── Workout mode ──
-  async function loadWorkout() {
+  let wkDay = null;          // day currently rendered (so we don't wipe inputs on tab switch)
+
+  async function loadWorkout(force) {
     const title = document.getElementById('wk-title');
     const wrap  = document.getElementById('wk-exercises');
-    document.getElementById('wk-result').innerHTML = '';
     try {
       const d = await (await fetch('/today_program', { headers: authHeaders() })).json();
       if (!d.ready) { title.textContent = 'Finish your profile setup in the Coach tab first.'; wrap.innerHTML = ''; return; }
-      title.textContent = 'DAY ' + d.day + ' — ' + d.name.toUpperCase();
+      // Don't re-render (and wipe typed values) if the same day is already shown.
+      if (!force && wkDay === d.day && wrap.children.length) return;
+      wkDay = d.day;
+      document.getElementById('wk-result').innerHTML = '';
+      title.innerHTML = 'DAY ' + d.day + ' — ' + d.name.toUpperCase() +
+        ' <span style="color:var(--muted);font-weight:400;cursor:pointer" onclick="loadWorkout(true)">↻ refresh</span>';
       wrap.innerHTML = '';
       d.exercises.forEach((ex, i) => {
         const last = (ex.last_weight != null) ? `last: ${ex.last_weight}kg x ${ex.last_reps ?? '?'}` : 'first time';
+        const nSets = ex.scheme ? 1 : (ex.sets || 3);
+        let rows = '';
+        for (let s = 0; s < nSets; s++) {
+          rows += `
+            <div class="wk-set-row">
+              <span class="wk-set-label">${ex.scheme ? '' : 'Set ' + (s + 1)}</span>
+              <input type="number" step="0.5" inputmode="decimal" placeholder="kg"
+                class="wk-w" data-ex="${i}" value="${(s === 0 && ex.last_weight != null) ? ex.last_weight : ''}" />
+              <input type="number" inputmode="numeric" placeholder="reps" class="wk-r" data-ex="${i}" />
+            </div>`;
+        }
         const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
         const div = document.createElement('div');
         div.className = 'wk-ex';
+        div.dataset.name = ex.name;
         div.innerHTML = `
           <div class="wk-ex-name">${ex.name}</div>
           <div class="wk-ex-meta">${target} · ${last}</div>
-          <div class="wk-ex-inputs">
-            <input type="number" step="0.5" inputmode="decimal" placeholder="kg"
-              id="wk-w-${i}" value="${ex.last_weight ?? ''}" data-name="${ex.name.replace(/"/g,'&quot;')}" />
-            <input type="number" inputmode="numeric" placeholder="reps" id="wk-r-${i}" />
-          </div>`;
+          ${rows}`;
         wrap.appendChild(div);
       });
     } catch { title.textContent = 'Could not load today\'s workout.'; }
@@ -463,25 +479,24 @@
 
   async function saveWorkout() {
     const saveBtn = document.getElementById('wk-save');
-    const inputs = document.querySelectorAll('.wk-ex');
     const exercises = [];
-    document.querySelectorAll('[id^=wk-w-]').forEach((wEl, i) => {
-      const rEl = document.getElementById('wk-r-' + i);
-      const weight = parseFloat(wEl.value);
-      const reps   = parseInt(rEl.value, 10);
-      if (!isNaN(weight) || !isNaN(reps)) {
-        exercises.push({ name: wEl.dataset.name, weight: isNaN(weight) ? 0 : weight, reps_done: isNaN(reps) ? 0 : reps });
-      }
+    document.querySelectorAll('.wk-ex').forEach((exEl, i) => {
+      const sets = [];
+      exEl.querySelectorAll('.wk-set-row').forEach(row => {
+        const w = parseFloat(row.querySelector('.wk-w').value);
+        const r = parseInt(row.querySelector('.wk-r').value, 10);
+        if (!isNaN(w) || !isNaN(r)) sets.push({ weight: isNaN(w) ? 0 : w, reps: isNaN(r) ? 0 : r });
+      });
+      if (sets.length) exercises.push({ name: exEl.dataset.name, sets });
     });
-    if (!exercises.length) { alert('Fill in at least one exercise.'); return; }
+    if (!exercises.length) { alert('Fill in at least one set.'); return; }
 
-    const dResp = await (await fetch('/today_program', { headers: authHeaders() })).json();
     const bw = parseFloat(document.getElementById('wk-bodyweight').value);
     saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
     try {
       const res = await fetch('/log_workout', {
         method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ day: dResp.day, exercises, body_weight_kg: isNaN(bw) ? null : bw }),
+        body: JSON.stringify({ day: wkDay, exercises, body_weight_kg: isNaN(bw) ? null : bw }),
       });
       const data = await res.json();
       const out = document.getElementById('wk-result');
@@ -491,6 +506,7 @@
         (data.prs || []).forEach(pr => html += `<div class="wk-pr">🎉 ${pr}</div>`);
         out.innerHTML = html;
         loadStatsBar();
+        wkDay = null;               // next visit reloads the (now advanced) day
       }
     } catch { document.getElementById('wk-result').innerHTML = '<div class="wk-pr" style="color:var(--accent2)">Network error.</div>'; }
     saveBtn.disabled = false; saveBtn.textContent = 'Save Workout';
@@ -585,6 +601,15 @@
     if (!confirm('Remove the last logged item?')) return;
     const d = await (await fetch('/delete_last_session', { method: 'POST', headers: authHeaders() })).json();
     if (d.ok) { addBubble('Last log removed.', 'system'); loadStatsBar(); }
+  }
+
+  async function repairData() {
+    if (!confirm('Clean up duplicate/wrong-date workout entries?')) return;
+    const d = await (await fetch('/repair_data', { method: 'POST', headers: authHeaders() })).json();
+    if (d.ok) {
+      addBubble(`Fixed workout data — removed ${d.removed_duplicates} duplicate(s), corrected ${d.fixed_dates} date(s). ${d.remaining} sessions remain.`, 'system');
+      wkDay = null; loadStatsBar();
+    }
   }
   async function resetProfile() {
     if (!confirm('Delete your profile and restart onboarding?')) return;
