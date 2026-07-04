@@ -92,6 +92,24 @@ def query_weight() -> str:
     return f"Weight trend: {trend}\nRecent check-ins:\n{body}"
 
 
+def query_today_workout() -> str:
+    """Authoritative: today's training day and its exercises with last weights."""
+    from agent_core import get_last_session_for_day, get_next_day, today_iso
+    log  = load_log()
+    day  = get_next_day(log)
+    p    = PROGRAM.get(day, {})
+    last = get_last_session_for_day(log, day)
+    lines = [f"AUTHORITATIVE — Today is {today_iso()}, training Day {day}: {p.get('name','')}"]
+    for ex in p.get("exercises", []):
+        prev = None
+        if last:
+            prev = next((e for e in last.get("exercises", []) if e["name"] == ex["name"]), None)
+        lasttxt = f" (last: {prev.get('weight','?')}kg x {prev.get('reps_done','?')})" if prev else " (no history yet)"
+        scheme = ex.get("scheme") or f"{ex['sets']} sets x {ex['rep_range']}"
+        lines.append(f"  {ex['name']}: {scheme}{lasttxt}")
+    return "\n".join(lines)
+
+
 def query_profile() -> str:
     p   = load_profile() or {}
     mem = load_memory()
@@ -106,6 +124,11 @@ def query_profile() -> str:
 
 
 TOOLS = [
+    {"type": "function", "function": {
+        "name": "query_today_workout",
+        "description": "Get the authoritative training day for TODAY and its exercises with the user's last weights. Use this whenever the user asks what today's workout is.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
     {"type": "function", "function": {
         "name": "query_workouts",
         "description": "List workout sessions with exercises, weights and reps. Optionally filter by month.",
@@ -137,11 +160,12 @@ TOOLS = [
 ]
 
 TOOL_IMPLS = {
-    "query_workouts": query_workouts,
-    "query_exercise": query_exercise,
-    "query_spending": query_spending,
-    "query_weight":   query_weight,
-    "query_profile":  query_profile,
+    "query_today_workout": query_today_workout,
+    "query_workouts":      query_workouts,
+    "query_exercise":      query_exercise,
+    "query_spending":      query_spending,
+    "query_weight":        query_weight,
+    "query_profile":       query_profile,
 }
 
 

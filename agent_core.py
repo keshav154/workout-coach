@@ -570,6 +570,7 @@ def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dic
                         extra_context: str = "") -> str:
     targets = compute_targets(profile)
     today_str = today_iso()
+    p_name = PROGRAM.get(day, {}).get("name", "")
     cal_target = get_adjusted_calorie_target(mem, targets["calorie_target"])
     sessions = len(log.get("sessions", []))
     injuries = profile.get("injuries", "none")
@@ -585,7 +586,13 @@ def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dic
 You see the full conversation history every turn, so always interpret each message in the context of what you just asked and what the user is responding to.
 You run as a web/Telegram/Discord chat so keep replies concise and mobile-friendly.
 Use plain text only, no markdown symbols.
-TODAY'S DATE: {today_str} — always use this exact date when logging weights or sessions. Never guess or invent a date.
+
+AUTHORITATIVE FACTS (set by the system — these are TRUE, do not contradict or recompute them):
+- TODAY'S DATE is {today_str}. Never use any other date.
+- TODAY'S TRAINING DAY is Day {day} — {p_name}. This is the correct workout for today.
+- IGNORE any different day or date mentioned in earlier messages in this conversation — those were previous days. If the user asks what's today's workout, it is ALWAYS Day {day} ({p_name}), never a day from an earlier message.
+
+DATA TOOLS — you can read the user's REAL data from the database with tools (query_today_workout, query_workouts, query_exercise, query_weight, query_spending, query_profile). When you need ANY fact — a past weight, a rep count, how many sessions, spending totals, a personal best — CALL THE TOOL and treat its result as the single source of truth. Never guess a number or recall it from earlier messages; fetch it. If a tool result and your memory disagree, the tool is correct.
 
 USER PROFILE:
   Name: {profile['name']} | Age: {profile['age']} | Weight: {profile['weight_kg']} kg | Height: {profile['height_cm']} cm

@@ -11,7 +11,7 @@ import json
 import logging
 import re
 
-from llm import chat, transcribe, vision
+from llm import chat, reason_loop, transcribe, vision
 from agent_core import (
     PROGRAM,
     apply_memory_update,
@@ -30,6 +30,7 @@ from agent_core import (
     save_memory,
     save_profile,
     save_session,
+    today_iso,
     try_parse_log,
     try_parse_memory_update,
     try_parse_profile_update,
@@ -43,7 +44,7 @@ from expense_core import (
     try_parse_expense,
 )
 from trust import record_audit, undo_last, validate_expense, validate_session
-from ask_core import answer_question
+from ask_core import TOOLS as READ_TOOLS, TOOL_IMPLS as READ_IMPLS, answer_question
 from monitor import get_status
 from progression import format_progression_block, progress_summary
 from checkin import format_checkin_block, parse_checkin_command, save_checkin
@@ -131,8 +132,18 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         ]))
         system = build_system_prompt(day, last, workout_log, mem, profile, extra_context=extra)
 
-    messages = [{"role": "system", "content": system}] + history
-    full     = chat(messages, temperature=0.7)
+    base_messages = [{"role": "system", "content": system}] + history
+    if is_setup:
+        # Tool-grounded: let the model fetch REAL data from the DB and treat it
+        # as fact. Falls back to a plain call if the provider lacks tool support.
+        try:
+            full = reason_loop(list(base_messages), READ_TOOLS, READ_IMPLS,
+                               max_steps=4, temperature=0.5)
+        except Exception as e:
+            log.warning(f"Coach tool loop failed ({e}); using plain call.")
+            full = chat([{"role": "system", "content": system}] + history, temperature=0.7)
+    else:
+        full = chat(base_messages, temperature=0.7)
 
     parsed_log     = None
     parsed_mem     = None
@@ -151,6 +162,9 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         if parsed_log:
             ok, reason, cleaned = validate_session(parsed_log)
             if ok:
+                # Code is the source of truth for day & date — never trust the LLM.
+                cleaned["date"] = today_iso()
+                cleaned["day"]  = day
                 parsed_log = cleaned
                 pr_msgs = detect_prs(workout_log, parsed_log)  # compare vs history first
                 save_session(workout_log, parsed_log)
