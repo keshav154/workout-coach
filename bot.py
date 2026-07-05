@@ -228,7 +228,7 @@ def stats():
 @flask_app.route("/today_program")
 @require_auth
 def today_program():
-    from agent_core import get_last_session_for_day
+    from agent_core import get_last_session_for_day, today_iso
     profile = load_profile()
     if not profile_complete(profile):
         return jsonify({"ready": False})
@@ -236,6 +236,15 @@ def today_program():
     day  = get_next_day(workout_log)
     p    = PROGRAM.get(day, {})
     last = get_last_session_for_day(workout_log, day)
+
+    # Rotation status: the most recent session by date (for the status line)
+    sessions = workout_log.get("sessions", [])
+    last_logged = None
+    if sessions:
+        idx = max(range(len(sessions)), key=lambda i: (sessions[i].get("date", ""), i))
+        s = sessions[idx]
+        last_logged = {"day": s.get("day"), "date": s.get("date"),
+                       "name": PROGRAM.get(s.get("day"), {}).get("name", "")}
     exercises = []
     for ex in p.get("exercises", []):
         prev = None
@@ -249,7 +258,57 @@ def today_program():
             "last_weight": prev.get("weight") if prev else None,
             "last_reps":   prev.get("reps_done") if prev else None,
         })
-    return jsonify({"ready": True, "day": day, "name": p.get("name", ""), "exercises": exercises})
+    return jsonify({"ready": True, "day": day, "name": p.get("name", ""),
+                    "today": today_iso(), "last_logged": last_logged,
+                    "exercises": exercises})
+
+
+@flask_app.route("/chart_data")
+@require_auth
+def chart_data():
+    """Series for the Progress tab charts: weight trend, weekly volume,
+    and per-exercise top weight over time."""
+    from datetime import datetime, timedelta
+    from progression import session_volume
+
+    mem      = load_memory()
+    sessions = load_log().get("sessions", [])
+
+    # Weight trend series from memory weight_log ("YYYY-MM-DD: XX.X kg")
+    weight = []
+    for e in mem.get("weight_log", []):
+        try:
+            d, w = e.split(": ")
+            weight.append({"date": d, "kg": float(w.replace(" kg", ""))})
+        except (ValueError, AttributeError):
+            pass
+    weight.sort(key=lambda x: x["date"])
+
+    # Weekly volume (last 8 weeks, keyed by Monday)
+    by_week = {}
+    for s in sessions:
+        try:
+            d = datetime.strptime(s.get("date", ""), "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        wk = (d - timedelta(days=d.weekday())).isoformat()
+        by_week[wk] = by_week.get(wk, 0) + session_volume(s)
+    volume = [{"week": k, "kg": round(v)} for k, v in sorted(by_week.items())][-8:]
+
+    # Per-exercise top weight per session date (exercises with 2+ data points)
+    from agent_core import _num
+    ex_hist: dict[str, list] = {}
+    for s in sessions:
+        d = s.get("date", "")
+        for e in s.get("exercises", []):
+            name = e.get("name")
+            w = _num(e.get("weight"))
+            if name and w > 0:
+                ex_hist.setdefault(name, []).append({"date": d, "kg": w})
+    exercises = {n: sorted(v, key=lambda x: x["date"])
+                 for n, v in ex_hist.items() if len(v) >= 2}
+
+    return jsonify({"weight": weight, "volume": volume, "exercises": exercises})
 
 
 @flask_app.route("/log_workout", methods=["POST"])
@@ -292,7 +351,8 @@ def log_workout():
     workout_log = load_log()
     prs = detect_prs(workout_log, cleaned)
     save_session(workout_log, cleaned)
-    record_audit("session", f"Day {day} (workout mode) on {cleaned['date']}")
+    record_audit("session", f"Day {day} (workout mode) on {cleaned['date']}",
+                 ref={"date": cleaned["date"], "day": day})
     if prs:
         mem = load_memory()
         apply_memory_update(mem, {"personal_records": prs})
@@ -321,9 +381,18 @@ def reset_profile():
 @flask_app.route("/delete_last_session", methods=["POST"])
 @require_auth
 def delete_last_session():
+    """Remove the most recent session BY DATE (not just the last array element)."""
     from agent_core import _col
-    result = _col("workout_log").update_one({"_id": "log"}, {"$pop": {"sessions": 1}})
-    return jsonify({"ok": True, "modified": result.modified_count})
+    doc = _col("workout_log").find_one({"_id": "log"}) or {}
+    sessions = doc.get("sessions", [])
+    if not sessions:
+        return jsonify({"ok": True, "modified": 0})
+    # index of the latest-dated session (last among ties)
+    target = max(range(len(sessions)), key=lambda i: (sessions[i].get("date", ""), i))
+    removed = sessions.pop(target)
+    _col("workout_log").update_one({"_id": "log"}, {"$set": {"sessions": sessions}})
+    return jsonify({"ok": True, "modified": 1,
+                    "removed": {"date": removed.get("date"), "day": removed.get("day")}})
 
 
 @flask_app.route("/repair_data", methods=["POST"])

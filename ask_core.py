@@ -6,7 +6,6 @@ inspects them, and reasons step by step before answering.
 
 import logging
 from collections import defaultdict
-from datetime import date
 
 from llm import chat, reason_loop
 from agent_core import (
@@ -15,6 +14,7 @@ from agent_core import (
     load_log,
     load_memory,
     load_profile,
+    today_iso,
     _col,
 )
 
@@ -180,7 +180,7 @@ def _answer_without_tools(question: str) -> str:
     ])
     messages = [
         {"role": "system", "content": (
-            f"You are the user's personal data analyst. Today is {date.today().isoformat()}. "
+            f"You are the user's personal data analyst. Today is {today_iso()}. "
             "Answer ONLY from the DATA provided. Never invent numbers; if it's not there, say so. "
             "Be concise and specific with dates, counts and amounts. Use Rs for rupees. Plain text only."
         )},
@@ -195,7 +195,7 @@ def answer_question(question: str) -> str:
                 "e.g. !ask how many workouts in June, or !ask my best bench press")
 
     system = (
-        f"You are the user's personal data analyst. Today is {date.today().isoformat()}.\n"
+        f"You are the user's personal data analyst. Today is {today_iso()}.\n"
         "Think step by step. Use the provided tools to fetch ONLY the data you need to "
         "answer the question, inspect the results, and call more tools if needed. "
         "Answer strictly from tool results — never invent numbers; if the data doesn't "

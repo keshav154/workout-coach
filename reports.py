@@ -4,7 +4,7 @@ Called by the /cron endpoints in bot.py.
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import timedelta
 
 from llm import chat
 from agent_core import (
@@ -17,6 +17,8 @@ from agent_core import (
     load_memory,
     load_profile,
     profile_complete,
+    today,
+    today_iso,
 )
 from expense_core import monthly_summary
 
@@ -24,8 +26,8 @@ log = logging.getLogger(__name__)
 
 
 def _worked_out_today(log_doc: dict) -> bool:
-    today = date.today().isoformat()
-    return any(s.get("date") == today for s in log_doc.get("sessions", []))
+    now = today_iso()
+    return any(s.get("date") == now for s in log_doc.get("sessions", []))
 
 
 def build_daily_nudge() -> str | None:
@@ -66,8 +68,8 @@ def build_weekly_report() -> str:
     mem         = load_memory()
     sessions    = workout_log.get("sessions", [])
 
-    today      = date.today()
-    week_start = today - timedelta(days=today.weekday())
+    now        = today()
+    week_start = now - timedelta(days=now.weekday())
     week_sessions = [s for s in sessions if s.get("date", "") >= week_start.isoformat()]
     week_days  = sorted(set(s.get("date", "") for s in week_sessions))
 

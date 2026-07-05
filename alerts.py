@@ -4,7 +4,7 @@ Each alert kind fires at most once per day (deduped in alerts_state).
 """
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from agent_core import (
     _col,
@@ -14,6 +14,8 @@ from agent_core import (
     load_memory,
     load_profile,
     profile_complete,
+    today,
+    today_iso,
 )
 
 log = logging.getLogger(__name__)
@@ -21,20 +23,20 @@ log = logging.getLogger(__name__)
 
 def _already_sent(kind: str) -> bool:
     d = _col("alerts_state").find_one({"_id": kind})
-    return bool(d and d.get("date") == date.today().isoformat())
+    return bool(d and d.get("date") == today_iso())
 
 
 def _mark(kind: str) -> None:
     _col("alerts_state").update_one(
         {"_id": kind},
-        {"$set": {"date": date.today().isoformat()}},
+        {"$set": {"date": today_iso()}},
         upsert=True,
     )
 
 
 def _week_spend(weeks_ago: int) -> float:
-    today = date.today()
-    start = today - timedelta(days=today.weekday()) - timedelta(weeks=weeks_ago)
+    now = today()
+    start = now - timedelta(days=now.weekday()) - timedelta(weeks=weeks_ago)
     end   = start + timedelta(days=6)
     total = 0.0
     for d in _col("expenses").find({"date": {"$gte": start.isoformat(), "$lte": end.isoformat()}}):
@@ -72,7 +74,7 @@ def run_checks() -> list[str]:
     lw = _last_weight_date(mem)
     if lw:
         try:
-            days = (date.today() - datetime.strptime(lw, "%Y-%m-%d").date()).days
+            days = (today() - datetime.strptime(lw, "%Y-%m-%d").date()).days
             if days >= 14 and not _already_sent("weight"):
                 fired.append(("weight",
                     f"No weight check-in for {days} days. Send your weight so your "

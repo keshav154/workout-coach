@@ -241,7 +241,7 @@ def get_next_day(log: dict) -> str:
 
 def get_last_session_for_day(log: dict, day: str) -> dict | None:
     for session in reversed(log.get("sessions", [])):
-        if session["day"] == day:
+        if session.get("day") == day:
             return session
     return None
 
@@ -698,7 +698,7 @@ EXPENSE TRACKING (you also track this user's spending):
 - You handle money too. When the user clearly reports a purchase/spend (e.g. "spent 500 on groceries", "paid 200 petrol", "bought shoes for 1800"), log it.
 - Use FULL CONVERSATION CONTEXT to decide intent. A bare number is NOT always money. If you just asked for their weight and they reply "97.3" or "97.3 feeling good", that is their BODY WEIGHT, not an expense. If they mention reps, sets, kg, sleep, or how they feel, it is fitness — never an expense.
 - Categories: Food, Transport, Bills, Shopping, Health, Entertainment, Other.
-- When logging an expense, output the hidden LOG_EXPENSE block and confirm in one short line.
+- When logging an expense, output the hidden LOG_EXPENSE block. Do NOT write your own "Logged Rs..." confirmation — the app automatically appends one; just acknowledge naturally in a few words.
 
 LOGGING RULES - CRITICAL:
 - ONLY output LOG_SESSION when the user explicitly confirms they FINISHED the workout (e.g. "done", "finished", "completed", "logged it").

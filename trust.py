@@ -13,7 +13,8 @@ from agent_core import _col, today
 
 log = logging.getLogger(__name__)
 
-BACKUP_COLLECTIONS = ["profile", "workout_log", "memory", "expenses", "budget", "history"]
+BACKUP_COLLECTIONS = ["profile", "workout_log", "memory", "expenses", "budget",
+                      "history", "checkin", "goals", "audit"]
 
 
 # ── Validation ────────────────────────────────────────────────────────────────
@@ -89,7 +90,14 @@ def undo_last() -> str:
     summary = doc.get("summary", "")
 
     if kind == "session":
-        _col("workout_log").update_one({"_id": "log"}, {"$pop": {"sessions": 1}})
+        if isinstance(ref, dict) and ref.get("date"):
+            # Remove the exact audited session (dedup means at most one match).
+            _col("workout_log").update_one(
+                {"_id": "log"},
+                {"$pull": {"sessions": {"date": ref["date"], "day": ref.get("day")}}},
+            )
+        else:
+            _col("workout_log").update_one({"_id": "log"}, {"$pop": {"sessions": 1}})
     elif kind == "expense" and ref:
         try:
             _col("expenses").delete_one({"_id": ObjectId(ref)})

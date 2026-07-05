@@ -6,7 +6,7 @@ and lift goals (target weight on an exercise). Projects ETA from real trend data
 import logging
 from datetime import date, datetime
 
-from agent_core import _col, _num, load_log, load_memory
+from agent_core import _col, _num, load_log, load_memory, today_iso
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ def set_goal(kind: str, target: float, by_date: str | None = None, exercise: str
         "target":   float(target),
         "by_date":  by_date,
         "exercise": exercise,
-        "created":  date.today().isoformat(),
+        "created":  today_iso(),
     }
     _col("goals").insert_one(dict(goal))
     return goal

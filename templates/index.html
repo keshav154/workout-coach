@@ -139,6 +139,25 @@
     .wk-ex { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 9px; }
     .wk-ex-name { font-weight: 700; font-size: 14px; }
     .wk-ex-meta { font-size: 11.5px; color: var(--muted); margin: 3px 0 9px; }
+    .wk-status {
+      background: rgba(108,99,255,0.1); border: 1px solid var(--border);
+      color: var(--muted); border-radius: 10px; padding: 8px 12px;
+      font-size: 12px; margin-bottom: 12px; display: none;
+    }
+    .wk-status b { color: var(--accent); font-weight: 700; }
+
+    /* ── Charts ── */
+    .chart-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 12px; position: relative;
+    }
+    .chart-card canvas { width: 100%; display: block; }
+    .chart-empty { display: none; color: var(--muted); font-size: 12.5px; padding: 20px 6px; text-align: center; }
+    .ex-select {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; padding: 8px 10px; font-size: 13px; outline: none; margin-bottom: 10px;
+    }
+
     .wk-set-row { display: flex; gap: 8px; align-items: center; margin-bottom: 7px; }
     .wk-set-label { font-size: 11px; color: var(--muted); width: 42px; flex-shrink: 0; }
     .wk-set-row input {
@@ -355,6 +374,24 @@
       </div>
     </div>
     <div>
+      <div class="stats-title">Weight Trend</div>
+      <div class="chart-card"><canvas id="chart-weight" height="140"></canvas>
+        <div class="chart-empty" id="chart-weight-empty">Log a few weigh-ins to see your trend.</div></div>
+    </div>
+    <div>
+      <div class="stats-title">Weekly Volume (kg lifted)</div>
+      <div class="chart-card"><canvas id="chart-volume" height="140"></canvas>
+        <div class="chart-empty" id="chart-volume-empty">Log workouts to see weekly volume.</div></div>
+    </div>
+    <div>
+      <div class="stats-title">Exercise Progress</div>
+      <div class="chart-card">
+        <select id="ex-select" class="ex-select" onchange="drawExerciseChart()"></select>
+        <canvas id="chart-exercise" height="140"></canvas>
+        <div class="chart-empty" id="chart-exercise-empty">Log an exercise at least twice to chart it.</div>
+      </div>
+    </div>
+    <div>
       <div class="stats-title">Recent Sessions</div>
       <div class="session-list" id="sv-sessions-list"></div>
     </div>
@@ -364,6 +401,7 @@
   <div id="workout-view" class="view">
     <div style="padding: 12px;">
       <div id="wk-title" class="stats-title" style="font-size:13px;">Loading…</div>
+      <div id="wk-status" class="wk-status"></div>
       <input id="wk-bodyweight" type="number" step="0.1" placeholder="Body weight today (kg) — optional" class="wk-bw" />
       <div id="wk-exercises"></div>
       <button id="wk-save" class="wk-save" onclick="saveWorkout()">Save Workout</button>
@@ -450,6 +488,15 @@
       document.getElementById('wk-result').innerHTML = '';
       title.innerHTML = 'DAY ' + d.day + ' — ' + d.name.toUpperCase() +
         ' <span style="color:var(--muted);font-weight:400;cursor:pointer" onclick="loadWorkout(true)">↻ refresh</span>';
+      const st = document.getElementById('wk-status');
+      if (d.last_logged) {
+        st.innerHTML = `Last logged: <b>Day ${d.last_logged.day}</b> · ${d.last_logged.date}` +
+                       ` &nbsp;→&nbsp; Today (${d.today}): <b>Day ${d.day}</b>`;
+        st.style.display = 'block';
+      } else {
+        st.innerHTML = `No sessions logged yet — today (${d.today}) starts at <b>Day ${d.day}</b>.`;
+        st.style.display = 'block';
+      }
       wrap.innerHTML = '';
       d.exercises.forEach((ex, i) => {
         const last = (ex.last_weight != null) ? `last: ${ex.last_weight}kg x ${ex.last_reps ?? '?'}` : 'first time';
@@ -564,6 +611,104 @@
       if (!d.recent_sessions || !d.recent_sessions.length)
         list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No sessions logged yet.</div>';
     } catch {}
+    loadCharts();
+  }
+
+  // ── Charts (plain canvas, no libraries) ──────────────────────────────────
+  let chartData = null;
+
+  function _prepCanvas(id) {
+    const c = document.getElementById(id);
+    const w = c.offsetWidth || 300;
+    const dpr = window.devicePixelRatio || 1;
+    c.width = w * dpr; c.height = 140 * dpr;
+    c.style.height = '140px';
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, 140);
+    return [ctx, w, 140];
+  }
+
+  function drawLineChart(id, pts, color) {
+    const [ctx, W, H] = _prepCanvas(id);
+    if (pts.length < 2) return false;
+    const pad = { l: 34, r: 8, t: 12, b: 18 };
+    const ys = pts.map(p => p.y);
+    let yMin = Math.min(...ys), yMax = Math.max(...ys);
+    if (yMax - yMin < 1) { yMin -= 1; yMax += 1; }
+    const X = i => pad.l + (i / (pts.length - 1)) * (W - pad.l - pad.r);
+    const Y = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * (H - pad.t - pad.b);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.fillStyle = '#7b7b9a';
+    ctx.font = '10px sans-serif'; ctx.lineWidth = 1;
+    [yMin, (yMin + yMax) / 2, yMax].forEach(v => {
+      ctx.beginPath(); ctx.moveTo(pad.l, Y(v)); ctx.lineTo(W - pad.r, Y(v)); ctx.stroke();
+      ctx.fillText(v.toFixed(1), 2, Y(v) + 3);
+    });
+    ctx.fillText(pts[0].label, pad.l, H - 4);
+    const lastLbl = pts[pts.length - 1].label;
+    ctx.fillText(lastLbl, W - pad.r - ctx.measureText(lastLbl).width, H - 4);
+
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+    pts.forEach((p, i) => i ? ctx.lineTo(X(i), Y(p.y)) : ctx.moveTo(X(0), Y(p.y)));
+    ctx.stroke();
+    ctx.fillStyle = color;
+    pts.forEach((p, i) => { ctx.beginPath(); ctx.arc(X(i), Y(p.y), 2.5, 0, 7); ctx.fill(); });
+    return true;
+  }
+
+  function drawBarChart(id, pts, color) {
+    const [ctx, W, H] = _prepCanvas(id);
+    if (!pts.length) return false;
+    const pad = { l: 40, r: 8, t: 12, b: 18 };
+    const yMax = Math.max(...pts.map(p => p.y)) || 1;
+    const bw = (W - pad.l - pad.r) / pts.length;
+    ctx.fillStyle = '#7b7b9a'; ctx.font = '10px sans-serif';
+    ctx.fillText(yMax.toLocaleString(), 2, pad.t + 4);
+    pts.forEach((p, i) => {
+      const h = (p.y / yMax) * (H - pad.t - pad.b);
+      const x = pad.l + i * bw;
+      ctx.fillStyle = color;
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(x + bw * 0.15, H - pad.b - h, bw * 0.7, Math.max(h, 2), 3);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x + bw * 0.15, H - pad.b - h, bw * 0.7, Math.max(h, 2));
+      }
+      ctx.fillStyle = '#7b7b9a';
+      ctx.fillText(p.label, x + bw * 0.1, H - 4);
+    });
+    return true;
+  }
+
+  async function loadCharts() {
+    try {
+      chartData = await (await fetch('/chart_data', { headers: authHeaders() })).json();
+    } catch { return; }
+
+    const wPts = (chartData.weight || []).map(p => ({ y: p.kg, label: p.date.slice(5) }));
+    document.getElementById('chart-weight-empty').style.display =
+      drawLineChart('chart-weight', wPts, '#f9ca24') ? 'none' : 'block';
+
+    const vPts = (chartData.volume || []).map(p => ({ y: p.kg, label: p.week.slice(5) }));
+    document.getElementById('chart-volume-empty').style.display =
+      drawBarChart('chart-volume', vPts, '#6c63ff') ? 'none' : 'block';
+
+    const sel = document.getElementById('ex-select');
+    const names = Object.keys(chartData.exercises || {}).sort();
+    const prev = sel.value;
+    sel.innerHTML = names.map(n => `<option${n === prev ? ' selected' : ''}>${n}</option>`).join('');
+    sel.style.display = names.length ? 'block' : 'none';
+    drawExerciseChart();
+  }
+
+  function drawExerciseChart() {
+    const sel = document.getElementById('ex-select');
+    const series = (chartData && chartData.exercises && chartData.exercises[sel.value]) || [];
+    const pts = series.map(p => ({ y: p.kg, label: p.date.slice(5) }));
+    document.getElementById('chart-exercise-empty').style.display =
+      drawLineChart('chart-exercise', pts, '#43e97b') ? 'none' : 'block';
   }
 
   // ── Chat ──

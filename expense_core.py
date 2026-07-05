@@ -8,7 +8,7 @@ import re
 from datetime import date, datetime
 from typing import Optional
 
-from agent_core import _col
+from agent_core import _col, today, today_iso
 
 # ── Categories ────────────────────────────────────────────────────────────────
 CATEGORIES = ["Food", "Transport", "Bills", "Shopping", "Health", "Entertainment", "Other"]
@@ -16,7 +16,7 @@ CATEGORIES = ["Food", "Transport", "Bills", "Shopping", "Health", "Entertainment
 # ── MongoDB helpers ───────────────────────────────────────────────────────────
 def log_expense(amount: float, description: str, category: str, note: str = "") -> dict:
     entry = {
-        "date":        date.today().isoformat(),
+        "date":        today_iso(),
         "amount":      amount,
         "description": description,
         "category":    category,
@@ -31,7 +31,7 @@ def log_expense(amount: float, description: str, category: str, note: str = "") 
 def get_expenses(month: Optional[str] = None) -> list:
     """Return expenses for given month (YYYY-MM) or current month."""
     if not month:
-        month = date.today().strftime("%Y-%m")
+        month = today().strftime("%Y-%m")
     docs = list(_col("expenses").find({"date": {"$regex": f"^{month}"}}))
     for d in docs:
         d.pop("_id", None)
@@ -56,7 +56,7 @@ def save_budget(category: str, amount: float) -> None:
 
 def monthly_summary(month: Optional[str] = None) -> str:
     if not month:
-        month = date.today().strftime("%Y-%m")
+        month = today().strftime("%Y-%m")
     expenses = get_expenses(month)
     budget   = get_budget()
 
@@ -86,12 +86,12 @@ def monthly_summary(month: Optional[str] = None) -> str:
 
 
 def today_summary() -> str:
-    today = date.today().isoformat()
-    docs  = list(_col("expenses").find({"date": today}))
+    d_today = today_iso()
+    docs  = list(_col("expenses").find({"date": d_today}))
     if not docs:
         return "No expenses logged today."
     total = sum(d["amount"] for d in docs)
-    lines = [f"Today ({today}) — Rs {total:,.0f} total", ""]
+    lines = [f"Today ({d_today}) — Rs {total:,.0f} total", ""]
     for d in docs:
         lines.append(f"  {d['category']}: Rs {d['amount']:,.0f} — {d['description']}")
     return "\n".join(lines)
@@ -130,10 +130,10 @@ def is_expense_message(text: str) -> bool:
 
 # ── System prompt for expense parsing ────────────────────────────────────────
 def build_expense_prompt() -> str:
-    today = date.today().isoformat()
+    d_today = today_iso()
     categories = ", ".join(CATEGORIES)
     return f"""You are an expense tracking assistant for an Indian user.
-Today's date: {today}
+Today's date: {d_today}
 Currency: Indian Rupees (Rs)
 Categories: {categories}
 
@@ -201,7 +201,7 @@ def get_workout_context(month: str) -> str:
 
 def build_review_prompt(month: Optional[str] = None) -> str:
     if not month:
-        month = date.today().strftime("%Y-%m")
+        month = today().strftime("%Y-%m")
 
     expenses = get_expenses(month)
     budget   = get_budget()

@@ -152,9 +152,13 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
 
     validation_warning = ""
     expense_suffix     = ""
-    if parsed_profile:
-        save_profile(parsed_profile)
-    elif is_setup:
+    if not is_setup:
+        # SAVE_PROFILE is only valid during onboarding — never let an
+        # established user's profile be overwritten by a hallucinated block.
+        if parsed_profile:
+            save_profile(parsed_profile)
+    else:
+        parsed_profile = None
         workout_log = load_log()   # state BEFORE this session is saved
         mem         = load_memory()
         parsed_log  = try_parse_log(full)
@@ -169,7 +173,8 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
                 pr_msgs = detect_prs(workout_log, parsed_log)  # compare vs history first
                 save_session(workout_log, parsed_log)
                 record_audit("session",
-                             f"Day {parsed_log.get('day')} on {parsed_log.get('date')}")
+                             f"Day {parsed_log.get('day')} on {parsed_log.get('date')}",
+                             ref={"date": parsed_log.get("date"), "day": parsed_log.get("day")})
             else:
                 parsed_log = None          # don't save bad data
                 validation_warning = reason
@@ -216,7 +221,7 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
                 record_audit("expense",
                              f"Rs {entry['amount']:,.0f} {entry['category']} — {entry['description']}",
                              ref=entry.get("id"))
-                expense_suffix = f"\n\n💸 Logged Rs {entry['amount']:,.0f} under {entry['category']}."
+                expense_suffix += f"\n\n💸 Logged Rs {entry['amount']:,.0f} under {entry['category']}."
             else:
                 validation_warning = (validation_warning + " " + reason).strip()
 

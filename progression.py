@@ -5,9 +5,9 @@ weak-point spotting, and exercise-swap suggestions.
 
 import logging
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
-from agent_core import PROGRAM, _num, load_log
+from agent_core import PROGRAM, _num, load_log, today
 
 log = logging.getLogger(__name__)
 
@@ -34,18 +34,25 @@ def alternatives_for(name: str) -> list[str]:
 
 
 def session_volume(session: dict) -> float:
-    """Total tonnage for a session = sum(weight * reps) across exercises."""
+    """Total tonnage for a session = sum(weight * reps) across all sets.
+    Uses per-set detail when logged (workout mode); falls back to the
+    summary weight x reps otherwise."""
     total = 0.0
     for e in session.get("exercises", []):
-        total += _num(e.get("weight")) * _num(e.get("reps_done"))
+        sets = e.get("sets")
+        if isinstance(sets, list) and sets:
+            for s in sets:
+                total += _num(s.get("weight")) * _num(s.get("reps"))
+        else:
+            total += _num(e.get("weight")) * _num(e.get("reps_done"))
     return total
 
 
 def weekly_volume(log: dict | None = None) -> dict:
     """Tonnage for the current calendar week, plus the prior week for comparison."""
     log = log or load_log()
-    today = date.today()
-    wk_start = today - timedelta(days=today.weekday())
+    now = today()
+    wk_start = now - timedelta(days=now.weekday())
     this_wk, last_wk = 0.0, 0.0
     for s in log.get("sessions", []):
         try:
