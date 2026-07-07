@@ -90,6 +90,9 @@ def reason_loop(messages: list, tools: list, tool_impls: dict,
             model=MODEL,
             messages=messages,
             tools=tools,
+            tool_choice="auto",   # some OpenAI-compatible providers (e.g. NIM) need
+                                  # this explicit or they silently never enter
+                                  # function-calling mode, even with tools= set.
             temperature=temperature,
         )
         msg = resp.choices[0].message
