@@ -7,7 +7,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from agent_core import PROGRAM, _num, load_log, today
+from agent_core import PROGRAM, _col, _num, load_log, today
 
 log = logging.getLogger(__name__)
 
@@ -16,12 +16,12 @@ EXERCISE_ALTERNATIVES = {
     "Dumbbell Flat Bench Press":   ["Push-Ups", "Dumbbell Floor Press", "Dumbbell Incline Bench Press"],
     "Dumbbell Incline Bench Press": ["Dumbbell Flat Bench Press", "Incline Push-Ups"],
     "Dumbbell Overhead Press":     ["Dumbbell Arnold Press", "Seated Dumbbell Press", "Pike Push-Ups"],
-    "Dumbbell Bent-Over Row":      ["Dumbbell Single-Arm Row", "Resistance Band Row", "Chest-Supported Row"],
+    "Dumbbell Bent-Over Row":      ["Dumbbell Single-Arm Row", "Chest-Supported Row (on incline bench)"],
     "Goblet Squat":                ["Bulgarian Split Squat (bench)", "Dumbbell Reverse Lunge", "Box Squat"],
     "Romanian Deadlift":           ["Dumbbell Good Morning", "Single-Leg RDL", "Hip Thrust (shoulders on bench)"],
-    "Bulgarian Split Squat (bench)": ["Dumbbell Reverse Lunge", "Goblet Squat", "Step-Up (on bench)"],
-    "Dumbbell Skull Crusher (bench)": ["Tricep Overhead Extension", "Resistance Band Tricep Pushdown"],
-    "Dumbbell Lateral Raise":      ["Resistance Band Lateral Raise", "Dumbbell Upright Row"],
+    "Bulgarian Split Squat (bench)": ["Dumbbell Reverse Lunge", "Goblet Squat", "Dumbbell Step-Up (on bench)"],
+    "Dumbbell Skull Crusher (bench)": ["Tricep Overhead Extension", "Dumbbell Kickback"],
+    "Dumbbell Lateral Raise":      ["Dumbbell Upright Row", "Dumbbell Front Raise"],
 }
 
 
@@ -66,10 +66,7 @@ def weekly_volume(log: dict | None = None) -> dict:
     return {"this_week": round(this_wk), "last_week": round(last_wk)}
 
 
-def detect_plateaus(log: dict | None = None, lookback: int = 3) -> list[str]:
-    """Flag exercises whose top working weight hasn't increased over the last
-    `lookback` sessions in which they appeared."""
-    log = log or load_log()
+def _plateau_exercise_weights(log: dict, lookback: int) -> dict[str, list[float]]:
     by_ex: dict[str, list[float]] = defaultdict(list)
     for s in log.get("sessions", []):
         seen = {}
@@ -81,15 +78,59 @@ def detect_plateaus(log: dict | None = None, lookback: int = 3) -> list[str]:
         for name, w in seen.items():
             if w > 0:
                 by_ex[name].append(w)
+    return by_ex
 
+
+def detect_plateaus(log: dict | None = None, lookback: int = 3) -> list[str]:
+    """Human-readable plateau lines: exercises whose top working weight hasn't
+    increased over the last `lookback` sessions in which they appeared."""
+    log = log or load_log()
+    by_ex = _plateau_exercise_weights(log, lookback)
     plateaus = []
     for name, weights in by_ex.items():
-        if len(weights) >= lookback:
-            recent = weights[-lookback:]
-            # No net increase across the window
-            if recent[-1] <= recent[0]:
-                plateaus.append(f"{name} (stuck at {recent[-1]:g}kg for {lookback} sessions)")
+        if len(weights) >= lookback and weights[-lookback:][-1] <= weights[-lookback:][0]:
+            plateaus.append(f"{name} (stuck at {weights[-1]:g}kg for {lookback} sessions)")
     return plateaus
+
+
+def detect_plateau_exercise_names(log: dict | None = None, lookback: int = 3) -> list[str]:
+    """Bare exercise names currently plateaued (for autonomous deload flagging)."""
+    log = log or load_log()
+    by_ex = _plateau_exercise_weights(log, lookback)
+    return [name for name, weights in by_ex.items()
+            if len(weights) >= lookback and weights[-lookback:][-1] <= weights[-lookback:][0]]
+
+
+# ── Autonomous plateau intervention (auto-deload flags) ───────────────────────
+def set_autodeload_flags(names: list[str]) -> list[str]:
+    """Flag exercises for an automatic 10% deload on their next occurrence.
+    Returns the names newly flagged (skips ones already pending)."""
+    newly = []
+    for name in names:
+        existing = _col("auto_flags").find_one({"_id": name})
+        if not existing:
+            _col("auto_flags").insert_one({"_id": name, "kind": "deload"})
+            newly.append(name)
+    return newly
+
+
+def get_autodeload_flags() -> list[str]:
+    return [d["_id"] for d in _col("auto_flags").find({"kind": "deload"})]
+
+
+def clear_autodeload_flag(name: str) -> None:
+    _col("auto_flags").delete_one({"_id": name})
+
+
+def format_autodeload_block() -> str:
+    flags = get_autodeload_flags()
+    if not flags:
+        return ""
+    return ("AUTO-DELOAD SCHEDULED (the system already decided this, don't ask permission): "
+            f"{', '.join(flags)} — reduce weight ~10% (round to the nearest available dumbbell) "
+            "for these specific exercises THIS session, and briefly explain it's a scheduled "
+            "deload because they'd plateaued. After this session these lifts resume normal "
+            "progressive overload.")
 
 
 def format_progression_block(log: dict | None = None) -> str:

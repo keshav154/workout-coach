@@ -1,10 +1,11 @@
 """
 Single message router shared by web, WhatsApp, and Discord.
 
-process_message(text, source) handles every kind of input — expense commands,
-expense logging, workout commands, and conversational coaching — and returns
-the reply text. `source` is the history-key prefix (e.g. "web", "whatsapp",
-"discord"); expense history is stored under f"{source}_expense".
+process_message(text, source) is the entire interface — there is no command
+syntax. Workouts, weight, nutrition, expenses, goals, budgets, check-ins, and
+data questions are all handled by one unified LLM brain via natural language,
+hidden action blocks, and tool calls. `source` is the history-key prefix
+(e.g. "web", "whatsapp", "discord").
 """
 
 import json
@@ -13,7 +14,6 @@ import re
 
 from llm import chat, reason_loop, transcribe, vision
 from agent_core import (
-    PROGRAM,
     apply_memory_update,
     build_onboarding_prompt,
     build_system_prompt,
@@ -35,52 +35,35 @@ from agent_core import (
     try_parse_memory_update,
     try_parse_profile_update,
 )
-from expense_core import (
-    build_review_prompt,
-    log_expense,
-    monthly_summary,
-    save_budget,
-    today_summary,
-    try_parse_expense,
-)
+from expense_core import log_expense, monthly_summary, save_budget, try_parse_expense
 from trust import record_audit, undo_last, validate_expense, validate_session
-from ask_core import TOOLS as READ_TOOLS, TOOL_IMPLS as READ_IMPLS, answer_question
-from monitor import get_status
-from progression import format_progression_block, progress_summary
-from checkin import format_checkin_block, parse_checkin_command, save_checkin
-from goals import (
-    clear_goals,
-    format_goals_block,
-    goals_status,
-    parse_goal_command,
-    set_goal,
+from ask_core import TOOLS as READ_TOOLS, TOOL_IMPLS as READ_IMPLS
+from progression import (
+    clear_autodeload_flag,
+    format_autodeload_block,
+    format_progression_block,
+    get_autodeload_flags,
 )
+from nutrition import format_nutrition_block, log_meal
+from checkin import format_checkin_block, save_checkin
+from goals import clear_goals, format_goals_block, set_goal
 
 log = logging.getLogger(__name__)
 
 HELP_MSG = (
-    "Just talk to me normally — no commands needed. For example:\n\n"
+    "There's nothing to memorize — just talk to me the way you'd talk to a coach. For example:\n\n"
     "\"what's my workout today?\"\n"
     "\"done, benched 18kg for 10\"\n"
     "\"slept 6 hours, feeling sore\"\n"
     "\"I want to reach 90kg by September\"\n"
     "\"spent 500 on groceries\"\n"
     "\"how much did I spend on food this month?\"\n"
-    "\"how's my progress / any plateaus?\"\n"
+    "\"give me a proper review of my spending\"\n"
+    "\"cap my food budget at 8000 a month\"\n"
+    "\"how's my progress, any plateaus?\"\n"
     "\"undo that\"\n\n"
-    "Optional shortcuts if you prefer: !workout, !done, !progress, "
-    "!goals, !expenses, !review, !undo, !status, !reset."
-)
-
-EXPENSE_HELP = (
-    "Expense commands:\n"
-    "Just type: spent 500 on groceries\n"
-    "Or: paid 200 petrol\n"
-    "Or: 1200 amazon\n\n"
-    "!expenses today - today's spending\n"
-    "!expenses - this month's summary\n"
-    "!budget Food 5000 - set monthly budget\n"
-    "!review - AI analysis of this month's spending"
+    "I'll ask you questions when I need something, and I'll speak up on my own "
+    "if I notice something worth flagging — you never need a specific phrase or command."
 )
 
 
@@ -101,10 +84,11 @@ def _strip_hidden(text: str) -> str:
         text = text.rsplit("===REPLY===", 1)[-1]
     # Remove well-formed control/reasoning blocks (case-insensitive).
     text = re.sub(
-        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE|LOG_EXPENSE|CHECKIN|SET_GOAL|UPDATE_PROFILE|UNDO|THINK|THINKING)>.*?</\1>",
+        r"<(LOG_SESSION|UPDATE_MEMORY|SAVE_PROFILE|LOG_EXPENSE|LOG_MEAL|CHECKIN|SET_GOAL|SET_BUDGET|UPDATE_PROFILE|UNDO|CLEAR_GOALS|THINK|THINKING)>.*?</\1>",
         "", text, flags=re.DOTALL | re.IGNORECASE,
     )
-    text = re.sub(r"<UNDO\s*/?>", "", text, flags=re.IGNORECASE)   # self-closing undo
+    text = re.sub(r"<UNDO\s*/?>", "", text, flags=re.IGNORECASE)          # self-closing undo
+    text = re.sub(r"<CLEAR_GOALS\s*/?>", "", text, flags=re.IGNORECASE)   # self-closing clear-goals
     # Fallback: drop an unclosed/loose reasoning block if the marker was absent.
     if re.search(r"<\s*think", text, re.IGNORECASE):
         text = re.sub(r"<\s*think.*$", "", text, flags=re.DOTALL | re.IGNORECASE)
@@ -127,7 +111,9 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         extra = "\n\n".join(filter(None, [
             format_checkin_block(log=workout_log),
             format_progression_block(workout_log),
+            format_autodeload_block(),
             format_goals_block(),
+            format_nutrition_block(),
             "SPENDING THIS MONTH (for any money questions):\n" + monthly_summary(),
         ]))
         system = build_system_prompt(day, last, workout_log, mem, profile, extra_context=extra)
@@ -175,6 +161,12 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
                 record_audit("session",
                              f"Day {parsed_log.get('day')} on {parsed_log.get('date')}",
                              ref={"date": parsed_log.get("date"), "day": parsed_log.get("day")})
+                # Autonomous plateau flags are one-shot: clear once the flagged
+                # exercise has actually been logged with the deloaded weight.
+                if get_autodeload_flags():
+                    logged_names = {e.get("name") for e in parsed_log.get("exercises", [])}
+                    for name in logged_names:
+                        clear_autodeload_flag(name)
             else:
                 parsed_log = None          # don't save bad data
                 validation_warning = reason
@@ -206,6 +198,20 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
                 expense_suffix += f"\n\n📅 Now training {profile['days_per_week']} days/week."
             except (ValueError, TypeError):
                 pass
+        meal = _parse_block("LOG_MEAL", full)
+        if meal and meal.get("description"):
+            log_meal(meal["description"], meal.get("calories", 0), meal.get("protein", 0))
+            expense_suffix += "\n\n🍽️ Meal logged."
+        bud = _parse_block("SET_BUDGET", full)
+        if bud and bud.get("category") and bud.get("amount"):
+            try:
+                save_budget(str(bud["category"]).capitalize(), float(bud["amount"]))
+                expense_suffix += f"\n\n💰 Budget set: {bud['category']} = Rs {float(bud['amount']):,.0f}/month."
+            except (ValueError, TypeError):
+                pass
+        if re.search(r"<CLEAR_GOALS\s*/?>|<CLEAR_GOALS>\s*</CLEAR_GOALS>", full, re.IGNORECASE):
+            n = clear_goals()
+            expense_suffix += f"\n\n🗑️ Cleared {n} goal(s)."
 
         # Unified brain may also log an expense in the same turn
         parsed_expense = try_parse_expense(full)
@@ -250,57 +256,12 @@ def log_suffix(parsed_log: dict | None) -> str:
     return "\n\n" + " | ".join(parts)
 
 
-# ── Command handlers ──────────────────────────────────────────────────────────
-def _last_session_summary() -> str:
-    if not profile_complete(load_profile()):
-        return "Complete your profile setup first by chatting with me!"
-    sessions = load_log().get("sessions", [])
-    if not sessions:
-        return "No sessions logged yet. Send !workout to begin."
-    last = sessions[-1]
-    day  = last.get("day", "?")
-    p    = PROGRAM.get(day, {})
-    lines = [f"Last session: Day {day} - {p.get('name','')} ({last.get('date','?')})", ""]
-    bw = last.get("body_weight_kg")
-    if bw:
-        lines.append(f"Weight: {bw} kg")
-    for ex in last.get("exercises", []):
-        lines.append(f"  {ex['name']}: {ex.get('weight','?')}kg x {ex.get('reps_done','?')} reps")
-    n = last.get("nutrition", {})
-    if n.get("calories_eaten"):
-        lines += ["", f"Nutrition: {n['calories_eaten']} kcal | {n.get('protein_g','?')}g protein",
-                  f"Burnt: {n.get('calories_burnt','?')} kcal | Net: {n.get('net_calories','?')} kcal"]
-    return "\n".join(lines)
-
-
-def _generate_review() -> str:
-    prompt, err = build_review_prompt()
-    if err:
-        return err
-    try:
-        return chat([{"role": "user", "content": prompt}], temperature=0.7) or "Could not generate review."
-    except Exception as e:
-        log.error(f"Review error: {e}")
-        return "Could not generate review. Try again."
-
-
 def _handle_workout_message(text: str, cmd: str, source: str) -> str:
     history = load_history(source)
 
-    if cmd in ("!workout", "!start"):
-        # Explicit workout command — keep history for continuity, just ask.
-        user_msg = "What's my workout today?"
-    elif cmd in ("start", "hi", "hello", "hey") and not history:
+    if cmd in ("start", "hi", "hello", "hey") and not history:
         # First-ever greeting starts things off; later greetings are normal chat.
         user_msg = "What's my workout today?"
-    elif cmd == "!done":
-        user_msg = "I finished today's workout. Let's log it and go through my nutrition."
-    elif cmd.startswith("!weight "):
-        try:
-            kg = float(text.split()[1])
-            user_msg = f"My weight today is {kg} kg."
-        except (ValueError, IndexError):
-            return "Usage: !weight 97.5"
     else:
         user_msg = text
 
@@ -353,7 +314,14 @@ def analyze_meal_photo(image_bytes: bytes, caption: str = "", source: str = "tel
     if not result.strip():
         return "Couldn't read that meal photo. Try a clearer shot or type what you ate."
 
-    # Store in the coach's history so it counts toward today's nutrition tally
+    # Parse "TOTAL: <kcal> kcal | <grams>g protein" so this becomes a real,
+    # queryable meal entry instead of just chat text.
+    m = re.search(r"TOTAL:\s*([\d.]+)\s*kcal\s*\|\s*([\d.]+)\s*g", result, re.IGNORECASE)
+    if m:
+        cal, prot = float(m.group(1)), float(m.group(2))
+        log_meal(caption or "Meal (from photo)", cal, prot, note=result[:300])
+
+    # Also store in the coach's history for conversational continuity
     history = load_history(source)
     history.append({"role": "user", "content": f"I ate this meal (estimated from a photo): {result}"})
     history.append({"role": "assistant", "content": "Noted your meal."})
@@ -369,80 +337,19 @@ def process_message(text: str, source: str = "web") -> str:
         return ""
     cmd = text.lower().strip()
 
-    # Expense summary commands
-    if cmd in ("!expenses today", "!spending today", "!today"):
-        return today_summary()
-    if cmd in ("!expenses", "!expenses month", "!spending", "!monthly"):
-        return monthly_summary()
-    if cmd.startswith("!budget "):
-        parts = text.split()
-        if len(parts) == 3:
-            try:
-                save_budget(parts[1].capitalize(), float(parts[2]))
-                return f"Budget set: {parts[1].capitalize()} = Rs {float(parts[2]):,.0f}/month"
-            except ValueError:
-                pass
-        return "Usage: !budget Food 5000"
-    if cmd in ("!review", "!analyse", "!analyze"):
-        return _generate_review()
-    if cmd in ("!help expense", "!expense help"):
-        return EXPENSE_HELP
-
-    # Cross-domain recall + system commands
-    if cmd.startswith("!ask"):
-        return answer_question(text[4:].strip())
-    if cmd == "!undo":
-        return undo_last()
-    if cmd == "!status":
-        return get_status()
-
-    # Progression, check-in, goals
-    if cmd in ("!progress", "!progression"):
-        return progress_summary()
-    if cmd.startswith("!checkin"):
-        parsed = parse_checkin_command(text)
-        if not parsed:
-            return ("Daily check-in — log sleep, energy, soreness:\n"
-                    "!checkin 7 8 3   (sleep hours, energy 1-10, soreness 1-10)\n"
-                    "or !checkin sleep=7 energy=8 soreness=3")
-        save_checkin(**parsed)
-        return "Check-in saved. " + format_checkin_block()
-    if cmd in ("!goals", "!goal") and len(text.split()) == 1:
-        return goals_status()
-    if cmd.startswith("!goal clear"):
-        n = clear_goals()
-        return f"Cleared {n} goal(s)."
-    if cmd.startswith("!goal "):
-        parsed = parse_goal_command(text)
-        if not parsed:
-            return ("Set a goal:\n"
-                    "!goal weight 90 by 2026-09-01\n"
-                    "!goal lift bench 24\n"
-                    "!goals to view, !goal clear to reset")
-        set_goal(**parsed)
-        return "Goal set!\n\n" + goals_status()
-
-    # Workout no-agent commands
-    if cmd.startswith("!days"):
-        parts = text.split()
-        if len(parts) == 2 and parts[1].isdigit() and 1 <= int(parts[1]) <= 7:
-            profile = load_profile()
-            if not profile_complete(profile):
-                return "Finish your profile setup first by chatting with me!"
-            profile["days_per_week"] = int(parts[1])
-            save_profile(profile)
-            return f"Updated: training {parts[1]} days per week. Your weekly target now reflects this."
-        return "Usage: !days 5"
-    if cmd == "!summary":
-        return _last_session_summary()
-    if cmd in ("!help", "help", "!commands"):
+    # There is no command syntax in this app. Two things are handled outside
+    # the LLM entirely because they're deterministic client operations, not
+    # coaching decisions: asking what the agent can do, and wiping the
+    # conversation (a destructive action safer as a fixed trigger than an
+    # LLM judgment call). Everything else — workouts, weight, nutrition,
+    # expenses, goals, budgets, check-ins, progress questions, undo — is
+    # handled by the unified brain via natural language and hidden action
+    # blocks, or via tool calls for data questions.
+    if cmd in ("help", "what can you do", "what can you do?"):
         return HELP_MSG
-    if cmd == "!reset":
+    if cmd in ("reset", "start over", "reset conversation", "clear our conversation",
+              "forget this conversation", "start a new conversation"):
         reset_history(source)
-        reset_history(f"{source}_expense")
         return "Conversation reset! Send 'hi' to begin."
 
-    # Everything else goes to the single unified brain, which sees the full
-    # conversation history and decides intent (workout / weight / nutrition /
-    # expense) with full context — no brittle regex routing.
     return _handle_workout_message(text, cmd, source)

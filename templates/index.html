@@ -124,6 +124,21 @@
     .stat-value.yellow { color: var(--yellow); }
     .stat-value.pink   { color: var(--accent2); }
 
+    /* ── PR confetti ── */
+    .confetti-layer { position: fixed; inset: 0; pointer-events: none; z-index: 200; overflow: hidden; }
+    .confetti-piece {
+      position: absolute; top: -10px; width: 7px; height: 10px; opacity: 0.9;
+      border-radius: 2px; animation: confetti-fall linear forwards;
+    }
+    @keyframes confetti-fall {
+      0%   { transform: translateY(0) rotate(0deg); opacity: 0.95; }
+      100% { transform: translateY(105vh) rotate(540deg); opacity: 0; }
+    }
+
+    /* ── Tab transition ── */
+    .view { animation: view-in 0.22s ease; }
+    @keyframes view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
     /* ── Views ── */
     .view { flex: 1; overflow: hidden; flex-direction: column; }
     #chat-view  { display: flex; }
@@ -157,6 +172,19 @@
       width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
       border-radius: 10px; padding: 8px 10px; font-size: 13px; outline: none; margin-bottom: 10px;
     }
+
+    /* ── Weekly progress ring ── */
+    .ring-card { display: flex; align-items: center; justify-content: center; gap: 18px; padding: 16px; }
+    .ring-svg { width: 100px; height: 100px; transform: rotate(-90deg); flex-shrink: 0; }
+    .ring-track { fill: none; stroke: var(--border); stroke-width: 10; }
+    .ring-fill {
+      fill: none; stroke: url(#ring-grad); stroke-width: 10; stroke-linecap: round;
+      stroke-dasharray: 326.7; stroke-dashoffset: 326.7;
+      transition: stroke-dashoffset 0.8s cubic-bezier(.4,0,.2,1);
+    }
+    .ring-label { text-align: left; }
+    .ring-count { font-size: 24px; font-weight: 800; }
+    .ring-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
     .wk-set-row { display: flex; gap: 8px; align-items: center; margin-bottom: 7px; }
     .wk-set-label { font-size: 11px; color: var(--muted); width: 42px; flex-shrink: 0; }
@@ -338,6 +366,7 @@
   <div id="stats-bar">
     <div class="stat-card"><div class="stat-label">Today</div><div class="stat-value accent" id="stat-day">—</div></div>
     <div class="stat-card"><div class="stat-label">Focus</div><div class="stat-value" id="stat-focus" style="font-size:12px;margin-top:5px;">—</div></div>
+    <div class="stat-card"><div class="stat-label">Streak</div><div class="stat-value pink" id="stat-streak">—</div></div>
     <div class="stat-card"><div class="stat-label">Sessions</div><div class="stat-value green" id="stat-sessions">—</div></div>
     <div class="stat-card"><div class="stat-label">Last Weight</div><div class="stat-value yellow" id="stat-weight">—</div></div>
   </div>
@@ -365,12 +394,31 @@
   <!-- Progress view -->
   <div id="stats-view" class="view">
     <div>
+      <div class="stats-title">This Week's Target</div>
+      <div class="chart-card ring-card">
+        <svg viewBox="0 0 120 120" class="ring-svg">
+          <defs>
+            <linearGradient id="ring-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#6c63ff"/>
+              <stop offset="1" stop-color="#ff6584"/>
+            </linearGradient>
+          </defs>
+          <circle cx="60" cy="60" r="52" class="ring-track" />
+          <circle cx="60" cy="60" r="52" class="ring-fill" id="ring-fill" />
+        </svg>
+        <div class="ring-label">
+          <div class="ring-count" id="ring-count">0/0</div>
+          <div class="ring-sub">sessions this week</div>
+        </div>
+      </div>
+    </div>
+    <div>
       <div class="stats-title">Overview</div>
       <div class="stats-grid">
         <div class="big-stat"><div class="label">Total Sessions</div><div class="val accent" id="sv-sessions">—</div><div class="sub">all time</div></div>
         <div class="big-stat"><div class="label">Current Weight</div><div class="val yellow" id="sv-weight">—</div><div class="sub">last logged</div></div>
         <div class="big-stat"><div class="label">Next Workout</div><div class="val green" id="sv-next">—</div><div class="sub" id="sv-next-name">—</div></div>
-        <div class="big-stat"><div class="label">This Week</div><div class="val pink" id="sv-streak">—</div><div class="sub">sessions</div></div>
+        <div class="big-stat"><div class="label">Streak</div><div class="val pink" id="sv-streak">—</div><div class="sub">days in a row</div></div>
       </div>
     </div>
     <div>
@@ -569,7 +617,26 @@
   function addBubble(text, cls) {
     const div = document.createElement('div');
     div.className = 'bubble ' + cls; div.textContent = text;
-    chat.appendChild(div); chat.scrollTop = chat.scrollHeight; return div;
+    chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
+    if (text.includes('🎉')) fireConfetti();
+    return div;
+  }
+
+  function fireConfetti() {
+    const colors = ['#6c63ff', '#ff6584', '#f9ca24', '#43e97b'];
+    const layer = document.createElement('div');
+    layer.className = 'confetti-layer';
+    for (let i = 0; i < 24; i++) {
+      const p = document.createElement('span');
+      p.className = 'confetti-piece';
+      p.style.left = Math.random() * 100 + '%';
+      p.style.background = colors[i % colors.length];
+      p.style.animationDelay = (Math.random() * 0.3) + 's';
+      p.style.animationDuration = (1.1 + Math.random() * 0.6) + 's';
+      layer.appendChild(p);
+    }
+    document.body.appendChild(layer);
+    setTimeout(() => layer.remove(), 2200);
   }
   function showTyping() {
     const t = document.createElement('div');
@@ -580,6 +647,29 @@
   function hideTyping() { const t = document.getElementById('typing'); if (t) t.remove(); }
 
   // ── Stats ──
+  function animateCount(el, target, suffix) {
+    const start = parseInt(el.dataset.val || '0', 10);
+    if (start === target) { el.textContent = target + (suffix || ''); return; }
+    el.dataset.val = target;
+    const dur = 500, t0 = performance.now();
+    function tick(t) {
+      const p = Math.min((t - t0) / dur, 1);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const v = Math.round(start + (target - start) * eased);
+      el.textContent = v + (suffix || '');
+      if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function drawWeeklyRing(done, target) {
+    const circumference = 326.7;
+    const pct = target > 0 ? Math.min(done / target, 1) : 0;
+    const fill = document.getElementById('ring-fill');
+    fill.style.strokeDashoffset = circumference * (1 - pct);
+    document.getElementById('ring-count').textContent = `${done}/${target}`;
+  }
+
   async function loadStatsBar() {
     try {
       const d = await (await fetch('/day_info', { headers: authHeaders() })).json();
@@ -588,8 +678,11 @@
     } catch {}
     try {
       const s = await (await fetch('/stats', { headers: authHeaders() })).json();
-      document.getElementById('stat-sessions').textContent = s.total_sessions ?? '0';
+      animateCount(document.getElementById('stat-sessions'), s.total_sessions ?? 0);
       document.getElementById('stat-weight').textContent = s.last_weight ? s.last_weight + ' kg' : '—';
+      const streakEl = document.getElementById('stat-streak');
+      const streak = s.streak ?? 0;
+      streakEl.textContent = (streak > 0 ? '🔥 ' : '') + streak;
     } catch {}
   }
   async function loadStatsView() {
@@ -599,7 +692,8 @@
       document.getElementById('sv-weight').textContent = d.last_weight ? d.last_weight + ' kg' : '—';
       document.getElementById('sv-next').textContent = 'Day ' + (d.next_day ?? '—');
       document.getElementById('sv-next-name').textContent = d.next_name ?? '';
-      document.getElementById('sv-streak').textContent = (d.sessions_this_week ?? '0');
+      document.getElementById('sv-streak').textContent = (d.streak > 0 ? '🔥 ' : '') + (d.streak ?? 0);
+      drawWeeklyRing(d.sessions_this_week ?? 0, d.days_per_week ?? 6);
       const list = document.getElementById('sv-sessions-list'); list.innerHTML = '';
       (d.recent_sessions || []).forEach(s => {
         const item = document.createElement('div'); item.className = 'session-item';

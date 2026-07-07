@@ -16,9 +16,18 @@ log = logging.getLogger(__name__)
 GROQ_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 
 # ── Primary reasoning brain (configurable provider) ───────────────────────────
-# Point at Kimi:   LLM_API_KEY=<moonshot key>
-#                  LLM_BASE_URL=https://api.moonshot.ai/v1
-#                  LLM_MODEL=kimi-k2-0905-preview   (or kimi-latest)
+# Point at Kimi:      LLM_API_KEY=<moonshot key>
+#                     LLM_BASE_URL=https://api.moonshot.ai/v1
+#                     LLM_MODEL=kimi-k2-0905-preview   (or kimi-latest)
+# Point at NVIDIA NIM: LLM_API_KEY=<nvapi-... key from build.nvidia.com>
+#                     LLM_BASE_URL=https://integrate.api.nvidia.com/v1
+#                     LLM_MODEL=nvidia/llama-3.1-nemotron-70b-instruct   (recommended —
+#                       NVIDIA's own fine-tune, tuned specifically for instruction-
+#                       following and tool-call execution; confirmed OpenAI-compatible
+#                       function calling, needed for the !ask reasoning loop and the
+#                       tool-grounded coach in messaging.ask_agent. Alternative worth
+#                       A/B testing: "mistralai/mistral-nemotron", built by NVIDIA/
+#                       Mistral specifically for agentic workflows + function calling.)
 # Default: Groq Llama.
 LLM_API_KEY  = os.environ.get("LLM_API_KEY", GROQ_KEY).strip()
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.groq.com/openai/v1").strip()
@@ -46,14 +55,37 @@ def chat(messages: list, temperature: float = 0.7) -> str:
     return resp.choices[0].message.content or ""
 
 
+def _record_tool_usage(used_tools: bool, tool_names: list[str], steps: int) -> None:
+    """Best-effort rolling record of whether the model actually called tools,
+    so this is verifiable (via 'system status') instead of taken on faith."""
+    try:
+        from agent_core import _col
+        _col("tool_usage").insert_one({
+            "used_tools": used_tools,
+            "tool_names": tool_names,
+            "steps": steps,
+        })
+        # Keep the collection small — trim to the last 200 entries.
+        col = _col("tool_usage")
+        count = col.count_documents({})
+        if count > 200:
+            for doc in col.find().sort("_id", 1).limit(count - 200):
+                col.delete_one({"_id": doc["_id"]})
+    except Exception as e:
+        log.warning(f"Could not record tool-usage stat: {e}")
+
+
 def reason_loop(messages: list, tools: list, tool_impls: dict,
                 max_steps: int = 5, temperature: float = 0.2) -> str:
     """
     ReAct-style reasoning loop: the model thinks, optionally calls a tool,
     observes the result, and repeats until it produces a final answer.
     `tool_impls` maps tool name -> python callable(**args) returning a string.
+    Every call to this function is logged (steps, tool names) and recorded so
+    the model's actual tool-use behavior is auditable, not just assumed.
     """
-    for _ in range(max_steps):
+    all_tool_names: list[str] = []
+    for step in range(1, max_steps + 1):
         resp = _client.chat.completions.create(
             model=MODEL,
             messages=messages,
@@ -62,7 +94,17 @@ def reason_loop(messages: list, tools: list, tool_impls: dict,
         )
         msg = resp.choices[0].message
         if not msg.tool_calls:
+            if all_tool_names:
+                log.info(f"reason_loop: answered after {step} step(s), tools used: {all_tool_names}")
+            else:
+                log.info(f"reason_loop: answered with NO tool calls (step {step}) — "
+                         f"model may not support tools, or judged none were needed")
+            _record_tool_usage(bool(all_tool_names), all_tool_names, step)
             return msg.content or ""
+
+        names_this_step = [tc.function.name for tc in msg.tool_calls]
+        all_tool_names.extend(names_this_step)
+        log.info(f"reason_loop step {step}: model called tool(s) {names_this_step}")
 
         # Record the assistant's tool-call turn
         messages.append({
@@ -83,6 +125,7 @@ def reason_loop(messages: list, tools: list, tool_impls: dict,
                 args = {}
             try:
                 result = tool_impls[name](**args) if name in tool_impls else f"Unknown tool: {name}"
+                log.info(f"reason_loop: tool {name}({args}) -> {str(result)[:150]!r}")
             except Exception as e:
                 log.error(f"Tool {name} failed: {e}")
                 result = f"Tool error: {e}"
@@ -93,6 +136,8 @@ def reason_loop(messages: list, tools: list, tool_impls: dict,
             })
 
     # Ran out of steps — force a final answer without further tools
+    log.warning(f"reason_loop: hit max_steps={max_steps} without a final answer; forcing one")
+    _record_tool_usage(bool(all_tool_names), all_tool_names, max_steps)
     final = _client.chat.completions.create(
         model=MODEL, messages=messages, temperature=temperature,
     )

@@ -23,7 +23,6 @@ from agent_core import (
     reset_history,
 )
 from messaging import (
-    HELP_MSG,
     analyze_meal_photo,
     process_message,
     transcribe_and_process,
@@ -183,7 +182,7 @@ def day_info():
 @require_auth
 def stats():
     from datetime import timedelta
-    from agent_core import today as _today
+    from agent_core import get_consecutive_workout_days, today as _today
     workout_log = load_log()
     mem         = load_memory()
     sessions    = workout_log.get("sessions", [])
@@ -215,12 +214,15 @@ def stats():
             "exercises": len(s.get("exercises", [])),
         })
 
+    profile = load_profile() or {}
     return jsonify({
         "total_sessions":     len(sessions),
         "last_weight":        last_weight,
         "next_day":           day,
         "next_name":          p.get("name", ""),
         "sessions_this_week": sessions_this_week,
+        "days_per_week":      profile.get("days_per_week", 6),
+        "streak":             get_consecutive_workout_days(workout_log),
         "recent_sessions":    recent,
     })
 
@@ -398,34 +400,9 @@ def delete_last_session():
 @flask_app.route("/repair_data", methods=["POST"])
 @require_auth
 def repair_data():
-    """Clean up existing sessions: drop duplicates (same date+day, keep the
-    latest), clamp future/invalid dates to today, and re-sort by date so the
-    day rotation is correct."""
-    from datetime import datetime
-    from agent_core import _col, today_iso
-    doc = _col("workout_log").find_one({"_id": "log"}) or {}
-    sessions = doc.get("sessions", [])
-    today = today_iso()
-
-    fixed_dates = 0
-    for s in sessions:
-        d = s.get("date", "")
-        try:
-            if not d or datetime.strptime(d, "%Y-%m-%d").date().isoformat() > today:
-                s["date"] = today; fixed_dates += 1
-        except ValueError:
-            s["date"] = today; fixed_dates += 1
-
-    # Dedup by (date, day), keeping the last occurrence
-    seen = {}
-    for s in sessions:
-        seen[(s.get("date"), s.get("day"))] = s
-    result = sorted(seen.values(), key=lambda s: s.get("date", ""))
-    removed = len(sessions) - len(result)
-
-    _col("workout_log").update_one({"_id": "log"}, {"$set": {"sessions": result}}, upsert=True)
-    return jsonify({"ok": True, "removed_duplicates": removed,
-                    "fixed_dates": fixed_dates, "remaining": len(result)})
+    from agent_core import repair_workout_data
+    result = repair_workout_data()
+    return jsonify({"ok": True, **result})
 
 
 @flask_app.route("/health")
@@ -509,6 +486,75 @@ def cron_backup():
     except Exception as e:
         log.error(f"Backup cron failed: {e}", exc_info=True)
         alert_admin(f"Backup failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@flask_app.route("/cron/selfheal", methods=["GET", "POST"])
+def cron_selfheal():
+    """Autonomous self-healing: repair workout data on a schedule; only
+    notify if something was actually wrong and got fixed."""
+    if not _cron_authorized():
+        return "forbidden", 403
+    record_event("cron_selfheal")
+    from agent_core import repair_workout_data
+    try:
+        result = repair_workout_data()
+        sent = False
+        if result["removed_duplicates"] or result["fixed_dates"]:
+            msg = (f"🧹 Self-check: fixed {result['fixed_dates']} bad date(s) and removed "
+                   f"{result['removed_duplicates']} duplicate session(s) automatically. "
+                   f"Everything's back in order.")
+            sent = notify(msg)
+        log.info(f"Self-heal cron: {result}")
+        return jsonify({"ok": True, "notified": sent, **result})
+    except Exception as e:
+        log.error(f"Self-heal cron failed: {e}", exc_info=True)
+        alert_admin(f"Self-heal failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@flask_app.route("/cron/plateau", methods=["GET", "POST"])
+def cron_plateau():
+    """Autonomous plateau intervention: detect stalled lifts and schedule an
+    automatic deload for their next occurrence — no need to ask permission."""
+    if not _cron_authorized():
+        return "forbidden", 403
+    record_event("cron_plateau")
+    from agent_core import load_log
+    from progression import detect_plateau_exercise_names, set_autodeload_flags
+    try:
+        names = detect_plateau_exercise_names(load_log())
+        newly = set_autodeload_flags(names)
+        sent = False
+        if newly:
+            msg = ("📉 I noticed these lifts have plateaued: " + ", ".join(newly) +
+                   ".\nI've scheduled a 10% deload for each next time they come up — "
+                   "no action needed, I'll handle it in your next relevant session.")
+            sent = notify(msg)
+        log.info(f"Plateau cron: flagged {newly}")
+        return jsonify({"ok": True, "newly_flagged": newly, "notified": sent})
+    except Exception as e:
+        log.error(f"Plateau cron failed: {e}", exc_info=True)
+        alert_admin(f"Plateau cron failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@flask_app.route("/cron/evening", methods=["GET", "POST"])
+def cron_evening():
+    """Autonomous evening check: nudge for nutrition and/or weight if either
+    hasn't been logged today/this week, independent of workout activity."""
+    if not _cron_authorized():
+        return "forbidden", 403
+    record_event("cron_evening")
+    from reports import build_evening_checkin
+    try:
+        msg = build_evening_checkin()
+        sent = notify(msg) if msg else False
+        log.info(f"Evening cron: {'sent' if sent else 'nothing to send'}")
+        return jsonify({"sent": sent, "message": msg})
+    except Exception as e:
+        log.error(f"Evening cron failed: {e}", exc_info=True)
+        alert_admin(f"Evening cron failed: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 

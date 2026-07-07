@@ -21,6 +21,8 @@ from agent_core import (
     today_iso,
 )
 from expense_core import monthly_summary
+from goals import get_goals, _project_lift, _project_weight
+from nutrition import today_totals
 
 log = logging.getLogger(__name__)
 
@@ -56,8 +58,64 @@ def build_daily_nudge() -> str | None:
     else:
         lines.append("A quick session today keeps you on track. Let's go!")
 
+    # Autonomous goal-risk check-in: surface any goal that's projected behind,
+    # instead of waiting for the user to ask !goals.
+    at_risk = _at_risk_goal_lines()
+    if at_risk:
+        lines.append("")
+        lines.append("⚠️ Goal check: " + " ".join(at_risk))
+
     lines.append("Reply !workout when you're ready.")
     return "\n".join(lines)
+
+
+def _at_risk_goal_lines() -> list[str]:
+    out = []
+    for g in get_goals():
+        try:
+            line = _project_weight(g) if g["kind"] == "weight" else _project_lift(g)
+        except Exception:
+            continue
+        if "behind" in line.lower():
+            label = f"Weight {g['target']:g}kg" if g["kind"] == "weight" else f"{g.get('exercise','?')} {g['target']:g}kg"
+            out.append(f"{label} is falling behind pace — {line}")
+    return out
+
+
+def build_evening_checkin() -> str | None:
+    """Autonomous evening loop: independent of workout activity, proactively
+    ask about today's meals if none logged, and this week's weight if none
+    logged yet. Returns None if both are already covered."""
+    profile = load_profile()
+    if not profile_complete(profile):
+        return None
+
+    mem = load_memory()
+    parts = []
+
+    totals = today_totals()
+    if totals["count"] == 0:
+        parts.append("Haven't heard about your meals today — what did you eat? "
+                     "(You can type it or send a photo.)")
+    else:
+        parts.append(f"Nice, you've logged {totals['calories']} kcal / {totals['protein_g']}g "
+                     f"protein today. Keep it up!")
+
+    now = today()
+    week_start = now - timedelta(days=now.weekday())
+    last_weight_date = None
+    for e in mem.get("weight_log", []):
+        try:
+            last_weight_date = e.split(": ")[0]
+        except Exception:
+            pass
+    logged_this_week = bool(last_weight_date and last_weight_date >= week_start.isoformat())
+    if not logged_this_week:
+        parts.append("Also — no weight check-in yet this week. What's your current weight?")
+
+    if len(parts) == 1 and totals["count"] > 0:
+        return None  # nutrition logged, weight covered — nothing worth nagging about
+    return "🌙 Evening check-in\n\n" + "\n\n".join(parts)
 
 
 def build_weekly_report() -> str:

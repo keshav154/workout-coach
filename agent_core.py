@@ -110,13 +110,13 @@ PROGRAM = {
     "B": {
         "name":    "Pull (Back thickness)",
         "focus":   "lats, mid-back, traps, rear delts, biceps",
-        "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
+        "warmup":  "5 min treadmill brisk walk, then arm circles + bodyweight rows on bench 2x15",
         "exercises": [
             {"name": "Dumbbell Bent-Over Row",         "sets": 4, "rep_range": "8-12",  "form": "Hinge ~45 degrees, pull to hip, squeeze shoulder blades."},
             {"name": "Dumbbell Single-Arm Row",        "sets": 3, "rep_range": "8-12",  "form": "Support on bench, pull elbow past torso, flat back."},
-            {"name": "Resistance Band Lat Pulldown",   "sets": 3, "rep_range": "12-15", "form": "Pull elbows down and back, squeeze lats."},
+            {"name": "Dumbbell Pullover (on bench)",   "sets": 3, "rep_range": "10-12", "form": "Arc dumbbell behind head, stretch lats, pull over — lat width."},
             {"name": "Dumbbell Shrug",                 "sets": 3, "rep_range": "12-15", "form": "Lift shoulders straight to ears, pause — traps."},
-            {"name": "Resistance Band Face Pull",      "sets": 3, "rep_range": "15",    "form": "Pull to forehead, elbows high — rear delts/posture."},
+            {"name": "Dumbbell Rear Delt Fly (bent-over)", "sets": 3, "rep_range": "15", "form": "Hinge forward ~45 degrees, light dumbbells, raise out to sides, squeeze shoulder blades."},
             {"name": "Dumbbell Bicep Curl",            "sets": 3, "rep_range": "10-12", "form": "Elbows fixed at sides, full range, squeeze at top."},
         ],
     },
@@ -136,7 +136,7 @@ PROGRAM = {
     "D": {
         "name":    "Push (Shoulder focus)",
         "focus":   "all 3 delts, upper chest, triceps",
-        "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
+        "warmup":  "5 min treadmill brisk walk, then arm circles + bodyweight rows on bench 2x15",
         "exercises": [
             {"name": "Dumbbell Overhead Press",        "sets": 4, "rep_range": "8-12",  "form": "Press straight up, don't over-flare elbows."},
             {"name": "Dumbbell Arnold Press",          "sets": 3, "rep_range": "10-12", "form": "Rotate palms in-to-out as you press — full delt hit."},
@@ -149,13 +149,13 @@ PROGRAM = {
     "E": {
         "name":    "Pull (Back width + arms)",
         "focus":   "lats, rear delts, traps, biceps, forearms",
-        "warmup":  "5 min treadmill brisk walk, then band pull-aparts 2x15",
+        "warmup":  "5 min treadmill brisk walk, then arm circles + bodyweight rows on bench 2x15",
         "exercises": [
             {"name": "Dumbbell Single-Arm Row",        "sets": 4, "rep_range": "8-12",  "form": "Heavy, full stretch and squeeze each rep."},
-            {"name": "Resistance Band Lat Pulldown",   "sets": 3, "rep_range": "12-15", "form": "Wide pull, drive elbows down — lat width."},
-            {"name": "Dumbbell Pullover (on bench)",   "sets": 3, "rep_range": "10-12", "form": "Arc dumbbell behind head, stretch lats, pull over."},
+            {"name": "Dumbbell Pullover (on bench)",   "sets": 3, "rep_range": "10-12", "form": "Arc dumbbell behind head, stretch lats, pull over — lat width."},
             {"name": "Dumbbell Upright Row",           "sets": 3, "rep_range": "12-15", "form": "Pull up the body to chest height, elbows lead — traps/side delts."},
-            {"name": "Resistance Band Rear Delt Fly",  "sets": 3, "rep_range": "15",    "form": "Hinge forward, arms wide, squeeze rear delts."},
+            {"name": "Dumbbell Rear Delt Fly (bent-over)", "sets": 3, "rep_range": "15", "form": "Hinge forward ~45 degrees, light dumbbells, raise out to sides, squeeze shoulder blades."},
+            {"name": "Dumbbell Kickback",              "sets": 3, "rep_range": "12-15", "form": "Hinge forward, upper arm still, extend forearm back — triceps isolation."},
             {"name": "Hammer Curl",                    "sets": 4, "rep_range": "10-12", "form": "Neutral grip — biceps and forearm thickness."},
         ],
     },
@@ -220,6 +220,34 @@ def save_session(log: dict, session_data: dict) -> None:
         {"$push": {"sessions": session_data}},
         upsert=True,
     )
+
+
+def repair_workout_data() -> dict:
+    """Clean up existing sessions: drop duplicates (same date+day, keep the
+    latest), clamp future/invalid dates to today, and re-sort by date so the
+    day rotation is correct. Safe to call repeatedly (idempotent)."""
+    doc = _col("workout_log").find_one({"_id": "log"}) or {}
+    sessions = doc.get("sessions", [])
+    now = today_iso()
+
+    fixed_dates = 0
+    for s in sessions:
+        d = s.get("date", "")
+        try:
+            if not d or datetime.strptime(d, "%Y-%m-%d").date().isoformat() > now:
+                s["date"] = now; fixed_dates += 1
+        except ValueError:
+            s["date"] = now; fixed_dates += 1
+
+    seen = {}
+    for s in sessions:
+        seen[(s.get("date"), s.get("day"))] = s
+    result = sorted(seen.values(), key=lambda s: s.get("date", ""))
+    removed = len(sessions) - len(result)
+
+    if removed or fixed_dates:
+        _col("workout_log").update_one({"_id": "log"}, {"$set": {"sessions": result}}, upsert=True)
+    return {"removed_duplicates": removed, "fixed_dates": fixed_dates, "remaining": len(result)}
 
 
 def get_next_day(log: dict) -> str:
@@ -503,7 +531,7 @@ If they are a complete beginner with no recent training, set all weights to 0 (c
 
 Then immediately greet them warmly, show their calorie target, protein target, and tell them the 6-day Push/Pull/Legs split that trains every muscle twice a week (A: Push-chest, B: Pull-back, C: Legs-quad, D: Push-shoulders, E: Pull-width+arms, F: Legs-posterior). Tell them to tap "Today's Workout" to begin.
 
-Equipment available: adjustable dumbbells (4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg), incline-decline bench, treadmill, resistance bands.
+Equipment available: adjustable dumbbells (4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg), incline-decline bench, treadmill.
 Keep messages short, warm, and encouraging. Mobile-friendly plain text only.
 """
 
@@ -599,7 +627,7 @@ USER PROFILE:
   Goal: {profile['goal']} | Level: {profile['level']} | Days/week: {profile['days_per_week']}
   Diet: {profile['diet']} | Session: {profile['session_min']} min | Activity outside gym: {profile.get('activity_level','sedentary')}
   Injuries: {injuries}
-  Equipment: adjustable dumbbells, incline-decline bench, treadmill, resistance bands
+  Equipment: adjustable dumbbells, incline-decline bench, treadmill (the user does NOT have resistance bands — never suggest band exercises)
   Available dumbbell weights (kg): 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24
   IMPORTANT: Always recommend weights from the above list only. Never suggest a weight not in this list.
   When progressive overload calls for an increase, pick the next available weight up from the list.
@@ -628,7 +656,7 @@ RECOVERY, PROGRESSION & GOALS:
 - If a RECOVERY READINESS score is shown above, let it guide intensity: 8-10 push for progression or a PR; 5-7 train as planned; 1-4 back off 10-15% and briefly say why (sleep/energy/soreness).
 - If PLATEAUS are listed, address them: suggest deloading that lift ~10% and rebuilding, or swapping to a variation. Mention it naturally during the session.
 - If ACTIVE GOALS are shown, reference them to motivate and tie today's work to the goal and its pace.
-- If the user reports pain or can't do a movement today, offer a sensible alternative that trains the same muscle with their equipment (dumbbells, bench, bands).
+- If the user reports pain or can't do a movement today, offer a sensible alternative that trains the same muscle with their equipment (dumbbells, bench, treadmill only — no bands).
 
 WEEKLY WEIGH-IN (first_this_week={first_this_week}):
 - Ask weight ONLY if first_this_week is True (first session of this calendar week).
@@ -751,7 +779,15 @@ NATURAL ACTIONS — the user should NEVER need to type a command. When they expr
   <UNDO></UNDO>
 - They want to change how many days per week they train:
   <UPDATE_PROFILE>{{"days_per_week": 5}}</UPDATE_PROFILE>
-For QUESTIONS about progress, plateaus, goals, spending, or recovery, just ANSWER from the data already provided above — never tell the user to run a command.
+- They mention eating ANYTHING, at any time (not just after a workout) — log it immediately, separate from LOG_SESSION nutrition:
+  <LOG_MEAL>{{"description": "...", "calories": 0, "protein": 0}}</LOG_MEAL>
+  Estimate calories/protein using the Indian portion guide below. Log every meal mention, even outside a workout conversation.
+- They set or change a monthly spending budget for a category ("cap my food spending at 8000 a month"):
+  <SET_BUDGET>{{"category": "Food", "amount": 8000}}</SET_BUDGET>
+- They ask to clear/remove/reset their goals:
+  <CLEAR_GOALS></CLEAR_GOALS>
+There is NO command syntax in this app — never tell the user to type a command with "!" or otherwise. Everything is done by talking normally and by you calling tools or emitting the blocks above. If the user asks what they can do, describe it in plain sentences ("just tell me...").
+For QUESTIONS about progress, plateaus, goals, spending, or recovery, just ANSWER from the data already provided above, or call a tool to fetch it — never tell the user to run a command.
 
 TONE: encouraging, brief, mobile-friendly. One idea per message.
 """

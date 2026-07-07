@@ -110,6 +110,27 @@ def query_today_workout() -> str:
     return "\n".join(lines)
 
 
+def generate_spending_review(month: str | None = None) -> str:
+    """Rich AI-written spending analysis (patterns, overspend areas, tips) —
+    use when the user wants a real review/analysis of their spending, not just totals."""
+    from expense_core import build_review_prompt
+    prompt, err = build_review_prompt(month)
+    if err:
+        return err
+    try:
+        return chat([{"role": "user", "content": prompt}], temperature=0.7) or "Could not generate a review."
+    except Exception as e:
+        log.error(f"spending review tool error: {e}")
+        return "Could not generate a review right now."
+
+
+def get_system_status() -> str:
+    """Operational status: uptime, DB health, last scheduled job runs. Use when
+    the user asks if things are working / is anything broken / system health."""
+    from monitor import get_status
+    return get_status()
+
+
 def query_profile() -> str:
     p   = load_profile() or {}
     mem = load_memory()
@@ -157,15 +178,28 @@ TOOLS = [
         "description": "Get the user's profile, goals, personal records, preferences and injuries.",
         "parameters": {"type": "object", "properties": {}},
     }},
+    {"type": "function", "function": {
+        "name": "generate_spending_review",
+        "description": "Generate a full AI analysis of spending (patterns, overspend areas, tips) for a month. Use when the user wants a real review/analysis, not just a total.",
+        "parameters": {"type": "object", "properties": {
+            "month": {"type": "string", "description": "Month as YYYY-MM, optional (defaults to current month)"}}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_system_status",
+        "description": "Check operational health: uptime, database status, last scheduled job runs. Use when the user asks if things are working, if anything's broken, or about system status.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
 ]
 
 TOOL_IMPLS = {
-    "query_today_workout": query_today_workout,
-    "query_workouts":      query_workouts,
-    "query_exercise":      query_exercise,
-    "query_spending":      query_spending,
-    "query_weight":        query_weight,
-    "query_profile":       query_profile,
+    "query_today_workout":     query_today_workout,
+    "query_workouts":          query_workouts,
+    "query_exercise":          query_exercise,
+    "query_spending":          query_spending,
+    "query_weight":            query_weight,
+    "query_profile":           query_profile,
+    "generate_spending_review": generate_spending_review,
+    "get_system_status":        get_system_status,
 }
 
 
