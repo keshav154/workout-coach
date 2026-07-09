@@ -14,7 +14,8 @@ from agent_core import _col, today
 log = logging.getLogger(__name__)
 
 BACKUP_COLLECTIONS = ["profile", "workout_log", "memory", "expenses", "budget",
-                      "history", "checkin", "goals", "audit"]
+                      "history", "checkin", "goals", "audit", "meals",
+                      "episodes", "lessons"]
 
 
 # ── Validation ────────────────────────────────────────────────────────────────

@@ -38,6 +38,8 @@ from agent_core import (
 from expense_core import log_expense, monthly_summary, save_budget, try_parse_expense
 from trust import record_audit, undo_last, validate_expense, validate_session
 from ask_core import TOOLS as READ_TOOLS, TOOL_IMPLS as READ_IMPLS
+from write_tools import WRITE_TOOLS, make_write_tools
+from memory_core import format_episodes_block, format_lessons_block
 from progression import (
     clear_autodeload_flag,
     format_autodeload_block,
@@ -114,17 +116,23 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
             format_autodeload_block(),
             format_goals_block(),
             format_nutrition_block(),
+            format_episodes_block(),
+            format_lessons_block(),
             "SPENDING THIS MONTH (for any money questions):\n" + monthly_summary(),
         ]))
         system = build_system_prompt(day, last, workout_log, mem, profile, extra_context=extra)
 
     base_messages = [{"role": "system", "content": system}] + history
+    ctx: dict = {}          # collects what write-tools actually did this turn
     if is_setup:
-        # Tool-grounded: let the model fetch REAL data from the DB and treat it
-        # as fact. Falls back to a plain call if the provider lacks tool support.
+        # Fully agentic loop: the model READS real data and WRITES via tools,
+        # observing each result (saved / rejected / PR) before it replies.
+        # Falls back to a plain call if the provider lacks tool support.
         try:
-            full = reason_loop(list(base_messages), READ_TOOLS, READ_IMPLS,
-                               max_steps=4, temperature=0.5)
+            tools = READ_TOOLS + WRITE_TOOLS
+            impls = {**READ_IMPLS, **make_write_tools(ctx)}
+            full = reason_loop(list(base_messages), tools, impls,
+                               max_steps=5, temperature=0.5)
         except Exception as e:
             log.warning(f"Coach tool loop failed ({e}); using plain call.")
             full = chat([{"role": "system", "content": system}] + history, temperature=0.7)
@@ -138,12 +146,24 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
 
     validation_warning = ""
     expense_suffix     = ""
+    tool_acted = bool(ctx)   # write-tools already executed real actions this turn
+
     if not is_setup:
         # SAVE_PROFILE is only valid during onboarding — never let an
         # established user's profile be overwritten by a hallucinated block.
         if parsed_profile:
             save_profile(parsed_profile)
+    elif tool_acted:
+        # Tool path (primary): actions already happened inside the loop and the
+        # model saw each result. Skip ALL legacy block parsing to avoid
+        # double-logging; just surface what happened.
+        parsed_profile = None
+        parsed_log = ctx.get("session")
+        pr_msgs    = ctx.get("prs", [])
+        for note in ctx.get("notes", []):
+            expense_suffix += "\n\n" + note
     else:
+        # Legacy block path (fallback for models/turns without tool calls).
         parsed_profile = None
         workout_log = load_log()   # state BEFORE this session is saved
         mem         = load_memory()

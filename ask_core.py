@@ -131,6 +131,11 @@ def get_system_status() -> str:
     return get_status()
 
 
+def query_memory_tool(query: str) -> str:
+    from memory_core import query_memory
+    return query_memory(query)
+
+
 def query_profile() -> str:
     p   = load_profile() or {}
     mem = load_memory()
@@ -189,6 +194,12 @@ TOOLS = [
         "description": "Check operational health: uptime, database status, last scheduled job runs. Use when the user asks if things are working, if anything's broken, or about system status.",
         "parameters": {"type": "object", "properties": {}},
     }},
+    {"type": "function", "function": {
+        "name": "query_memory",
+        "description": "Search past conversations (daily episode summaries), memory notes, and lessons by keyword. Use when the user references something from a previous day/conversation that isn't in the current context (e.g. 'what did I say last week about my shoulder?').",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string"}}, "required": ["query"]},
+    }},
 ]
 
 TOOL_IMPLS = {
@@ -200,6 +211,7 @@ TOOL_IMPLS = {
     "query_profile":           query_profile,
     "generate_spending_review": generate_spending_review,
     "get_system_status":        get_system_status,
+    "query_memory":             query_memory_tool,
 }
 
 

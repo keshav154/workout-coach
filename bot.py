@@ -450,8 +450,18 @@ def cron_weekly():
     record_event("cron_weekly")
     msg  = build_weekly_report()
     sent = notify(msg)
+    # Autonomous memory hygiene: merge duplicates, drop stale notes, distill
+    # the week's episodes into durable observations.
+    consolidated = None
+    try:
+        from memory_core import consolidate_memory
+        consolidated = consolidate_memory()
+        if consolidated:
+            log.info(consolidated)
+    except Exception as e:
+        log.error(f"Memory consolidation failed: {e}")
     log.info(f"Weekly cron: report={'sent' if sent else 'failed'}")
-    return jsonify({"sent": sent, "message": msg})
+    return jsonify({"sent": sent, "message": msg, "memory": consolidated})
 
 
 @flask_app.route("/cron/check", methods=["GET", "POST"])
@@ -541,17 +551,24 @@ def cron_plateau():
 
 @flask_app.route("/cron/evening", methods=["GET", "POST"])
 def cron_evening():
-    """Autonomous evening check: nudge for nutrition and/or weight if either
-    hasn't been logged today/this week, independent of workout activity."""
+    """Autonomous evening loop: nudge for nutrition/weight if missing, and
+    write today's episodic memory summary so tomorrow's agent remembers today."""
     if not _cron_authorized():
         return "forbidden", 403
     record_event("cron_evening")
     from reports import build_evening_checkin
+    from memory_core import summarize_today
     try:
         msg = build_evening_checkin()
         sent = notify(msg) if msg else False
-        log.info(f"Evening cron: {'sent' if sent else 'nothing to send'}")
-        return jsonify({"sent": sent, "message": msg})
+        episode = None
+        try:
+            episode = summarize_today()
+        except Exception as e:
+            log.error(f"Episode summary failed: {e}")
+        log.info(f"Evening cron: nudge={'sent' if sent else 'skipped'}, "
+                 f"episode={'saved' if episode else 'none'}")
+        return jsonify({"sent": sent, "message": msg, "episode": episode})
     except Exception as e:
         log.error(f"Evening cron failed: {e}", exc_info=True)
         alert_admin(f"Evening cron failed: {e}")
