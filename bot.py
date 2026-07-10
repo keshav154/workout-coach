@@ -1,5 +1,5 @@
 """
-CoachX — Flask web UI + WhatsApp (Twilio) + Discord bot on Render.
+CoachxKeshav — Flask web UI + WhatsApp (Twilio) + Discord bot on Render.
 All message routing lives in messaging.process_message; this file is just transport.
 Data persisted in MongoDB Atlas.
 """
@@ -80,8 +80,8 @@ def index():
 @flask_app.route("/manifest.webmanifest")
 def manifest():
     return jsonify({
-        "name": "CoachX",
-        "short_name": "CoachX",
+        "name": "CoachxKeshav",
+        "short_name": "CoachxKeshav",
         "description": "Your personal AI fitness & finance coach",
         "start_url": "/",
         "scope": "/",
@@ -99,7 +99,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachx-v2';
+const CACHE = 'coachxkeshav-v3';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -126,13 +126,25 @@ def app_icon():
     svg = """
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6c63ff"/>
-      <stop offset="1" stop-color="#ff6584"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0a0f"/>
+      <stop offset="1" stop-color="#12121a"/>
     </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#g)"/>
-  <path d="M286 80 154 300h84l-28 132 132-220h-84z" fill="#fff"/>
+  <!-- chamfered square -->
+  <polygon points="56,0 456,0 512,56 512,456 456,512 56,512 0,456 0,56"
+    fill="url(#bg)" stroke="#00ff88" stroke-width="6"/>
+  <!-- bolt, neon green with magenta/cyan offset for chromatic aberration -->
+  <path d="M286 90 160 300h84l-30 132 138-228h-86z" fill="#ff00ff" opacity="0.55" transform="translate(-4,0)"/>
+  <path d="M286 90 160 300h84l-30 132 138-228h-86z" fill="#00d4ff" opacity="0.55" transform="translate(4,0)"/>
+  <path d="M286 90 160 300h84l-30 132 138-228h-86z" fill="#00ff88" filter="url(#glow)"/>
 </svg>
 """.strip()
     return svg, 200, {"Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400"}
@@ -490,7 +502,7 @@ def cron_backup():
     try:
         dump = export_all()
         fname = f"coachx_backup_{datetime.utcnow().strftime('%Y%m%d')}.json"
-        sent = send_telegram_document(dump, fname, caption="CoachX weekly backup")
+        sent = send_telegram_document(dump, fname, caption="CoachxKeshav weekly backup")
         log.info(f"Backup cron: {'sent' if sent else 'failed'} ({len(dump)} bytes)")
         return jsonify({"sent": sent, "bytes": len(dump)})
     except Exception as e:

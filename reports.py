@@ -36,7 +36,7 @@ def build_daily_nudge() -> str | None:
     """Morning reminder. Returns None when there's nothing worth sending."""
     profile = load_profile()
     if not profile_complete(profile):
-        return "Good morning! Open CoachX to finish your quick setup and get your first workout plan."
+        return "Good morning! Open CoachxKeshav to finish your quick setup and get your first workout plan."
 
     workout_log = load_log()
     if _worked_out_today(workout_log):

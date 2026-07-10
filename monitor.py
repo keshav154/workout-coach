@@ -50,7 +50,7 @@ def alert_admin(text: str) -> bool:
     """Send an operational alert to the owner's Telegram."""
     if not ADMIN_CHAT:
         return False
-    return send_telegram(f"⚠️ CoachX alert:\n{text}", ADMIN_CHAT)
+    return send_telegram(f"⚠️ CoachxKeshav alert:\n{text}", ADMIN_CHAT)
 
 
 def tool_usage_stats(n: int = 20) -> dict:
@@ -70,7 +70,7 @@ def tool_usage_stats(n: int = 20) -> dict:
 def get_status() -> str:
     up = int(time.time() - _START_TS)
     h, m = up // 3600, (up % 3600) // 60
-    lines = ["CoachX status", f"Uptime: {h}h {m}m"]
+    lines = ["CoachxKeshav status", f"Uptime: {h}h {m}m"]
 
     ok = db_ok()
     lines.append(f"Database: {'OK' if ok else 'DOWN'}")
