@@ -405,23 +405,28 @@ def get_weight_trend(mem: dict) -> str:
 
 
 def get_consecutive_workout_days(log: dict) -> int:
-    """Count how many days in a row (by calendar date) sessions were logged."""
-    sessions = log.get("sessions", [])
-    if not sessions:
-        return 0
-    dates = sorted(set(s["date"] for s in sessions if "date" in s), reverse=True)
-    streak = 0
-    expected = today()
-    for d in dates:
+    """Count strictly consecutive training days ending today or yesterday.
+    The 'yesterday' anchor is a one-time grace (you may not have trained yet
+    today) — after the anchor, any missed day breaks the streak."""
+    dates: set = set()
+    for s in log.get("sessions", []):
         try:
-            session_date = datetime.strptime(d, "%Y-%m-%d").date()
-            if session_date == expected or session_date == expected - timedelta(days=1):
-                streak += 1
-                expected = session_date - timedelta(days=1)
-            else:
-                break
-        except ValueError:
+            dates.add(datetime.strptime(s.get("date", ""), "%Y-%m-%d").date())
+        except (ValueError, TypeError):
             pass
+    if not dates:
+        return 0
+    now = today()
+    if now in dates:
+        anchor = now
+    elif now - timedelta(days=1) in dates:
+        anchor = now - timedelta(days=1)
+    else:
+        return 0                      # no session today or yesterday -> no streak
+    streak, d = 0, anchor
+    while d in dates:
+        streak += 1
+        d -= timedelta(days=1)
     return streak
 
 

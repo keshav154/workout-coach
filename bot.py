@@ -201,13 +201,17 @@ def stats():
     day         = get_next_day(workout_log)
     p           = PROGRAM.get(day, {})
 
-    weight_entries = mem.get("weight_log", [])
-    last_weight = None
-    if weight_entries:
-        try:
-            last_weight = float(sorted(weight_entries)[-1].split(": ")[1].replace(" kg", ""))
-        except Exception:
-            pass
+    # Latest weight: parse each entry defensively and take the max by date,
+    # so one malformed legacy entry can't poison the whole display.
+    import re as _re
+    last_weight, best_date = None, ""
+    for e in mem.get("weight_log", []):
+        m = _re.match(r"^(\d{4}-\d{2}-\d{2}):\s*([\d.]+)\s*kg", str(e))
+        if m and m.group(1) >= best_date:
+            try:
+                last_weight, best_date = float(m.group(2)), m.group(1)
+            except ValueError:
+                pass
 
     today      = _today()
     week_start = today - timedelta(days=today.weekday())
