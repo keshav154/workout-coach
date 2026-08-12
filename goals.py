@@ -49,7 +49,9 @@ def _weight_series() -> list[tuple[date, float]]:
 
 def _best_lift(exercise: str) -> tuple[date, float] | None:
     best = None
-    ex_l = (exercise or "").lower()
+    ex_l = (exercise or "").lower().strip()
+    if not ex_l:
+        return None       # no exercise name must never match every exercise
     for s in load_log().get("sessions", []):
         try:
             d = datetime.strptime(s.get("date", ""), "%Y-%m-%d").date()

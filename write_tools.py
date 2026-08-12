@@ -270,6 +270,8 @@ def make_write_tools(ctx: dict) -> dict:
 
     def set_user_goal(kind: str, target: float, by_date: str | None = None,
                       exercise: str | None = None) -> str:
+        if kind == "lift" and not (exercise or "").strip():
+            return "REJECTED: a lift goal needs an exercise name — ask the user which lift."
         set_goal(kind=kind, target=target, by_date=by_date, exercise=exercise)
         ctx.setdefault("notes", []).append("🎯 Goal set.")
         return "SAVED. Current goals:\n" + goals_status()

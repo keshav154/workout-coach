@@ -60,8 +60,11 @@ def test_goals_data_progress(client, db, profile_doc):
         {"_id": "g1", "kind": "weight", "target": 92, "by_date": "2026-11-01",
          "created": "2026-07-10"},
         {"_id": "g2", "kind": "lift", "target": 24, "exercise": "bench press",
-         "created": "2026-07-10"}]
+         "created": "2026-07-10"},
+        {"_id": "g3", "kind": "lift", "target": 24, "exercise": None,
+         "created": "2026-07-10"}]   # malformed: must be skipped, not match all lifts
     d = client.get("/goals_data").get_json()
+    assert len(d["goals"]) == 2
     wg = next(g for g in d["goals"] if g["kind"] == "weight")
     lg = next(g for g in d["goals"] if g["kind"] == "lift")
     assert wg["pct"] == 25 and wg["current"] == 96.5   # 98 -> 96.5 toward 92
@@ -105,6 +108,7 @@ def test_photos_roundtrip(client, db, profile_doc):
     assert client.post("/photos", json={"b64": b64, "mime": "image/jpeg"}).status_code == 200
     assert client.post("/photos", json={}).status_code == 400
     assert client.post("/photos", json={"b64": b64, "mime": "text/html"}).status_code == 400
+    assert client.post("/photos", json={"b64": "not base64!!", "mime": "image/jpeg"}).status_code == 400
     metas = client.get("/photos").get_json()["photos"]
     assert len(metas) == 1
     r = client.get(f"/photo/{metas[0]['id']}")

@@ -388,8 +388,9 @@ def _save_progress_photo(b64: str, mime: str = "image/jpeg") -> None:
 def photos():
     from agent_core import _col
     if request.method == "POST":
+        import base64
         data = request.json or {}
-        b64  = data.get("b64", "")
+        b64  = str(data.get("b64", ""))
         mime = data.get("mime", "image/jpeg")
         if not b64:
             return jsonify({"error": "no image"}), 400
@@ -397,6 +398,11 @@ def photos():
             return jsonify({"error": "image too large — try again"}), 400
         if not mime.startswith("image/"):
             return jsonify({"error": "not an image"}), 400
+        try:
+            if not base64.b64decode(b64, validate=True):
+                raise ValueError
+        except Exception:
+            return jsonify({"error": "corrupt image data"}), 400
         _save_progress_photo(b64, mime)
         return jsonify({"ok": True})
     metas = [{"id": str(d.get("_id")), "date": d.get("date", "")}
@@ -511,10 +517,10 @@ def goals_data():
                         "pct": round(pct), "note": _project_weight(g),
                         "by_date": g.get("by_date")})
         else:
-            best = _best_lift(g.get("exercise", ""))
+            if not (g.get("exercise") or "").strip() or not target:
+                continue        # malformed legacy goal — nothing meaningful to show
+            best = _best_lift(g["exercise"])
             current = best[1] if best else 0
-            if not target:
-                continue
             pct = max(0, min(100, current / target * 100))
             out.append({"kind": "lift", "label": f"{g.get('exercise', '?')} → {target:g} kg",
                         "current": current, "target": target, "unit": "kg",

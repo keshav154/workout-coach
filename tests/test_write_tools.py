@@ -53,6 +53,13 @@ def test_measurement_validation_and_save(db):
     assert rows[0]["part"] == "waist" and rows[0]["cm"] == 92
 
 
+def test_lift_goal_requires_exercise(db):
+    tools = _tools()
+    assert "REJECTED" in tools["set_user_goal"](kind="lift", target=24)
+    assert db["goals"].rows == []
+    assert tools["set_user_goal"](kind="lift", target=24, exercise="bench").startswith("SAVED")
+
+
 def test_habit_lifecycle(db):
     tools = _tools()
     assert tools["add_habit"]("3L water").startswith("SAVED")
