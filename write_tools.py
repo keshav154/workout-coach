@@ -12,6 +12,7 @@ so messaging.ask_agent can see what actions actually happened.
 import logging
 
 from agent_core import (
+    _col,
     apply_memory_update,
     detect_prs,
     get_next_day,
@@ -23,6 +24,8 @@ from agent_core import (
     save_session,
     today_iso,
 )
+
+MEASUREMENT_PARTS = ["waist", "chest", "arm", "thigh", "hips", "shoulders", "neck", "calf"]
 from trust import record_audit, undo_last, validate_expense, validate_session
 from expense_core import log_expense, save_budget
 from nutrition import log_meal
@@ -113,6 +116,15 @@ WRITE_TOOLS = [
         "name": "undo_last_action",
         "description": "Reverse the most recently logged item (session or expense). Only when the user asks to undo/remove/delete the last thing.",
         "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "log_body_measurement",
+        "description": "Record a body measurement in cm when the user reports one (e.g. 'waist is 92cm', 'arms at 38'). One call per part mentioned.",
+        "parameters": {"type": "object", "properties": {
+            "part": {"type": "string", "enum": [
+                "waist", "chest", "arm", "thigh", "hips", "shoulders", "neck", "calf"]},
+            "cm": {"type": "number"}},
+            "required": ["part", "cm"]},
     }},
     {"type": "function", "function": {
         "name": "record_memory_note",
@@ -268,6 +280,20 @@ def make_write_tools(ctx: dict) -> dict:
         ctx.setdefault("notes", []).append("↩️ " + result)
         return result
 
+    def log_body_measurement(part: str, cm: float) -> str:
+        part = (part or "").lower().strip()
+        if part not in MEASUREMENT_PARTS:
+            return f"REJECTED: unknown body part '{part}'. Use one of: {', '.join(MEASUREMENT_PARTS)}."
+        try:
+            cm = float(cm)
+        except (TypeError, ValueError):
+            return "REJECTED: couldn't read that measurement."
+        if not (10 <= cm <= 250):
+            return f"REJECTED: {cm} cm is outside the sane range (10-250). Confirm with the user."
+        _col("measurements").insert_one({"date": today_iso(), "part": part, "cm": cm})
+        ctx.setdefault("notes", []).append(f"📏 {part.capitalize()}: {cm:.1f} cm logged.")
+        return f"SAVED: {part} {cm:.1f} cm on {today_iso()}."
+
     def record_memory_note(category: str, note: str) -> str:
         mem = load_memory()
         apply_memory_update(mem, {category: [note]})
@@ -291,6 +317,7 @@ def make_write_tools(ctx: dict) -> dict:
         "set_category_budget":  set_category_budget,
         "update_training_days": update_training_days,
         "undo_last_action":     undo_last_action,
+        "log_body_measurement": log_body_measurement,
         "record_memory_note":   record_memory_note,
         "record_lesson":        record_lesson,
     }

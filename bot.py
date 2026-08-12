@@ -104,7 +104,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v5';
+const CACHE = 'coachxkeshav-v6';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -281,6 +281,14 @@ def today_program():
         prev = None
         if last:
             prev = next((e for e in last.get("exercises", []) if e["name"] == ex["name"]), None)
+        hist = []
+        for s in reversed(sessions):
+            e = next((x for x in s.get("exercises", []) if x.get("name") == ex["name"]), None)
+            if e:
+                hist.append({"date": s.get("date"), "weight": e.get("weight"),
+                             "reps": e.get("reps_done")})
+            if len(hist) >= 5:
+                break
         exercises.append({
             "name":          ex["name"],
             "sets":          ex["sets"],
@@ -290,6 +298,7 @@ def today_program():
             "last_reps":     prev.get("reps_done") if prev else None,
             "warmup_weight": warmup_weight_for(prev.get("weight") if prev else None),
             "alternatives":  alternatives_for(ex["name"]),
+            "history":       hist,
         })
     return jsonify({"ready": True, "day": day, "name": p.get("name", ""),
                     "today": today_iso(), "last_logged": last_logged,
@@ -345,6 +354,135 @@ def chart_data():
                  for n, v in ex_hist.items() if len(v) >= 2}
 
     return jsonify({"weight": weight, "volume": volume, "exercises": exercises})
+
+
+@flask_app.route("/measurements")
+@require_auth
+def measurements():
+    """Body measurement series per part, for the Progress tab chart."""
+    from agent_core import _col
+    series: dict[str, list] = {}
+    for d in sorted(_col("measurements").find(), key=lambda x: x.get("date", "")):
+        part, cm = d.get("part"), d.get("cm")
+        if part and cm:
+            series.setdefault(part, []).append({"date": d.get("date", ""), "cm": float(cm)})
+    latest = {p: v[-1] for p, v in series.items() if v}
+    return jsonify({"series": series, "latest": latest})
+
+
+@flask_app.route("/goals_data")
+@require_auth
+def goals_data():
+    """Goal progress bars: current vs target with % progress and projection note."""
+    from goals import _best_lift, _project_lift, _project_weight, _weight_series, get_goals
+    out = []
+    for g in get_goals():
+        target = float(g.get("target") or 0)
+        if g.get("kind") == "weight":
+            series = [x for x in _weight_series()
+                      if not g.get("created") or x[0].isoformat() >= g["created"]] or _weight_series()
+            if not series or not target:
+                continue
+            start, current = series[0][1], series[-1][1]
+            total = abs(target - start)
+            pct = 100 if total < 1e-9 else max(0, min(100, (1 - abs(target - current) / total) * 100))
+            out.append({"kind": "weight", "label": f"Body weight → {target:g} kg",
+                        "current": current, "target": target, "unit": "kg",
+                        "pct": round(pct), "note": _project_weight(g),
+                        "by_date": g.get("by_date")})
+        else:
+            best = _best_lift(g.get("exercise", ""))
+            current = best[1] if best else 0
+            if not target:
+                continue
+            pct = max(0, min(100, current / target * 100))
+            out.append({"kind": "lift", "label": f"{g.get('exercise', '?')} → {target:g} kg",
+                        "current": current, "target": target, "unit": "kg",
+                        "pct": round(pct), "note": _project_lift(g), "by_date": g.get("by_date")})
+    return jsonify({"goals": out})
+
+
+@flask_app.route("/achievements")
+@require_auth
+def achievements():
+    """Milestone badges computed from real data."""
+    from progression import session_volume
+    sessions = load_log().get("sessions", [])
+    mem = load_memory()
+
+    from datetime import datetime as _dt
+    dates = set()
+    for s in sessions:
+        try:
+            dates.add(_dt.strptime(s.get("date", ""), "%Y-%m-%d").date())
+        except (ValueError, TypeError):
+            pass
+    best_streak, run = 0, 0
+    prev = None
+    for d in sorted(dates):
+        run = run + 1 if (prev and (d - prev).days == 1) else 1
+        best_streak = max(best_streak, run)
+        prev = d
+
+    total_volume = round(sum(session_volume(s) for s in sessions))
+    metrics = [
+        ("🏋️", "sessions",   len(sessions),                      [10, 25, 50, 100, 200]),
+        ("🔥", "day streak", best_streak,                         [3, 6, 12, 24]),
+        ("🏆", "PRs",        len(mem.get("personal_records", [])), [5, 15, 30, 60]),
+        ("⚖️", "weigh-ins",  len(mem.get("weight_log", [])),      [4, 12, 26, 52]),
+        ("🌋", "kg lifted",  total_volume,                        [10_000, 50_000, 150_000, 500_000]),
+    ]
+    badges = []
+    for icon, label, value, thresholds in metrics:
+        for t in thresholds:
+            badges.append({"icon": icon, "label": f"{t:,} {label}",
+                           "achieved": value >= t, "value": value, "target": t})
+    return jsonify({"badges": badges})
+
+
+@flask_app.route("/export_csv")
+@require_auth
+def export_csv():
+    """Download workouts / expenses / meals / weight as CSV."""
+    import csv
+    import io
+    from agent_core import _col
+    what = request.args.get("what", "workouts")
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    if what == "workouts":
+        w.writerow(["date", "day", "exercise", "top_weight_kg", "top_reps",
+                    "sets", "body_weight_kg", "duration_min"])
+        for s in load_log().get("sessions", []):
+            for e in s.get("exercises", []):
+                sets = ";".join(f"{x.get('weight')}x{x.get('reps')}"
+                                for x in (e.get("sets") or []) if isinstance(x, dict))
+                w.writerow([s.get("date"), s.get("day"), e.get("name"), e.get("weight"),
+                            e.get("reps_done"), sets, s.get("body_weight_kg"),
+                            s.get("duration_min")])
+    elif what == "expenses":
+        w.writerow(["date", "amount", "category", "description", "note"])
+        for d in sorted(_col("expenses").find(), key=lambda x: x.get("date", "")):
+            w.writerow([d.get("date"), d.get("amount"), d.get("category"),
+                        d.get("description"), d.get("note")])
+    elif what == "meals":
+        w.writerow(["date", "description", "calories", "protein_g"])
+        for d in sorted(_col("meals").find(), key=lambda x: x.get("date", "")):
+            w.writerow([d.get("date"), d.get("description"), d.get("calories"),
+                        d.get("protein_g")])
+    elif what == "weight":
+        w.writerow(["date", "kg"])
+        import re as _re
+        for e in load_memory().get("weight_log", []):
+            m = _re.match(r"^(\d{4}-\d{2}-\d{2}):\s*([\d.]+)", str(e))
+            if m:
+                w.writerow([m.group(1), m.group(2)])
+    else:
+        return jsonify({"error": "unknown export"}), 400
+    return buf.getvalue(), 200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": f"attachment; filename=coachx_{what}.csv",
+    }
 
 
 @flask_app.route("/records")

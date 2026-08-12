@@ -408,6 +408,25 @@
     .bar-fill.pink { background: linear-gradient(90deg, #ff00ff, #00d4ff); box-shadow: 0 0 8px #ff00ff50; }
     .bar-fill.over { background: linear-gradient(90deg, #ffd245, #ff3366); box-shadow: 0 0 8px #ff336660; }
 
+    /* -- Achievements -- */
+    .badge-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .badge {
+      background: var(--card); border: 1px solid var(--border);
+      padding: 10px 4px; text-align: center; opacity: 0.38;
+    }
+    .badge .b-ico { font-size: 20px; filter: grayscale(1); }
+    .badge .b-label { font-size: 8.5px; color: var(--muted); margin-top: 5px; text-transform: uppercase; letter-spacing: 0.04em; font-family: var(--font-body); font-weight: 600; }
+    .badge.got { opacity: 1; border-color: var(--border-lit); box-shadow: 0 0 8px rgba(0,255,136,0.12); }
+    .badge.got .b-ico { filter: none; }
+    .badge.got .b-label { color: var(--accent); }
+
+    /* -- Exercise history (tap the name) -- */
+    .wk-hist { display: none; margin: 2px 0 9px; border-left: 2px solid var(--border); padding-left: 10px; }
+    .wk-ex.hist-open .wk-hist { display: block; }
+    .wk-hist-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); padding: 2px 0; }
+    .wk-hist-row span:last-child { color: var(--accent3); }
+    .wk-ex-name { cursor: pointer; }
+
     /* -- Rotation strip + warm-up + stopwatch + swap (Workout mode) -- */
     .wk-rotation { display: flex; gap: 6px; margin-bottom: 12px; }
     .wk-rot-chip {
@@ -652,6 +671,10 @@
         <div class="big-stat"><div class="label">Streak</div><div class="val pink" id="sv-streak">—</div><div class="sub">days in a row</div></div>
       </div>
     </div>
+    <div id="sv-goals-wrap" style="display:none">
+      <div class="stats-title">Goals</div>
+      <div class="chart-card" id="sv-goals"></div>
+    </div>
     <div>
       <div class="stats-title">Weight Trend</div>
       <div class="chart-card"><canvas id="chart-weight" height="140"></canvas>
@@ -675,8 +698,20 @@
       <div class="session-list" id="sv-sessions-list"></div>
     </div>
     <div>
+      <div class="stats-title">Measurements</div>
+      <div class="chart-card">
+        <select id="ms-select" class="ex-select" onchange="drawMeasureChart()" style="display:none"></select>
+        <canvas id="chart-measure" height="140"></canvas>
+        <div class="chart-empty" id="chart-measure-empty">Tell the coach a measurement ("waist is 92 cm") to start tracking.</div>
+      </div>
+    </div>
+    <div>
       <div class="stats-title">Record Wall</div>
       <div class="session-list" id="sv-records"></div>
+    </div>
+    <div>
+      <div class="stats-title">Achievements</div>
+      <div class="badge-grid" id="sv-badges"></div>
     </div>
   </div>
 
@@ -777,6 +812,8 @@
   <button class="sheet-btn" onclick="closeSheet(); quickSend('Is everything working? Run a system status check')"><span class="ico">🩺</span>System status</button>
   <button class="sheet-btn" onclick="closeSheet(); deleteLastSession()"><span class="ico">↩️</span>Undo last log</button>
   <button class="sheet-btn" onclick="closeSheet(); repairData()"><span class="ico">🧹</span>Fix workout data</button>
+  <button class="sheet-btn" onclick="closeSheet(); exportCsv('workouts')"><span class="ico">📄</span>Export workouts CSV</button>
+  <button class="sheet-btn" onclick="closeSheet(); exportCsv('expenses')"><span class="ico">📄</span>Export expenses CSV</button>
   <button class="sheet-btn" onclick="closeSheet(); resetChat()"><span class="ico">✨</span>New session</button>
   <button class="sheet-btn danger" onclick="closeSheet(); resetProfile()"><span class="ico">🗑️</span>Reset profile</button>
 </div>
@@ -883,15 +920,21 @@
           ? `<button class="wk-swap" title="Swap exercise" onclick="swapExercise(${i})">⇄</button>` : '';
         const warm = ex.warmup_weight
           ? `<div class="wk-warm-line">Warm-up first: 12-15 easy reps @ ${esc(ex.warmup_weight)}kg (don't log it)</div>` : '';
+        const hist = (ex.history || []).length
+          ? `<div class="wk-hist">` + ex.history.map(h =>
+              `<div class="wk-hist-row"><span>${esc(h.date)}</span><span>${esc(h.weight ?? '?')}kg × ${esc(h.reps ?? '?')}</span></div>`
+            ).join('') + `</div>` : '';
         const div = document.createElement('div');
         div.className = 'wk-ex';
         div.dataset.name = ex.name;
         div.dataset.orig = ex.name;
         div.innerHTML = `
-          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}</div>${swap}</div>
+          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${swap}</div>
           <div class="wk-ex-meta">${esc(target)} · ${esc(last)}</div>
+          ${hist}
           ${warm}
           ${rows}`;
+        if (hist) div.querySelector('.wk-ex-name').onclick = () => div.classList.toggle('hist-open');
         wrap.appendChild(div);
       });
     } catch { title.textContent = 'Could not load today\'s workout.'; }
@@ -1252,8 +1295,85 @@
       if (!d.recent_sessions || !d.recent_sessions.length)
         list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No sessions logged yet.</div>';
     } catch {}
+    loadGoalsView();
     loadRecords();
+    loadBadges();
+    loadMeasurements();
     loadCharts();
+  }
+
+  async function loadGoalsView() {
+    let d;
+    try { d = await (await fetch('/goals_data', { headers: authHeaders() })).json(); }
+    catch { return; }
+    const wrap = document.getElementById('sv-goals-wrap');
+    const box  = document.getElementById('sv-goals');
+    if (!(d.goals || []).length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block'; box.innerHTML = '';
+    d.goals.forEach(g => {
+      const row = document.createElement('div'); row.className = 'bar-row';
+      row.innerHTML = `<div class="bar-head"><span>${esc(g.label)}${g.by_date ? ' by ' + esc(g.by_date) : ''}</span>
+          <span>${esc(g.current)} / ${esc(g.target)} ${esc(g.unit)} · ${esc(g.pct)}%</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${g.pct}%"></div></div>
+        <div class="session-date" style="margin-top:5px">${esc(g.note)}</div>`;
+      box.appendChild(row);
+    });
+  }
+
+  async function loadBadges() {
+    let d;
+    try { d = await (await fetch('/achievements', { headers: authHeaders() })).json(); }
+    catch { return; }
+    const grid = document.getElementById('sv-badges'); grid.innerHTML = '';
+    (d.badges || []).forEach(b => {
+      const el = document.createElement('div');
+      el.className = 'badge' + (b.achieved ? ' got' : '');
+      el.title = b.achieved ? 'Unlocked!' : `${b.value} / ${b.target}`;
+      el.innerHTML = `<div class="b-ico">${esc(b.icon)}</div><div class="b-label">${esc(b.label)}</div>`;
+      grid.appendChild(el);
+    });
+  }
+
+  // ── Measurements chart ──
+  let msData = null;
+  async function loadMeasurements() {
+    try { msData = await (await fetch('/measurements', { headers: authHeaders() })).json(); }
+    catch { return; }
+    const sel = document.getElementById('ms-select');
+    const parts = Object.keys(msData.series || {}).sort();
+    const prev = sel.value;
+    sel.innerHTML = '';
+    parts.forEach(p => {
+      const opt = document.createElement('option');
+      const latest = msData.latest[p];
+      opt.value = p;
+      opt.textContent = `${p} — ${latest.cm} cm (${latest.date})`;
+      opt.selected = (p === prev);
+      sel.appendChild(opt);
+    });
+    sel.style.display = parts.length ? 'block' : 'none';
+    drawMeasureChart();
+  }
+  function drawMeasureChart() {
+    const sel = document.getElementById('ms-select');
+    const series = (msData && msData.series && msData.series[sel.value]) || [];
+    const pts = series.map(p => ({ y: p.cm, label: p.date.slice(5) }));
+    document.getElementById('chart-measure-empty').style.display =
+      drawLineChart('chart-measure', pts, '#ffd245') ? 'none' : 'block';
+  }
+
+  // ── CSV export ──
+  async function exportCsv(what) {
+    try {
+      const res = await fetch('/export_csv?what=' + what, { headers: authHeaders() });
+      if (!res.ok) throw 0;
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'coachx_' + what + '.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch { alert('Export failed — try again.'); }
   }
 
   async function loadRecords() {

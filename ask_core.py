@@ -136,6 +136,25 @@ def query_memory_tool(query: str) -> str:
     return query_memory(query)
 
 
+def query_measurements() -> str:
+    """Body measurement history grouped by part, with the change over time."""
+    rows = sorted(_col("measurements").find(), key=lambda d: d.get("date", ""))
+    if not rows:
+        return "No body measurements logged yet."
+    by_part: dict[str, list] = defaultdict(list)
+    for d in rows:
+        if d.get("part") and d.get("cm"):
+            by_part[d["part"]].append((d.get("date", "?"), float(d["cm"])))
+    lines = ["Body measurements:"]
+    for part, vals in sorted(by_part.items()):
+        first_d, first = vals[0]
+        last_d, last = vals[-1]
+        delta = f" ({last - first:+.1f} cm since {first_d})" if len(vals) > 1 else ""
+        recent = ", ".join(f"{d}: {v:g}" for d, v in vals[-4:])
+        lines.append(f"  {part}: {last:g} cm on {last_d}{delta} | recent: {recent}")
+    return "\n".join(lines)
+
+
 def query_profile() -> str:
     p   = load_profile() or {}
     mem = load_memory()
@@ -184,6 +203,11 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
+        "name": "query_measurements",
+        "description": "Get body measurement history (waist, chest, arm, thigh, ...) with changes over time.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
         "name": "generate_spending_review",
         "description": "Generate a full AI analysis of spending (patterns, overspend areas, tips) for a month. Use when the user wants a real review/analysis, not just a total.",
         "parameters": {"type": "object", "properties": {
@@ -209,6 +233,7 @@ TOOL_IMPLS = {
     "query_spending":          query_spending,
     "query_weight":            query_weight,
     "query_profile":           query_profile,
+    "query_measurements":      query_measurements,
     "generate_spending_review": generate_spending_review,
     "get_system_status":        get_system_status,
     "query_memory":             query_memory_tool,
