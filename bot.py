@@ -104,7 +104,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v6';
+const CACHE = 'coachxkeshav-v7';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -300,11 +300,27 @@ def today_program():
             "alternatives":  alternatives_for(ex["name"]),
             "history":       hist,
         })
+    # Week-ahead preview: every rotation day with its exercises + last weights,
+    # so tapping a rotation chip can show what's coming.
+    week = []
+    for d0 in DAY_ROTATION:
+        pd = PROGRAM[d0]
+        lastd = get_last_session_for_day(workout_log, d0)
+        exs = []
+        for ex in pd.get("exercises", []):
+            prev0 = next((e for e in (lastd or {}).get("exercises", [])
+                          if e.get("name") == ex["name"]), None)
+            exs.append({"name": ex["name"],
+                        "target": ex.get("scheme") or f"{ex['sets']}x{ex['rep_range']}",
+                        "last_weight": prev0.get("weight") if prev0 else None})
+        week.append({"day": d0, "name": pd["name"], "focus": pd["focus"], "exercises": exs})
+
     return jsonify({"ready": True, "day": day, "name": p.get("name", ""),
                     "today": today_iso(), "last_logged": last_logged,
                     "warmup": p.get("warmup", ""),
                     "rotation": [{"day": d0, "name": PROGRAM[d0]["name"]}
                                  for d0 in DAY_ROTATION],
+                    "week": week,
                     "exercises": exercises})
 
 
@@ -354,6 +370,110 @@ def chart_data():
                  for n, v in ex_hist.items() if len(v) >= 2}
 
     return jsonify({"weight": weight, "volume": volume, "exercises": exercises})
+
+
+def _save_progress_photo(b64: str, mime: str = "image/jpeg") -> None:
+    """Store a progress photo (base64) and trim the collection to the last 60."""
+    from agent_core import _col, today_iso
+    col = _col("photos")
+    col.insert_one({"date": today_iso(), "mime": mime, "b64": b64})
+    docs = list(col.find())
+    if len(docs) > 60:
+        for d in sorted(docs, key=lambda x: x.get("date", ""))[:len(docs) - 60]:
+            col.delete_one({"_id": d["_id"]})
+
+
+@flask_app.route("/photos", methods=["GET", "POST"])
+@require_auth
+def photos():
+    from agent_core import _col
+    if request.method == "POST":
+        data = request.json or {}
+        b64  = data.get("b64", "")
+        mime = data.get("mime", "image/jpeg")
+        if not b64:
+            return jsonify({"error": "no image"}), 400
+        if len(b64) > 1_200_000:      # ~900 KB binary
+            return jsonify({"error": "image too large — try again"}), 400
+        if not mime.startswith("image/"):
+            return jsonify({"error": "not an image"}), 400
+        _save_progress_photo(b64, mime)
+        return jsonify({"ok": True})
+    metas = [{"id": str(d.get("_id")), "date": d.get("date", "")}
+             for d in sorted(_col("photos").find(), key=lambda x: x.get("date", ""))]
+    return jsonify({"photos": metas})
+
+
+@flask_app.route("/photo/<pid>")
+@require_auth
+def photo(pid):
+    import base64
+    from bson import ObjectId
+    from agent_core import _col
+    doc = None
+    try:
+        doc = _col("photos").find_one({"_id": ObjectId(pid)})
+    except Exception:
+        pass
+    if doc is None:
+        doc = _col("photos").find_one({"_id": pid})
+    if not doc:
+        return "not found", 404
+    try:
+        raw = base64.b64decode(doc.get("b64", ""))
+    except Exception:
+        return "corrupt image", 500
+    return raw, 200, {"Content-Type": doc.get("mime", "image/jpeg"),
+                      "Cache-Control": "private, max-age=86400"}
+
+
+# ── Habits ─────────────────────────────────────────────────────────────────────
+def _habit_rows() -> list[dict]:
+    from datetime import datetime as _dt, timedelta as _td
+    from agent_core import _col, today
+    names = [d["_id"] for d in _col("habits").find()]
+    logs: dict[str, set] = {}
+    for l in _col("habit_log").find():
+        if l.get("name") and l.get("date"):
+            try:
+                logs.setdefault(l["name"], set()).add(
+                    _dt.strptime(l["date"], "%Y-%m-%d").date())
+            except ValueError:
+                pass
+    now = today()
+    out = []
+    for name in sorted(names):
+        dates = logs.get(name, set())
+        anchor = now if now in dates else (now - _td(days=1))
+        streak, d = 0, anchor
+        while d in dates:
+            streak += 1
+            d -= _td(days=1)
+        out.append({"name": name, "done_today": now in dates, "streak": streak})
+    return out
+
+
+@flask_app.route("/habits")
+@require_auth
+def habits():
+    return jsonify({"habits": _habit_rows()})
+
+
+@flask_app.route("/habit_toggle", methods=["POST"])
+@require_auth
+def habit_toggle():
+    from agent_core import _col, today_iso
+    name = ((request.json or {}).get("name") or "").strip()
+    if not name or not _col("habits").find_one({"_id": name}):
+        return jsonify({"error": "unknown habit"}), 400
+    existing = [l for l in _col("habit_log").find()
+                if l.get("name") == name and l.get("date") == today_iso()]
+    if existing:
+        for l in existing:
+            _col("habit_log").delete_one({"_id": l["_id"]})
+    else:
+        _col("habit_log").insert_one({"date": today_iso(), "name": name})
+    return jsonify({"ok": True, "habits": _habit_rows()})
 
 
 @flask_app.route("/measurements")
@@ -767,10 +887,10 @@ def cron_backup():
     if not _cron_authorized():
         return "forbidden", 403
     record_event("cron_backup")
-    from datetime import datetime
+    from datetime import datetime, timezone
     try:
         dump = export_all()
-        fname = f"coachx_backup_{datetime.utcnow().strftime('%Y%m%d')}.json"
+        fname = f"coachx_backup_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
         sent = send_telegram_document(dump, fname, caption="CoachxKeshav weekly backup")
         log.info(f"Backup cron: {'sent' if sent else 'failed'} ({len(dump)} bytes)")
         return jsonify({"sent": sent, "bytes": len(dump)})
@@ -935,12 +1055,25 @@ def telegram_webhook():
             reply = transcribe_and_process(data, source="telegram") if data \
                 else "Couldn't download that voice note."
         elif photo:
-            log.info(f"Telegram photo from chat {chat_id}")
-            largest = photo[-1]  # last entry is the highest resolution
-            data    = download_telegram_file(largest.get("file_id"))
             caption = (msg.get("caption") or "").strip()
-            reply = analyze_meal_photo(data, caption, source="telegram") if data \
-                else "Couldn't download that photo."
+            if "progress" in caption.lower():
+                # Progress photo, not a meal: store it for the Progress tab.
+                log.info(f"Telegram progress photo from chat {chat_id}")
+                sizes  = [p for p in photo if (p.get("file_size") or 0) < 600_000]
+                chosen = sizes[-1] if sizes else photo[0]
+                data   = download_telegram_file(chosen.get("file_id"))
+                if data:
+                    import base64
+                    _save_progress_photo(base64.b64encode(data).decode())
+                    reply = "📸 Progress photo saved — see it on the app's Progress tab."
+                else:
+                    reply = "Couldn't download that photo."
+            else:
+                log.info(f"Telegram photo from chat {chat_id}")
+                largest = photo[-1]  # last entry is the highest resolution
+                data    = download_telegram_file(largest.get("file_id"))
+                reply = analyze_meal_photo(data, caption, source="telegram") if data \
+                    else "Couldn't download that photo."
         else:
             text = (msg.get("text") or "").strip()
             log.info(f"Telegram message from chat {chat_id}: {text[:50]}")

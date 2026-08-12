@@ -5,7 +5,7 @@ Philosophy: optimistic writes, but every write is validated and reversible.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 
@@ -15,7 +15,8 @@ log = logging.getLogger(__name__)
 
 BACKUP_COLLECTIONS = ["profile", "workout_log", "memory", "expenses", "budget",
                       "history", "checkin", "goals", "audit", "meals",
-                      "episodes", "lessons"]
+                      "episodes", "lessons", "measurements", "habits",
+                      "habit_log", "photos"]
 
 
 # ── Validation ────────────────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ def validate_expense(amount: float) -> tuple[bool, str]:
 # ── Audit trail + undo ────────────────────────────────────────────────────────
 def record_audit(kind: str, summary: str, ref=None) -> None:
     _col("audit").insert_one({
-        "ts":      datetime.utcnow().isoformat(),
+        "ts":      datetime.now(timezone.utc).isoformat(),
         "kind":    kind,
         "summary": summary,
         "ref":     ref,
@@ -120,5 +121,5 @@ def export_all() -> str:
         for d in docs:
             d["_id"] = str(d.get("_id"))
         out[name] = docs
-    out["_exported_at"] = datetime.utcnow().isoformat()
+    out["_exported_at"] = datetime.now(timezone.utc).isoformat()
     return json.dumps(out, indent=2, default=str)

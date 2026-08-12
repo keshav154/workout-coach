@@ -118,6 +118,25 @@ WRITE_TOOLS = [
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
+        "name": "add_habit",
+        "description": "Start tracking a daily habit when the user asks (e.g. 'track drinking 3L water daily'). Keep the name short.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "short habit name, e.g. '3L water'"}},
+            "required": ["name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "log_habit_done",
+        "description": "Mark a tracked habit as done for today when the user says they did it.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"}}, "required": ["name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "remove_habit",
+        "description": "Stop tracking a habit. Only when the user explicitly asks.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"}}, "required": ["name"]},
+    }},
+    {"type": "function", "function": {
         "name": "log_body_measurement",
         "description": "Record a body measurement in cm when the user reports one (e.g. 'waist is 92cm', 'arms at 38'). One call per part mentioned.",
         "parameters": {"type": "object", "properties": {
@@ -280,6 +299,42 @@ def make_write_tools(ctx: dict) -> dict:
         ctx.setdefault("notes", []).append("↩️ " + result)
         return result
 
+    def _habit_names() -> list[str]:
+        return [d["_id"] for d in _col("habits").find()]
+
+    def add_habit(name: str) -> str:
+        name = (name or "").strip()[:40]
+        if not name:
+            return "REJECTED: give the habit a short name."
+        _col("habits").update_one({"_id": name}, {"$set": {"created": today_iso()}}, upsert=True)
+        ctx.setdefault("notes", []).append(f"✅ Now tracking habit: {name}")
+        return f"SAVED: now tracking daily habit '{name}'. Current habits: {', '.join(_habit_names())}"
+
+    def log_habit_done(name: str) -> str:
+        name = (name or "").strip()
+        names = _habit_names()
+        match = next((h for h in names if h.lower() == name.lower()), None) or \
+                next((h for h in names if name.lower() in h.lower() or h.lower() in name.lower()), None)
+        if not match:
+            return (f"REJECTED: no tracked habit matches '{name}'. "
+                    f"Tracked: {', '.join(names) or 'none yet'}.")
+        already = [l for l in _col("habit_log").find()
+                   if l.get("name") == match and l.get("date") == today_iso()]
+        if already:
+            return f"Already marked '{match}' done today."
+        _col("habit_log").insert_one({"date": today_iso(), "name": match})
+        ctx.setdefault("notes", []).append(f"✅ Habit done: {match}")
+        return f"SAVED: '{match}' marked done for {today_iso()}."
+
+    def remove_habit(name: str) -> str:
+        name = (name or "").strip()
+        match = next((h for h in _habit_names() if h.lower() == name.lower()), None)
+        if not match:
+            return f"REJECTED: no tracked habit named '{name}'."
+        _col("habits").delete_one({"_id": match})
+        ctx.setdefault("notes", []).append(f"🗑️ Stopped tracking habit: {match}")
+        return f"SAVED: stopped tracking '{match}'."
+
     def log_body_measurement(part: str, cm: float) -> str:
         part = (part or "").lower().strip()
         if part not in MEASUREMENT_PARTS:
@@ -317,6 +372,9 @@ def make_write_tools(ctx: dict) -> dict:
         "set_category_budget":  set_category_budget,
         "update_training_days": update_training_days,
         "undo_last_action":     undo_last_action,
+        "add_habit":            add_habit,
+        "log_habit_done":       log_habit_done,
+        "remove_habit":         remove_habit,
         "log_body_measurement": log_body_measurement,
         "record_memory_note":   record_memory_note,
         "record_lesson":        record_lesson,

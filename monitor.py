@@ -6,7 +6,7 @@ The agent watches itself and pings you on Telegram when something breaks.
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from agent_core import _col, load_log
 from notifier import send_telegram
@@ -31,7 +31,7 @@ def record_event(name: str) -> None:
     try:
         _col("system").update_one(
             {"_id": name},
-            {"$set": {"last": datetime.utcnow().isoformat()}},
+            {"$set": {"last": datetime.now(timezone.utc).isoformat()}},
             upsert=True,
         )
     except Exception as e:

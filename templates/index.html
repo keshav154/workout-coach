@@ -408,6 +408,34 @@
     .bar-fill.pink { background: linear-gradient(90deg, #ff00ff, #00d4ff); box-shadow: 0 0 8px #ff00ff50; }
     .bar-fill.over { background: linear-gradient(90deg, #ffd245, #ff3366); box-shadow: 0 0 8px #ff336660; }
 
+    /* -- Habits -- */
+    .habit-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+    .habit-row:last-child { border-bottom: none; }
+    .habit-check {
+      width: 26px; height: 26px; flex-shrink: 0; cursor: pointer;
+      border: 1px solid var(--border); background: var(--bg); color: transparent;
+      display: flex; align-items: center; justify-content: center; font-size: 14px;
+      transition: all 0.15s;
+    }
+    .habit-check.done { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 6px #00ff8850; }
+    .habit-name { flex: 1; font-size: 13px; font-family: var(--font-body); }
+    .habit-streak { font-size: 11px; color: var(--accent2); font-weight: 700; }
+
+    /* -- Progress photos -- */
+    .ph-compare { display: flex; gap: 8px; margin-bottom: 10px; }
+    .ph-compare figure { flex: 1; margin: 0; }
+    .ph-compare img { width: 100%; display: block; border: 1px solid var(--border); }
+    .ph-compare figcaption { font-size: 10px; color: var(--muted); text-align: center; padding-top: 4px; font-family: var(--font-body); }
+    .ph-strip { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+    .ph-strip::-webkit-scrollbar { display: none; }
+    .ph-strip img { height: 74px; border: 1px solid var(--border); cursor: pointer; flex-shrink: 0; }
+
+    /* -- Week preview panel -- */
+    #wk-preview { cursor: default; }
+    .wkp-ex { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; padding: 2px 0; color: var(--fg); }
+    .wkp-ex span:last-child { color: var(--muted); }
+    .wk-rot-chip { cursor: pointer; }
+
     /* -- Achievements -- */
     .badge-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .badge {
@@ -643,6 +671,10 @@
 
   <!-- Progress view -->
   <div id="stats-view" class="view">
+    <div id="sv-habits-wrap" style="display:none">
+      <div class="stats-title">Daily Habits</div>
+      <div class="chart-card" id="sv-habits"></div>
+    </div>
     <div>
       <div class="stats-title">This Week's Target</div>
       <div class="chart-card ring-card">
@@ -710,6 +742,16 @@
       <div class="session-list" id="sv-records"></div>
     </div>
     <div>
+      <div class="stats-title">Progress Photos</div>
+      <div class="chart-card">
+        <div class="ph-compare" id="ph-compare" style="display:none"></div>
+        <div class="ph-strip" id="ph-strip"></div>
+        <div class="chart-empty" id="ph-empty" style="display:block">Add a photo here, or send one on Telegram with the caption "progress".</div>
+        <input type="file" id="ph-file" accept="image/*" style="display:none" onchange="uploadPhoto(this)" />
+        <button class="wk-save" style="margin-top:10px" onclick="document.getElementById('ph-file').click()">+ Add Photo</button>
+      </div>
+    </div>
+    <div>
       <div class="stats-title">Achievements</div>
       <div class="badge-grid" id="sv-badges"></div>
     </div>
@@ -720,6 +762,7 @@
     <div style="padding: 12px;">
       <div id="wk-title" class="stats-title" style="font-size:13px;">Loading…</div>
       <div id="wk-rotation" class="wk-rotation"></div>
+      <div id="wk-preview" class="wk-warmup" style="display:none"></div>
       <div id="wk-status" class="wk-status"></div>
       <div id="wk-warmup" class="wk-warmup" style="display:none"></div>
       <button id="wk-stopwatch" class="wk-sw" onclick="toggleStopwatch()">▶ Start Session</button>
@@ -878,14 +921,18 @@
       title.innerHTML = 'DAY ' + d.day + ' — ' + d.name.toUpperCase() +
         ' <span style="color:var(--muted);font-weight:400;cursor:pointer" onclick="loadWorkout(true)">↻ refresh</span>';
 
+      wkWeek = d.week || [];
       const rot = document.getElementById('wk-rotation');
       rot.innerHTML = '';
       (d.rotation || []).forEach(r => {
         const c = document.createElement('div');
         c.className = 'wk-rot-chip' + (r.day === d.day ? ' now' : '');
         c.textContent = r.day; c.title = r.name;
+        c.onclick = () => showDayPreview(r.day);
         rot.appendChild(c);
       });
+      document.getElementById('wk-preview').style.display = 'none';
+      wkPreviewDay = null;
 
       const st = document.getElementById('wk-status');
       if (d.last_logged) {
@@ -938,6 +985,23 @@
         wrap.appendChild(div);
       });
     } catch { title.textContent = 'Could not load today\'s workout.'; }
+  }
+
+  // ── Week-ahead preview (tap a rotation chip) ──
+  let wkWeek = [], wkPreviewDay = null;
+  function showDayPreview(day) {
+    const panel = document.getElementById('wk-preview');
+    if (wkPreviewDay === day) { panel.style.display = 'none'; wkPreviewDay = null; return; }
+    const w = wkWeek.find(x => x.day === day);
+    if (!w) return;
+    wkPreviewDay = day;
+    const rows = (w.exercises || []).map(e =>
+      `<div class="wkp-ex"><span>${esc(e.name)}</span>` +
+      `<span>${esc(e.target)}${e.last_weight != null ? ' · last ' + esc(e.last_weight) + 'kg' : ''}</span></div>`
+    ).join('');
+    panel.innerHTML = `<b>DAY ${esc(w.day)} — ${esc(w.name.toUpperCase())}</b>` +
+      `<div class="session-date" style="margin:3px 0 7px">${esc(w.focus)}</div>` + rows;
+    panel.style.display = 'block';
   }
 
   function swapExercise(i) {
@@ -1295,11 +1359,105 @@
       if (!d.recent_sessions || !d.recent_sessions.length)
         list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No sessions logged yet.</div>';
     } catch {}
+    loadHabits();
     loadGoalsView();
     loadRecords();
     loadBadges();
     loadMeasurements();
+    loadPhotos();
     loadCharts();
+  }
+
+  // ── Habits ──
+  function renderHabits(rows) {
+    const wrap = document.getElementById('sv-habits-wrap');
+    const box  = document.getElementById('sv-habits');
+    if (!rows.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block'; box.innerHTML = '';
+    rows.forEach(h => {
+      const row = document.createElement('div'); row.className = 'habit-row';
+      row.innerHTML = `<div class="habit-check${h.done_today ? ' done' : ''}">✔</div>
+        <div class="habit-name">${esc(h.name)}</div>
+        <div class="habit-streak">${h.streak > 0 ? '🔥 ' + esc(h.streak) + 'd' : ''}</div>`;
+      row.querySelector('.habit-check').onclick = () => toggleHabit(h.name);
+      box.appendChild(row);
+    });
+  }
+  async function loadHabits() {
+    try {
+      const d = await (await fetch('/habits', { headers: authHeaders() })).json();
+      renderHabits(d.habits || []);
+    } catch {}
+  }
+  async function toggleHabit(name) {
+    try {
+      const res = await fetch('/habit_toggle', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ name }),
+      });
+      const d = await res.json();
+      if (d.habits) renderHabits(d.habits);
+    } catch {}
+  }
+
+  // ── Progress photos ──
+  async function photoUrl(id) {
+    const r = await fetch('/photo/' + encodeURIComponent(id), { headers: authHeaders() });
+    if (!r.ok) throw 0;
+    return URL.createObjectURL(await r.blob());
+  }
+  async function loadPhotos() {
+    let d;
+    try { d = await (await fetch('/photos', { headers: authHeaders() })).json(); }
+    catch { return; }
+    const metas = d.photos || [];
+    const empty = document.getElementById('ph-empty');
+    const cmp   = document.getElementById('ph-compare');
+    const strip = document.getElementById('ph-strip');
+    empty.style.display = metas.length ? 'none' : 'block';
+    cmp.style.display = 'none'; cmp.innerHTML = ''; strip.innerHTML = '';
+    if (!metas.length) return;
+    try {
+      if (metas.length >= 2) {
+        const first = metas[0], last = metas[metas.length - 1];
+        const [u1, u2] = await Promise.all([photoUrl(first.id), photoUrl(last.id)]);
+        cmp.innerHTML = `<figure><img src="${u1}"><figcaption>${esc(first.date)}</figcaption></figure>
+          <figure><img src="${u2}"><figcaption>${esc(last.date)}</figcaption></figure>`;
+        cmp.style.display = 'flex';
+      }
+      for (const m of metas.slice(-8)) {
+        const img = document.createElement('img');
+        img.src = await photoUrl(m.id);
+        img.title = m.date;
+        img.onclick = () => window.open(img.src, '_blank');
+        strip.appendChild(img);
+      }
+    } catch {}
+  }
+  function uploadPhoto(input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    const img = new Image();
+    img.onload = async () => {
+      const scale = Math.min(1, 900 / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(img.src);
+      const b64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+      try {
+        const res = await fetch('/photos', {
+          method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ b64, mime: 'image/jpeg' }),
+        });
+        const d = await res.json();
+        if (d.error) alert(d.error); else loadPhotos();
+      } catch { alert('Upload failed — try again.'); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(img.src); alert('Could not read that image.'); };
+    img.src = URL.createObjectURL(file);
   }
 
   async function loadGoalsView() {

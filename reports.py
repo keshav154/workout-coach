@@ -115,6 +115,16 @@ def build_evening_checkin() -> str | None:
     if not logged_this_week:
         parts.append("Also — no weight check-in yet this week. What's your current weight?")
 
+    # Tracked habits still pending today
+    from agent_core import _col
+    habit_names = [d["_id"] for d in _col("habits").find()]
+    if habit_names:
+        done = {l.get("name") for l in _col("habit_log").find()
+                if l.get("date") == today_iso()}
+        pending = [h for h in habit_names if h not in done]
+        if pending:
+            parts.append("Habit check — still pending today: " + ", ".join(pending) + ".")
+
     if len(parts) == 1 and totals["count"] > 0:
         return None  # nutrition logged, weight covered — nothing worth nagging about
     return "🌙 Evening check-in\n\n" + "\n\n".join(parts)

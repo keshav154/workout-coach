@@ -58,6 +58,7 @@ HELP_MSG = (
     "\"done, benched 18kg for 10\"\n"
     "\"slept 6 hours, feeling sore\"\n"
     "\"waist is 92 cm now\"\n"
+    "\"track a habit: drink 3L water daily\"\n"
     "\"I want to reach 90kg by September\"\n"
     "\"spent 500 on groceries\"\n"
     "\"how much did I spend on food this month?\"\n"

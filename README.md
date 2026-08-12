@@ -13,6 +13,9 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **Goal progress bars & achievements**: live % progress toward weight/lift goals with projections, plus milestone badges (sessions, streaks, PRs, weigh-ins, total kg lifted)
 - **Per-exercise history**: tap an exercise name in Workout mode to see your last 5 performances
 - **CSV export**: download workouts/expenses/meals/weight as CSV from the menu
+- **Week-ahead preview**: tap any A–F rotation chip to see that day's exercises and your last weights
+- **Progress photos**: upload from the app (auto-downscaled client-side) or send a Telegram photo captioned "progress" — first-vs-latest comparison on the Progress tab
+- **Daily habits**: "track a habit: drink 3L water daily" — tap-to-toggle checklist with streaks on the Progress tab, pending habits nudged in the evening check-in
 - **Fuel & Money tabs**: today's calories/protein vs target with a 7-day chart and meal list; monthly spending with category budget bars and recent transactions
 - **Voice input everywhere**: mic button in the web app (plus Telegram voice notes), transcribed via Whisper and routed through the normal coach
 - **Weekly calorie auto-tuning**: the Sunday cron compares your weigh-in trend to your goal and adjusts your daily calorie target (±200/week, capped ±600), telling you what changed and why
@@ -33,6 +36,15 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **AI**: any OpenAI-compatible provider (default Groq `llama-3.3-70b-versatile`); Groq Whisper for voice, Llama 4 Scout for vision
 - **Database**: MongoDB Atlas (free M0 cluster)
 - **Hosting**: Render (free tier) + external cron pings
+
+## Tests
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+```
+
+Runs against an in-memory fake Mongo layer — no database or API keys needed. CI runs the suite on every push (`.github/workflows/tests.yml`).
 
 ## Setup
 
