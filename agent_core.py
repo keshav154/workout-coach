@@ -176,6 +176,22 @@ PROGRAM = {
 
 DAY_ROTATION = ["A", "B", "C", "D", "E", "F"]
 
+AVAILABLE_DUMBBELLS = [4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24]
+
+
+def warmup_weight_for(working_kg) -> float | None:
+    """Suggested warm-up dumbbell: ~55% of the working weight, rounded down to
+    an available dumbbell. None when the working weight is light enough that a
+    dedicated warm-up set adds nothing."""
+    try:
+        w = float(working_kg)
+    except (TypeError, ValueError):
+        return None
+    if w < 9:
+        return None
+    candidates = [a for a in AVAILABLE_DUMBBELLS if a <= w * 0.55]
+    return candidates[-1] if candidates else AVAILABLE_DUMBBELLS[0]
+
 DEFAULT_MEMORY = {
     "preferences":        [],
     "injuries_soreness":  [],

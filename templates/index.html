@@ -408,6 +408,36 @@
     .bar-fill.pink { background: linear-gradient(90deg, #ff00ff, #00d4ff); box-shadow: 0 0 8px #ff00ff50; }
     .bar-fill.over { background: linear-gradient(90deg, #ffd245, #ff3366); box-shadow: 0 0 8px #ff336660; }
 
+    /* -- Rotation strip + warm-up + stopwatch + swap (Workout mode) -- */
+    .wk-rotation { display: flex; gap: 6px; margin-bottom: 12px; }
+    .wk-rot-chip {
+      flex: 1; text-align: center; padding: 7px 0;
+      border: 1px solid var(--border); color: var(--muted);
+      font-size: 11px; font-weight: 700; font-family: var(--font-body);
+    }
+    .wk-rot-chip.now { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 6px #00ff8850; }
+    .wk-warmup {
+      background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--accent3);
+      color: var(--muted); padding: 9px 13px; font-size: 11.5px; margin-bottom: 13px;
+      font-family: var(--font-body);
+    }
+    .wk-warmup b { color: var(--accent3); }
+    .wk-sw {
+      width: 100%; background: transparent; border: 1px dashed var(--border-lit); color: var(--accent);
+      padding: 11px; font-family: var(--font-body); font-size: 12px; font-weight: 700;
+      letter-spacing: 0.1em; cursor: pointer; margin-bottom: 13px; text-transform: uppercase;
+      transition: all 0.15s;
+    }
+    .wk-sw.on { border-style: solid; border-color: var(--accent3); color: var(--accent3); box-shadow: 0 0 6px #00d4ff50; }
+    .wk-ex-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .wk-swap {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      font-size: 13px; width: 30px; height: 30px; cursor: pointer; flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .wk-swap:active { color: var(--accent); border-color: var(--accent); }
+    .wk-warm-line { font-size: 11px; color: var(--accent3); margin: -4px 0 9px; }
+
     /* -- Rest timer (Workout mode) -- */
     #rest-timer {
       position: sticky; bottom: 0; margin-top: auto;
@@ -644,13 +674,20 @@
       <div class="stats-title">Recent Sessions</div>
       <div class="session-list" id="sv-sessions-list"></div>
     </div>
+    <div>
+      <div class="stats-title">Record Wall</div>
+      <div class="session-list" id="sv-records"></div>
+    </div>
   </div>
 
   <!-- Workout mode view -->
   <div id="workout-view" class="view">
     <div style="padding: 12px;">
       <div id="wk-title" class="stats-title" style="font-size:13px;">Loading…</div>
+      <div id="wk-rotation" class="wk-rotation"></div>
       <div id="wk-status" class="wk-status"></div>
+      <div id="wk-warmup" class="wk-warmup" style="display:none"></div>
+      <button id="wk-stopwatch" class="wk-sw" onclick="toggleStopwatch()">▶ Start Session</button>
       <input id="wk-bodyweight" type="number" step="0.1" placeholder="Body weight today (kg) — optional" class="wk-bw" />
       <div id="wk-exercises"></div>
       <button id="wk-save" class="wk-save" onclick="saveWorkout()">Save Workout</button>
@@ -788,6 +825,7 @@
 
   // ── Workout mode ──
   let wkDay = null;          // day currently rendered (so we don't wipe inputs on tab switch)
+  let wkExercises = [];      // today's program rows (for swap alternatives)
 
   async function loadWorkout(force) {
     const title = document.getElementById('wk-title');
@@ -798,18 +836,34 @@
       // Don't re-render (and wipe typed values) if the same day is already shown.
       if (!force && wkDay === d.day && wrap.children.length) return;
       wkDay = d.day;
+      wkExercises = d.exercises || [];
       document.getElementById('wk-result').innerHTML = '';
       title.innerHTML = 'DAY ' + d.day + ' — ' + d.name.toUpperCase() +
         ' <span style="color:var(--muted);font-weight:400;cursor:pointer" onclick="loadWorkout(true)">↻ refresh</span>';
+
+      const rot = document.getElementById('wk-rotation');
+      rot.innerHTML = '';
+      (d.rotation || []).forEach(r => {
+        const c = document.createElement('div');
+        c.className = 'wk-rot-chip' + (r.day === d.day ? ' now' : '');
+        c.textContent = r.day; c.title = r.name;
+        rot.appendChild(c);
+      });
+
       const st = document.getElementById('wk-status');
       if (d.last_logged) {
         st.innerHTML = `Last logged: <b>Day ${esc(d.last_logged.day)}</b> · ${esc(d.last_logged.date)}` +
                        ` &nbsp;→&nbsp; Today (${esc(d.today)}): <b>Day ${esc(d.day)}</b>`;
         st.style.display = 'block';
       } else {
-        st.innerHTML = `No sessions logged yet — today (${d.today}) starts at <b>Day ${d.day}</b>.`;
+        st.innerHTML = `No sessions logged yet — today (${esc(d.today)}) starts at <b>Day ${esc(d.day)}</b>.`;
         st.style.display = 'block';
       }
+
+      const wu = document.getElementById('wk-warmup');
+      if (d.warmup) { wu.innerHTML = '<b>🔥 WARM-UP:</b> ' + esc(d.warmup); wu.style.display = 'block'; }
+      else wu.style.display = 'none';
+
       wrap.innerHTML = '';
       d.exercises.forEach((ex, i) => {
         const last = (ex.last_weight != null) ? `last: ${ex.last_weight}kg x ${ex.last_reps ?? '?'}` : 'first time';
@@ -825,16 +879,59 @@
             </div>`;
         }
         const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
+        const swap = (ex.alternatives || []).length
+          ? `<button class="wk-swap" title="Swap exercise" onclick="swapExercise(${i})">⇄</button>` : '';
+        const warm = ex.warmup_weight
+          ? `<div class="wk-warm-line">Warm-up first: 12-15 easy reps @ ${esc(ex.warmup_weight)}kg (don't log it)</div>` : '';
         const div = document.createElement('div');
         div.className = 'wk-ex';
         div.dataset.name = ex.name;
+        div.dataset.orig = ex.name;
         div.innerHTML = `
-          <div class="wk-ex-name">${ex.name}</div>
-          <div class="wk-ex-meta">${target} · ${last}</div>
+          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}</div>${swap}</div>
+          <div class="wk-ex-meta">${esc(target)} · ${esc(last)}</div>
+          ${warm}
           ${rows}`;
         wrap.appendChild(div);
       });
     } catch { title.textContent = 'Could not load today\'s workout.'; }
+  }
+
+  function swapExercise(i) {
+    // Cycle: original -> alt1 -> alt2 -> ... -> back to original. Typed sets stay.
+    const card = document.querySelectorAll('.wk-ex')[i];
+    const ex = wkExercises[i];
+    if (!card || !ex) return;
+    const opts = [card.dataset.orig, ...(ex.alternatives || [])];
+    const next = opts[(opts.indexOf(card.dataset.name) + 1) % opts.length];
+    card.dataset.name = next;
+    card.querySelector('.wk-ex-name').textContent = next;
+    const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
+    const last = (ex.last_weight != null) ? `last: ${ex.last_weight}kg x ${ex.last_reps ?? '?'}` : 'first time';
+    card.querySelector('.wk-ex-meta').textContent =
+      next === card.dataset.orig ? `${target} · ${last}` : `${target} · ⇄ swapped in for ${card.dataset.orig}`;
+  }
+
+  // ── Session stopwatch ──
+  let swStart = null, swInt = null;
+  function toggleStopwatch() {
+    const b = document.getElementById('wk-stopwatch');
+    if (swStart) {
+      if (!confirm('Reset the session stopwatch?')) return;
+      resetStopwatch();
+      return;
+    }
+    swStart = Date.now();
+    b.classList.add('on');
+    swInt = setInterval(() => {
+      const s = Math.floor((Date.now() - swStart) / 1000);
+      b.textContent = '⏱ ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + ' — in session';
+    }, 1000);
+  }
+  function resetStopwatch() {
+    clearInterval(swInt); swInt = null; swStart = null;
+    const b = document.getElementById('wk-stopwatch');
+    b.classList.remove('on'); b.textContent = '▶ Start Session';
   }
 
   async function saveWorkout() {
@@ -852,20 +949,23 @@
     if (!exercises.length) { alert('Fill in at least one set.'); return; }
 
     const bw = parseFloat(document.getElementById('wk-bodyweight').value);
+    const duration = swStart ? Math.max(1, Math.round((Date.now() - swStart) / 60000)) : null;
     saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
     try {
       const res = await fetch('/log_workout', {
         method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ day: wkDay, exercises, body_weight_kg: isNaN(bw) ? null : bw }),
+        body: JSON.stringify({ day: wkDay, exercises, body_weight_kg: isNaN(bw) ? null : bw,
+                               duration_min: duration }),
       });
       const data = await res.json();
       const out = document.getElementById('wk-result');
       if (data.error) { out.innerHTML = `<div class="wk-pr" style="color:var(--accent2)">${esc(data.error)}</div>`; }
       else {
-        let html = '<div class="bubble system" style="margin:0">Workout logged! 💪</div>';
+        let html = `<div class="bubble system" style="margin:0">Workout logged!${duration ? ' ⏱ ' + duration + ' min' : ''} 💪</div>`;
         (data.prs || []).forEach(pr => html += `<div class="wk-pr">🎉 ${esc(pr)}</div>`);
         out.innerHTML = html;
         loadStatsBar();
+        resetStopwatch();
         wkDay = null;               // next visit reloads the (now advanced) day
       }
     } catch { document.getElementById('wk-result').innerHTML = '<div class="wk-pr" style="color:var(--accent2)">Network error.</div>'; }
@@ -1143,7 +1243,7 @@
           return `<div class="session-ex"><span>${esc(e.name)}</span><span>${esc(sets)}</span></div>`;
         }).join('');
         item.innerHTML = `<div class="session-row"><div><div class="session-day">Day ${esc(s.day)} — ${esc(s.name)}</div>
-            <div class="session-date">${esc(s.date)}${s.weight ? ' · ' + esc(s.weight) + ' kg' : ''}</div></div>
+            <div class="session-date">${esc(s.date)}${s.weight ? ' · ' + esc(s.weight) + ' kg' : ''}${s.duration ? ' · ' + esc(s.duration) + ' min' : ''}</div></div>
             <div class="session-tag">${esc(s.exercises)} ex</div></div>
           <div class="session-detail">${detail || '<div class="session-ex"><span>No exercise details logged.</span></div>'}</div>`;
         item.querySelector('.session-row').onclick = () => item.classList.toggle('open');
@@ -1152,7 +1252,24 @@
       if (!d.recent_sessions || !d.recent_sessions.length)
         list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No sessions logged yet.</div>';
     } catch {}
+    loadRecords();
     loadCharts();
+  }
+
+  async function loadRecords() {
+    let r;
+    try { r = await (await fetch('/records', { headers: authHeaders() })).json(); }
+    catch { return; }
+    const list = document.getElementById('sv-records'); list.innerHTML = '';
+    (r.best || []).slice(0, 12).forEach(b => {
+      const item = document.createElement('div'); item.className = 'session-item';
+      item.innerHTML = `<div><div class="session-day">${esc(b.name)}</div>
+        <div class="session-date">${esc(b.date)}</div></div>
+        <div class="session-tag">${esc(b.weight)}kg × ${esc(b.reps)}</div>`;
+      list.appendChild(item);
+    });
+    if (!(r.best || []).length)
+      list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">Log workouts to build your record wall.</div>';
   }
 
   // ── Charts (plain canvas, no libraries) ──────────────────────────────────

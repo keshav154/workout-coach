@@ -104,7 +104,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v4';
+const CACHE = 'coachxkeshav-v5';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -232,6 +232,7 @@ def stats():
             "name":      PROGRAM.get(d, {}).get("name", ""),
             "date":      s.get("date", ""),
             "weight":    s.get("body_weight_kg"),
+            "duration":  s.get("duration_min"),
             "exercises": len(s.get("exercises", [])),
             "detail":    [{"name":   e.get("name"),
                            "weight": e.get("weight"),
@@ -256,7 +257,9 @@ def stats():
 @flask_app.route("/today_program")
 @require_auth
 def today_program():
-    from agent_core import get_last_session_for_day, today_iso
+    from agent_core import (DAY_ROTATION, get_last_session_for_day, today_iso,
+                            warmup_weight_for)
+    from progression import alternatives_for
     profile = load_profile()
     if not profile_complete(profile):
         return jsonify({"ready": False})
@@ -279,15 +282,20 @@ def today_program():
         if last:
             prev = next((e for e in last.get("exercises", []) if e["name"] == ex["name"]), None)
         exercises.append({
-            "name":        ex["name"],
-            "sets":        ex["sets"],
-            "rep_range":   ex["rep_range"],
-            "scheme":      ex.get("scheme"),
-            "last_weight": prev.get("weight") if prev else None,
-            "last_reps":   prev.get("reps_done") if prev else None,
+            "name":          ex["name"],
+            "sets":          ex["sets"],
+            "rep_range":     ex["rep_range"],
+            "scheme":        ex.get("scheme"),
+            "last_weight":   prev.get("weight") if prev else None,
+            "last_reps":     prev.get("reps_done") if prev else None,
+            "warmup_weight": warmup_weight_for(prev.get("weight") if prev else None),
+            "alternatives":  alternatives_for(ex["name"]),
         })
     return jsonify({"ready": True, "day": day, "name": p.get("name", ""),
                     "today": today_iso(), "last_logged": last_logged,
+                    "warmup": p.get("warmup", ""),
+                    "rotation": [{"day": d0, "name": PROGRAM[d0]["name"]}
+                                 for d0 in DAY_ROTATION],
                     "exercises": exercises})
 
 
@@ -337,6 +345,29 @@ def chart_data():
                  for n, v in ex_hist.items() if len(v) >= 2}
 
     return jsonify({"weight": weight, "volume": volume, "exercises": exercises})
+
+
+@flask_app.route("/records")
+@require_auth
+def records():
+    """Record wall: best weight x reps per exercise, plus recent PR feed."""
+    from agent_core import _num
+    best: dict[str, tuple] = {}
+    for s in load_log().get("sessions", []):
+        d = s.get("date", "")
+        for e in s.get("exercises", []):
+            name = e.get("name")
+            w, r = _num(e.get("weight")), _num(e.get("reps_done"))
+            if not name or w <= 0:
+                continue
+            if name not in best or (w, r) > best[name][:2]:
+                best[name] = (w, r, d)
+    mem = load_memory()
+    return jsonify({
+        "best": [{"name": n, "weight": w, "reps": r, "date": d}
+                 for n, (w, r, d) in sorted(best.items(), key=lambda x: -x[1][0])],
+        "recent_prs": mem.get("personal_records", [])[-10:],
+    })
 
 
 @flask_app.route("/nutrition_data")
@@ -438,6 +469,13 @@ def log_workout():
     session = {"day": day, "date": today_iso(), "exercises": exercises}
     if data.get("body_weight_kg"):
         session["body_weight_kg"] = data["body_weight_kg"]
+    if data.get("duration_min"):
+        try:
+            dur = int(float(data["duration_min"]))
+            if 1 <= dur <= 600:
+                session["duration_min"] = dur
+        except (TypeError, ValueError):
+            pass
 
     ok, reason, cleaned = validate_session(session)
     if not ok:
