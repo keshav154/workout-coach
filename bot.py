@@ -104,7 +104,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v3';
+const CACHE = 'coachxkeshav-v4';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -233,6 +233,11 @@ def stats():
             "date":      s.get("date", ""),
             "weight":    s.get("body_weight_kg"),
             "exercises": len(s.get("exercises", [])),
+            "detail":    [{"name":   e.get("name"),
+                           "weight": e.get("weight"),
+                           "reps":   e.get("reps_done"),
+                           "sets":   e.get("sets") if isinstance(e.get("sets"), list) else None}
+                          for e in s.get("exercises", [])],
         })
 
     profile = load_profile() or {}
@@ -332,6 +337,73 @@ def chart_data():
                  for n, v in ex_hist.items() if len(v) >= 2}
 
     return jsonify({"weight": weight, "volume": volume, "exercises": exercises})
+
+
+@flask_app.route("/nutrition_data")
+@require_auth
+def nutrition_data():
+    """Fuel tab: today's meals, totals vs targets, and the last 7 days."""
+    from agent_core import compute_targets, effective_calorie_target
+    from nutrition import get_meals, today_totals, week_series
+    profile = load_profile() or {}
+    if profile:
+        targets = compute_targets(profile)
+        cal_t, prot_t = effective_calorie_target(profile, targets), targets["protein_target_g"]
+    else:
+        cal_t = prot_t = 0
+    return jsonify({
+        "meals":   get_meals(),
+        "totals":  today_totals(),
+        "targets": {"calories": cal_t, "protein_g": prot_t},
+        "week":    week_series(),
+    })
+
+
+@flask_app.route("/money_data")
+@require_auth
+def money_data():
+    """Money tab: month total, category breakdown vs budgets, recent transactions."""
+    from agent_core import today as _today
+    from expense_core import get_budget, get_expenses
+    month    = _today().strftime("%Y-%m")
+    expenses = get_expenses(month)
+    budget   = get_budget()
+    totals, daily = {}, {}
+    for e in expenses:
+        amt = e.get("amount", 0) or 0
+        totals[e.get("category", "Other")] = totals.get(e.get("category", "Other"), 0) + amt
+        daily[e.get("date", "")] = daily.get(e.get("date", ""), 0) + amt
+    total = sum(totals.values())
+    by_category = [{"category": c, "amount": v, "budget": budget.get(c)}
+                   for c, v in sorted(totals.items(), key=lambda x: -x[1])]
+    recent = sorted(expenses, key=lambda x: (x.get("date", ""), x.get("id", "")), reverse=True)[:20]
+    return jsonify({
+        "month":       month,
+        "total":       total,
+        "avg_per_day": total / len(daily) if daily else 0,
+        "by_category": by_category,
+        "recent":      recent,
+    })
+
+
+@flask_app.route("/voice", methods=["POST"])
+@require_auth
+def voice_route():
+    """Web voice input: audio blob in, transcription + coach reply out."""
+    f = request.files.get("audio")
+    if f is None:
+        return jsonify({"error": "no audio uploaded"}), 400
+    data = f.read()
+    if not data:
+        return jsonify({"error": "empty audio"}), 400
+    if len(data) > 20 * 1024 * 1024:
+        return jsonify({"error": "audio too large"}), 400
+    try:
+        reply = transcribe_and_process(data, source="web", filename=f.filename or "voice.webm")
+    except Exception as e:
+        log.error(f"Voice error: {e}", exc_info=True)
+        return jsonify({"error": "Couldn't process that voice note, please try again"}), 500
+    return jsonify({"reply": reply})
 
 
 @flask_app.route("/log_workout", methods=["POST"])
@@ -471,6 +543,17 @@ def cron_weekly():
     record_event("cron_weekly")
     msg  = build_weekly_report()
     sent = notify(msg)
+    # Autonomous calorie tuning: adjust the daily target from the weigh-in
+    # trend and tell the user what changed and why.
+    adjustment = None
+    try:
+        from reports import auto_adjust_calories
+        adjustment = auto_adjust_calories()
+        if adjustment:
+            notify(adjustment)
+            log.info(adjustment)
+    except Exception as e:
+        log.error(f"Calorie auto-adjust failed: {e}")
     # Autonomous memory hygiene: merge duplicates, drop stale notes, distill
     # the week's episodes into durable observations.
     consolidated = None
@@ -482,7 +565,8 @@ def cron_weekly():
     except Exception as e:
         log.error(f"Memory consolidation failed: {e}")
     log.info(f"Weekly cron: report={'sent' if sent else 'failed'}")
-    return jsonify({"sent": sent, "message": msg, "memory": consolidated})
+    return jsonify({"sent": sent, "message": msg, "memory": consolidated,
+                    "calorie_adjustment": adjustment})
 
 
 @flask_app.route("/cron/check", methods=["GET", "POST"])

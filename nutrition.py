@@ -4,8 +4,10 @@ and powers the autonomous daily nutrition nudge.
 """
 
 import logging
+from datetime import timedelta
 
-from agent_core import _col, load_profile, compute_targets, today_iso
+from agent_core import (_col, compute_targets, effective_calorie_target,
+                        load_profile, today, today_iso)
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +43,16 @@ def today_totals(date_str: str | None = None) -> dict:
     }
 
 
+def week_series(days: int = 7) -> list[dict]:
+    """Per-day calorie/protein totals for the last `days` days (oldest first)."""
+    out = []
+    for i in range(days - 1, -1, -1):
+        d = (today() - timedelta(days=i)).isoformat()
+        t = today_totals(d)
+        out.append({"date": d, "calories": t["calories"], "protein_g": t["protein_g"]})
+    return out
+
+
 def format_nutrition_block(date_str: str | None = None) -> str:
     """Today's logged nutrition vs target, for the coach's system prompt."""
     totals = today_totals(date_str)
@@ -48,7 +60,7 @@ def format_nutrition_block(date_str: str | None = None) -> str:
     if not profile:
         return ""
     targets = compute_targets(profile)
-    cal_t = targets["calorie_target"]
+    cal_t = effective_calorie_target(profile, targets)
     prot_t = targets["protein_target_g"]
     if totals["count"] == 0:
         return ("TODAY'S NUTRITION: nothing logged yet today. If the user mentions food, "
@@ -76,5 +88,6 @@ def nutrition_summary_text(date_str: str | None = None) -> str:
     lines.append(f"Total: {totals['calories']} kcal | {totals['protein_g']}g protein")
     if profile:
         targets = compute_targets(profile)
-        lines.append(f"Target: {targets['calorie_target']} kcal | {targets['protein_target_g']}g protein")
+        lines.append(f"Target: {effective_calorie_target(profile, targets)} kcal | "
+                     f"{targets['protein_target_g']}g protein")
     return "\n".join(lines)

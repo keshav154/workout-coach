@@ -4,12 +4,13 @@ Called by the /cron endpoints in bot.py.
 """
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from llm import chat
 from agent_core import (
     PROGRAM,
     days_since_last_session,
+    effective_calorie_target,
     get_consecutive_workout_days,
     get_next_day,
     get_weight_trend,
@@ -17,6 +18,7 @@ from agent_core import (
     load_memory,
     load_profile,
     profile_complete,
+    save_profile,
     today,
     today_iso,
 )
@@ -116,6 +118,65 @@ def build_evening_checkin() -> str | None:
     if len(parts) == 1 and totals["count"] > 0:
         return None  # nutrition logged, weight covered — nothing worth nagging about
     return "🌙 Evening check-in\n\n" + "\n\n".join(parts)
+
+
+def auto_adjust_calories() -> str | None:
+    """Autonomous weekly calorie tuning: compare the recent weigh-in trend to
+    the user's goal and write an adjustment back to the profile (cal_adjust,
+    ±200 per week, clamped ±600 total by effective_calorie_target). Returns a
+    notification message, or None when there's nothing to change."""
+    profile = load_profile()
+    if not profile_complete(profile):
+        return None
+
+    entries = []
+    for e in load_memory().get("weight_log", []):
+        try:
+            d, w = str(e).split(": ")
+            entries.append((datetime.strptime(d, "%Y-%m-%d").date(),
+                            float(w.replace(" kg", ""))))
+        except (ValueError, AttributeError):
+            pass
+    entries.sort()
+    recent = [x for x in entries if x[0] >= today() - timedelta(days=35)]
+    if len(recent) < 3 or (recent[-1][0] - recent[0][0]).days < 14:
+        return None                     # not enough signal to act on
+
+    span = (recent[-1][0] - recent[0][0]).days
+    rate = (recent[-1][1] - recent[0][1]) / span * 7    # kg per week
+
+    goal = (profile.get("goal") or "").lower()
+    step = 0
+    if any(k in goal for k in ("lose", "fat", "cut")):
+        if rate > -0.15:   step = -200      # not losing
+        elif rate < -0.8:  step = +200      # losing too fast
+    elif any(k in goal for k in ("gain", "muscle", "bulk")):
+        if rate > 0.45:    step = -200      # gaining too fast
+        elif rate < 0.05:  step = +200      # not gaining
+    else:                                   # recomposition
+        if rate > 0.35:    step = -200
+        elif rate < -0.35: step = +200
+    if not step:
+        return None
+
+    try:
+        old = int(profile.get("cal_adjust", 0) or 0)
+    except (TypeError, ValueError):
+        old = 0
+    new = max(-600, min(600, old + step))
+    if new == old:
+        return None                     # already at the clamp
+
+    profile["cal_adjust"] = new
+    save_profile(profile)
+    from trust import record_audit
+    record_audit("cal_adjust", f"{old:+d} -> {new:+d} kcal (trend {rate:+.2f} kg/week)")
+
+    target = effective_calorie_target(profile)
+    direction = "down" if step < 0 else "up"
+    return (f"🍽️ Calorie auto-adjust: your weight trend is {rate:+.2f} kg/week for a goal of "
+            f"'{profile.get('goal')}', so I've moved your daily target {direction} by "
+            f"{abs(step)} kcal to {target} kcal. I'll keep tuning this weekly from your weigh-ins.")
 
 
 def build_weekly_report() -> str:

@@ -7,12 +7,15 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **6-day Push/Pull/Legs x2 split**: every muscle trained twice a week (A: Push-chest, B: Pull-back, C: Legs-quad, D: Push-shoulders, E: Pull-width+arms, F: Legs-posterior)
 - **Agentic coach**: the LLM reads real data and writes through validated tools (log sessions, weight, meals, expenses, goals, budgets, check-ins, undo) — never just "says" it logged something
 - **Progressive overload**: suggests the next dumbbell up from your exact set when you hit the top of a rep range; plateau detection with automatic scheduled deloads
-- **Workout mode**: per-set logging UI with last-session weights pre-filled, PR detection and confetti
+- **Workout mode**: per-set logging UI with last-session weights pre-filled, PR detection and confetti, and a built-in rest timer (60/90/120s with vibration + beep)
+- **Fuel & Money tabs**: today's calories/protein vs target with a 7-day chart and meal list; monthly spending with category budget bars and recent transactions
+- **Voice input everywhere**: mic button in the web app (plus Telegram voice notes), transcribed via Whisper and routed through the normal coach
+- **Weekly calorie auto-tuning**: the Sunday cron compares your weigh-in trend to your goal and adjusts your daily calorie target (±200/week, capped ±600), telling you what changed and why
 - **Weekly weigh-in + goal projection**: trend-based calorie adjustments and ETA projections toward weight/lift goals
 - **Indian vegetarian nutrition**: calorie/protein estimates for Indian portions, meal photo analysis (vision), voice notes (Whisper)
 - **Autonomous loops** (cron): morning nudge, evening check-in, weekly recap, smart alerts (skipped workouts, overspend, streaks), memory consolidation, data self-heal, JSON backup to Telegram
 - **Memory**: PRs, soreness, form cues, episodic daily summaries, and lessons learned from your corrections
-- **Trust layer**: every write validated + audited, universal undo, full data export
+- **Trust layer**: every write validated + audited, universal undo, full data export, and a restore path (`python restore_backup.py <backup.json>`)
 
 ## Equipment assumed
 

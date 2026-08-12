@@ -470,24 +470,16 @@ def days_since_last_session(log: dict) -> int | None:
     return (today() - max(dates)).days
 
 
-def get_adjusted_calorie_target(mem: dict, base: int) -> int:
-    entries = mem.get("weight_log", [])
-    parsed = []
-    for e in entries:
-        try:
-            d, w = e.split(": ")
-            parsed.append((d, float(w.replace(" kg", ""))))
-        except (ValueError, AttributeError):
-            pass
-    if len(parsed) < 3:
-        return base
-    parsed.sort(key=lambda x: x[0])
-    delta_per = (parsed[-1][1] - parsed[0][1]) / (len(parsed) - 1)
-    if delta_per > 0.7:
-        return base - 200
-    elif delta_per < 0.1:
-        return base + 200
-    return base
+def effective_calorie_target(profile: dict, targets: dict | None = None) -> int:
+    """Base calorie target plus the cumulative weekly auto-adjustment the
+    Sunday cron writes back to the profile (reports.auto_adjust_calories).
+    Clamped so a runaway loop can never push the target off a cliff."""
+    targets = targets or compute_targets(profile)
+    try:
+        adj = int(profile.get("cal_adjust", 0) or 0)
+    except (TypeError, ValueError):
+        adj = 0
+    return targets["calorie_target"] + max(-600, min(600, adj))
 
 
 # ── Prompt builders ───────────────────────────────────────────────────────────
@@ -608,7 +600,7 @@ def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dic
     targets = compute_targets(profile)
     today_str = today_iso()
     p_name = PROGRAM.get(day, {}).get("name", "")
-    cal_target = get_adjusted_calorie_target(mem, targets["calorie_target"])
+    cal_target = effective_calorie_target(profile, targets)
     sessions = len(log.get("sessions", []))
     injuries = profile.get("injuries", "none")
     first_this_week = is_first_session_this_week(log)
