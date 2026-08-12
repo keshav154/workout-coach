@@ -184,8 +184,6 @@ def try_parse_expense(text: str) -> Optional[dict]:
 def get_workout_context(month: str) -> str:
     """Pull workout sessions from the same month for cross-agent insights."""
     try:
-        sessions = list(_col("workout_log").find_one({"_id": "log"}) or {}).get("sessions", [])
-        # handle find_one returning a dict
         doc = _col("workout_log").find_one({"_id": "log"}) or {}
         sessions = doc.get("sessions", [])
         month_sessions = [s for s in sessions if s.get("date", "").startswith(month)]

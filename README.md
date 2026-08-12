@@ -1,32 +1,30 @@
-# Workout Coach AI
+# CoachxKeshav — Workout Coach AI
 
-A personal trainer and nutrition coach AI that runs as a web app and Discord bot. Tracks workouts, progressive overload, weekly weigh-ins, and Indian vegetarian nutrition — all persisted in MongoDB.
+A personal trainer, nutrition coach, and expense tracker AI that runs as a web app (installable PWA) with Telegram, WhatsApp, and Discord transports. Tracks workouts, progressive overload, weigh-ins, Indian vegetarian nutrition, and spending — all persisted in MongoDB, all driven by natural language (no command syntax).
 
 ## Features
 
-- **4-day body-part split**: Chest+Triceps / Back+Biceps / Shoulders+Arms / Legs+Core
-- **Progressive overload**: Suggests weight increases from your exact dumbbell set when you hit the top of your rep range
-- **Weekly weigh-in**: Asks your weight once per week (first session of each week) and auto-adjusts calorie targets based on trend
-- **Missed workout detection**: If 7+ days since last session, suggests a 10-15% deload to ease back in safely
-- **Indian vegetarian nutrition**: Tracks calories and protein with Indian food estimates; suggests meals to close protein gaps
-- **Persistent memory**: Remembers PRs, soreness, form cues, and observations across sessions
-- **Onboarding**: Gathers your full profile on first run — no hardcoded values
-- **Web UI + Discord bot**: Both interfaces share the same MongoDB backend
+- **6-day Push/Pull/Legs x2 split**: every muscle trained twice a week (A: Push-chest, B: Pull-back, C: Legs-quad, D: Push-shoulders, E: Pull-width+arms, F: Legs-posterior)
+- **Agentic coach**: the LLM reads real data and writes through validated tools (log sessions, weight, meals, expenses, goals, budgets, check-ins, undo) — never just "says" it logged something
+- **Progressive overload**: suggests the next dumbbell up from your exact set when you hit the top of a rep range; plateau detection with automatic scheduled deloads
+- **Workout mode**: per-set logging UI with last-session weights pre-filled, PR detection and confetti
+- **Weekly weigh-in + goal projection**: trend-based calorie adjustments and ETA projections toward weight/lift goals
+- **Indian vegetarian nutrition**: calorie/protein estimates for Indian portions, meal photo analysis (vision), voice notes (Whisper)
+- **Autonomous loops** (cron): morning nudge, evening check-in, weekly recap, smart alerts (skipped workouts, overspend, streaks), memory consolidation, data self-heal, JSON backup to Telegram
+- **Memory**: PRs, soreness, form cues, episodic daily summaries, and lessons learned from your corrections
+- **Trust layer**: every write validated + audited, universal undo, full data export
 
-## Equipment
+## Equipment assumed
 
 - Adjustable dumbbells: 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg
-- Incline-decline bench
-- Treadmill
-- Resistance bands
+- Incline-decline bench, treadmill
 
 ## Stack
 
 - **Backend**: Python, Flask, Gunicorn
-- **AI**: Groq API (`llama-3.3-70b-versatile`) via OpenAI-compatible SDK
+- **AI**: any OpenAI-compatible provider (default Groq `llama-3.3-70b-versatile`); Groq Whisper for voice, Llama 4 Scout for vision
 - **Database**: MongoDB Atlas (free M0 cluster)
-- **Bot**: discord.py
-- **Hosting**: Render (free tier)
+- **Hosting**: Render (free tier) + external cron pings
 
 ## Setup
 
@@ -40,68 +38,53 @@ pip install -r requirements.txt
 
 ### 2. Environment variables
 
-Set these in Render dashboard (or a local `.env` file):
-
 | Variable | Description |
 |---|---|
-| `GROQ_API_KEY` | Get free at [console.groq.com](https://console.groq.com) |
 | `MONGODB_URI` | MongoDB Atlas connection string |
+| `GROQ_API_KEY` | Free at [console.groq.com](https://console.groq.com) — used for chat (default), Whisper, vision |
 | `WEB_PASSWORD` | Password for the web UI lock screen |
 | `FLASK_SECRET` | Random secret key for Flask sessions |
-| `DISCORD_BOT_TOKEN` | From Discord Developer Portal (optional) |
-| `DISCORD_USER_ID` | Your Discord user ID — bot only responds to you (optional) |
+| `CRON_SECRET` | Shared secret for `/cron/*` endpoints (`?secret=...`) — **without it they're open** |
+| `TELEGRAM_BOT_TOKEN` | From @BotFather (optional — enables Telegram + notifications) |
+| `TELEGRAM_CHAT_ID` | Your chat ID — bot only responds to you |
+| `TELEGRAM_WEBHOOK_SECRET` | Secret passed to `setWebhook`, verified on each update |
+| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Optional: point the reasoning brain at another OpenAI-compatible provider (Moonshot/Kimi, NVIDIA NIM, ...) |
+| `TWILIO_*` / `ALLOWED_WHATSAPP_NUMBER` | Optional: WhatsApp transport via Twilio |
+| `DISCORD_BOT_TOKEN` / `DISCORD_USER_ID` | Optional: Discord bot (only runs via `python bot.py`, not under gunicorn) |
+| `APP_TZ_OFFSET_MIN` | Minutes offset from UTC for "today" (default 330 = IST) |
 
 ### 3. Deploy to Render
 
-Push to GitHub and connect the repo to Render. The `render.yaml` configures everything automatically.
+Push to GitHub and connect the repo to Render — `render.yaml` configures the service. Then point an external cron (e.g. cron-job.org) at:
 
-Or use the start command directly:
+- `/cron/daily` — morning workout nudge
+- `/cron/evening` — nutrition/weight check-in + daily episode memory
+- `/cron/weekly` — Sunday recap + memory consolidation
+- `/cron/check` — smart alerts (run a few times a day)
+- `/cron/plateau` — plateau detection + auto-deload flags
+- `/cron/selfheal` — workout data repair
+- `/cron/backup` — JSON backup sent to Telegram
 
-```bash
-gunicorn bot:flask_app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
-```
+All accept `?secret=<CRON_SECRET>`.
 
-## First Run
+## Using it
 
-On first open, the coach asks you ~10 onboarding questions:
-- Name, age, weight, height
-- Goal, fitness level, days per week, diet
-- Injuries to avoid
-- Recent training history and weights used
+There is **no command syntax** — just talk:
 
-Your profile is saved to MongoDB and never asked again.
+- "what's my workout today?"
+- "done — benched 18kg for 10, curls 13.5 for 12"
+- "97.3" (when asked your weight)
+- "had 2 rotis, dal and paneer bhurji"
+- "spent 500 on groceries" / "how much did I spend on food this month?"
+- "I want to reach 90kg by September"
+- "undo that"
 
-## Web UI
+The web UI adds quick tabs: **Coach** (chat), **Workout** (per-set logging), **Progress** (charts: weight trend, weekly volume, per-exercise progress).
 
-Open your Render app URL → enter your `WEB_PASSWORD` → start chatting.
+## First run
 
-Quick action buttons:
-- **Today's Workout** — get the day's exercises with suggested weights
-- **Log Session** — log exercises, sets, reps after finishing
-- **Meal Suggestion** — get Indian food suggestions to hit protein target
-- **Log Weight** — record your weekly weigh-in
-- **Last Session** — recap of previous workout
+The coach walks you through ~10 onboarding questions (name, age, weight, height, goal, level, diet, injuries, recent training) and saves your profile — never asked again.
 
-## Discord Bot
+## MongoDB collections
 
-Invite your bot to a server, then use these commands:
-
-| Command | Action |
-|---|---|
-| `!workout` | Today's workout |
-| `!done` | Log session + nutrition |
-| `!weight 97.5` | Log your weight |
-| `!summary` | Last session recap |
-| `!reset` | Fresh conversation |
-| `!help` | Command list |
-
-Or just type anything to chat with your coach.
-
-## MongoDB Collections
-
-| Collection | Contents |
-|---|---|
-| `profile` | Your onboarding profile (goal, weight, height, etc.) |
-| `workout_log` | All logged sessions with exercises and nutrition |
-| `memory` | Persistent notes: PRs, soreness, form cues, weight log |
-| `history` | Recent conversation history (last 20 messages) |
+`profile`, `workout_log`, `memory`, `history`, `expenses`, `budget`, `meals`, `checkin`, `goals`, `audit`, `episodes`, `lessons`, `alerts_state`, `auto_flags`, `tool_usage`, `system`

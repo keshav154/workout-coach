@@ -108,7 +108,8 @@ def _project_lift(goal: dict) -> str:
 def goals_status() -> str:
     goals = get_goals()
     if not goals:
-        return "No goals set. Try: !goal weight 90 by 2026-09-01  or  !goal lift bench 24"
+        return ("No goals set. Tell me something like 'I want to reach 90kg by September' "
+                "or 'get my bench press to 24kg'.")
     lines = ["Your goals:", ""]
     for g in goals:
         if g["kind"] == "weight":

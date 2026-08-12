@@ -65,7 +65,7 @@ def build_daily_nudge() -> str | None:
         lines.append("")
         lines.append("⚠️ Goal check: " + " ".join(at_risk))
 
-    lines.append("Reply !workout when you're ready.")
+    lines.append("Just message me when you're ready and I'll walk you through it.")
     return "\n".join(lines)
 
 

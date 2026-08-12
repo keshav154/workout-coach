@@ -174,7 +174,11 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
             if ok:
                 # Code is the source of truth for day & date — never trust the LLM.
                 cleaned["date"] = today_iso()
-                cleaned["day"]  = day
+                # Re-logging on a day that already has a session must update that
+                # session (same day letter), not advance the rotation.
+                existing = next((s for s in reversed(workout_log.get("sessions", []))
+                                 if s.get("date") == cleaned["date"]), None)
+                cleaned["day"] = (existing or {}).get("day") or day
                 parsed_log = cleaned
                 pr_msgs = detect_prs(workout_log, parsed_log)  # compare vs history first
                 save_session(workout_log, parsed_log)

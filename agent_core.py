@@ -366,9 +366,11 @@ def load_history(source: str = "web") -> list:
 
 
 def save_history(source: str, history: list) -> None:
+    # last_active lets the evening episode summary skip sources that haven't
+    # talked today (message dicts themselves stay clean for the LLM API).
     _col("history").update_one(
         {"_id": source},
-        {"$set": {"messages": history[-20:]}},
+        {"$set": {"messages": history[-20:], "last_active": today_iso()}},
         upsert=True,
     )
 
@@ -455,15 +457,17 @@ def is_first_session_this_week(log: dict) -> bool:
 
 
 def days_since_last_session(log: dict) -> int | None:
-    """Returns days since the last logged session, or None if no sessions."""
-    sessions = log.get("sessions", [])
-    if not sessions:
+    """Returns days since the latest-dated session (robust to out-of-order
+    entries), or None if no sessions."""
+    dates = []
+    for s in log.get("sessions", []):
+        try:
+            dates.append(datetime.strptime(s.get("date", ""), "%Y-%m-%d").date())
+        except (ValueError, TypeError):
+            pass
+    if not dates:
         return None
-    try:
-        last_date = datetime.strptime(sessions[-1]["date"], "%Y-%m-%d").date()
-        return (today() - last_date).days
-    except (ValueError, KeyError):
-        return None
+    return (today() - max(dates)).days
 
 
 def get_adjusted_calorie_target(mem: dict, base: int) -> int:

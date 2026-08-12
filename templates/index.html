@@ -615,8 +615,8 @@
 <div id="sheet-backdrop" onclick="closeSheet()"></div>
 <div id="sheet">
   <div class="sheet-handle"></div>
-  <button class="sheet-btn" onclick="closeSheet(); quickSend('!ask summarize my month')"><span class="ico">🔎</span>Ask about my data</button>
-  <button class="sheet-btn" onclick="closeSheet(); quickSend('!status')"><span class="ico">🩺</span>System status</button>
+  <button class="sheet-btn" onclick="closeSheet(); quickSend('Give me a summary of my month — training, weight and spending')"><span class="ico">🔎</span>Ask about my data</button>
+  <button class="sheet-btn" onclick="closeSheet(); quickSend('Is everything working? Run a system status check')"><span class="ico">🩺</span>System status</button>
   <button class="sheet-btn" onclick="closeSheet(); deleteLastSession()"><span class="ico">↩️</span>Undo last log</button>
   <button class="sheet-btn" onclick="closeSheet(); repairData()"><span class="ico">🧹</span>Fix workout data</button>
   <button class="sheet-btn" onclick="closeSheet(); resetChat()"><span class="ico">✨</span>New session</button>
@@ -678,8 +678,8 @@
         ' <span style="color:var(--muted);font-weight:400;cursor:pointer" onclick="loadWorkout(true)">↻ refresh</span>';
       const st = document.getElementById('wk-status');
       if (d.last_logged) {
-        st.innerHTML = `Last logged: <b>Day ${d.last_logged.day}</b> · ${d.last_logged.date}` +
-                       ` &nbsp;→&nbsp; Today (${d.today}): <b>Day ${d.day}</b>`;
+        st.innerHTML = `Last logged: <b>Day ${esc(d.last_logged.day)}</b> · ${esc(d.last_logged.date)}` +
+                       ` &nbsp;→&nbsp; Today (${esc(d.today)}): <b>Day ${esc(d.day)}</b>`;
         st.style.display = 'block';
       } else {
         st.innerHTML = `No sessions logged yet — today (${d.today}) starts at <b>Day ${d.day}</b>.`;
@@ -735,10 +735,10 @@
       });
       const data = await res.json();
       const out = document.getElementById('wk-result');
-      if (data.error) { out.innerHTML = `<div class="wk-pr" style="color:var(--accent2)">${data.error}</div>`; }
+      if (data.error) { out.innerHTML = `<div class="wk-pr" style="color:var(--accent2)">${esc(data.error)}</div>`; }
       else {
         let html = '<div class="bubble system" style="margin:0">Workout logged! 💪</div>';
-        (data.prs || []).forEach(pr => html += `<div class="wk-pr">🎉 ${pr}</div>`);
+        (data.prs || []).forEach(pr => html += `<div class="wk-pr">🎉 ${esc(pr)}</div>`);
         out.innerHTML = html;
         loadStatsBar();
         wkDay = null;               // next visit reloads the (now advanced) day
@@ -752,6 +752,7 @@
   function closeSheet() { document.getElementById('sheet-backdrop').style.display = 'none';  document.getElementById('sheet').classList.remove('open'); }
 
   // ── UI helpers ──
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; }
   function handleKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
   function addBubble(text, cls) {
@@ -837,9 +838,9 @@
       const list = document.getElementById('sv-sessions-list'); list.innerHTML = '';
       (d.recent_sessions || []).forEach(s => {
         const item = document.createElement('div'); item.className = 'session-item';
-        item.innerHTML = `<div><div class="session-day">Day ${s.day} — ${s.name}</div>
-          <div class="session-date">${s.date}${s.weight ? ' · ' + s.weight + ' kg' : ''}</div></div>
-          <div class="session-tag">${s.exercises} ex</div>`;
+        item.innerHTML = `<div><div class="session-day">Day ${esc(s.day)} — ${esc(s.name)}</div>
+          <div class="session-date">${esc(s.date)}${s.weight ? ' · ' + esc(s.weight) + ' kg' : ''}</div></div>
+          <div class="session-tag">${esc(s.exercises)} ex</div>`;
         list.appendChild(item);
       });
       if (!d.recent_sessions || !d.recent_sessions.length)
@@ -932,7 +933,12 @@
     const sel = document.getElementById('ex-select');
     const names = Object.keys(chartData.exercises || {}).sort();
     const prev = sel.value;
-    sel.innerHTML = names.map(n => `<option${n === prev ? ' selected' : ''}>${n}</option>`).join('');
+    sel.innerHTML = '';
+    names.forEach(n => {
+      const opt = document.createElement('option');
+      opt.textContent = n; opt.selected = (n === prev);
+      sel.appendChild(opt);
+    });
     sel.style.display = names.length ? 'block' : 'none';
     drawExerciseChart();
   }

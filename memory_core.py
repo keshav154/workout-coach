@@ -15,7 +15,6 @@ from llm import chat
 from agent_core import (
     DEFAULT_MEMORY,
     _col,
-    load_history,
     load_memory,
     save_memory,
     today_iso,
@@ -76,10 +75,15 @@ def format_episodes_block() -> str:
 
 def summarize_today() -> str | None:
     """Autonomous daily episode: distill today's conversations (all surfaces)
-    into a 2-3 line summary. Returns the summary, or None if nothing happened."""
+    into a 2-3 line summary. Returns the summary, or None if nothing happened.
+    Only sources active TODAY are included — otherwise a quiet day would get an
+    'episode' stitched from days-old conversation."""
     turns = []
     for source in ("web", "telegram", "whatsapp", "discord"):
-        for m in load_history(source)[-14:]:
+        doc = _col("history").find_one({"_id": source}) or {}
+        if doc.get("last_active") != today_iso():
+            continue
+        for m in (doc.get("messages") or [])[-14:]:
             role = "User" if m.get("role") == "user" else "Coach"
             content = (m.get("content") or "").strip()
             if content:

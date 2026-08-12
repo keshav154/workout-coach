@@ -238,7 +238,7 @@ def _answer_without_tools(question: str) -> str:
 def answer_question(question: str) -> str:
     if not question.strip():
         return ("Ask me anything about your training, weight, meals, or spending.\n"
-                "e.g. !ask how many workouts in June, or !ask my best bench press")
+                "e.g. 'how many workouts did I do in June?' or 'what's my best bench press?'")
 
     system = (
         f"You are the user's personal data analyst. Today is {today_iso()}.\n"

@@ -8,6 +8,7 @@ import functools
 import logging
 import os
 import threading
+from collections import deque
 
 import discord
 from flask import Flask, jsonify, render_template, request
@@ -48,6 +49,10 @@ ALLOWED_WHATSAPP_NUMBER = os.environ.get("ALLOWED_WHATSAPP_NUMBER", "").strip()
 
 TELEGRAM_CHAT_ID        = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
+
+if not CRON_SECRET:
+    log.warning("CRON_SECRET not set — /cron/* endpoints are open to anyone. "
+                "Set it (and add ?secret=... to your cron pings) to lock them down.")
 
 
 def require_auth(f):
@@ -627,6 +632,12 @@ def whatsapp_webhook():
 
 
 # ── Telegram webhook ───────────────────────────────────────────────────────────
+# Telegram re-delivers an update if it doesn't get a fast 200, and a slow LLM
+# turn can take long enough to trigger that — remember recent update_ids so a
+# retry never double-processes (and double-logs) the same message.
+_seen_tg_updates: deque = deque(maxlen=100)
+
+
 @flask_app.route("/telegram", methods=["POST"])
 def telegram_webhook():
     # Verify the secret token Telegram echoes back (set via setWebhook)
@@ -637,6 +648,12 @@ def telegram_webhook():
             return "forbidden", 403
 
     update = request.get_json(silent=True) or {}
+    update_id = update.get("update_id")
+    if update_id is not None:
+        if update_id in _seen_tg_updates:
+            log.info(f"Telegram: skipping duplicate update {update_id}")
+            return jsonify({"ok": True})
+        _seen_tg_updates.append(update_id)
     msg    = update.get("message") or update.get("edited_message")
     if not msg:
         return jsonify({"ok": True})

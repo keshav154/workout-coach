@@ -143,11 +143,27 @@ def make_write_tools(ctx: dict) -> dict:
                             calories_eaten: float | None = None, protein_g: float | None = None,
                             calories_burnt: float | None = None) -> str:
         workout_log = load_log()
-        day = get_next_day(workout_log)
-        session = {"day": day, "date": today_iso(), "exercises": exercises or []}
+        # If a session already exists for today, merge into it (same day letter)
+        # instead of logging a second session that advances the rotation —
+        # "oh, I also did curls" must not turn today into two training days.
+        existing = next((s for s in reversed(workout_log.get("sessions", []))
+                         if s.get("date") == today_iso()), None)
+        merged = False
+        if existing:
+            day = existing.get("day") or get_next_day(workout_log)
+            session = dict(existing)
+            by_name = {e.get("name"): dict(e) for e in existing.get("exercises", []) if e.get("name")}
+            for e in exercises or []:
+                if e.get("name"):
+                    by_name[e["name"]] = e
+            session["exercises"] = list(by_name.values())
+            merged = True
+        else:
+            day = get_next_day(workout_log)
+            session = {"day": day, "date": today_iso(), "exercises": exercises or []}
         if body_weight_kg:
             session["body_weight_kg"] = body_weight_kg
-        nutrition = {}
+        nutrition = dict(session.get("nutrition") or {})
         if calories_eaten: nutrition["calories_eaten"] = calories_eaten
         if protein_g:      nutrition["protein_g"] = protein_g
         if calories_burnt: nutrition["calories_burnt"] = calories_burnt
@@ -173,7 +189,8 @@ def make_write_tools(ctx: dict) -> dict:
             save_memory(mem)
         ctx["session"] = cleaned
         ctx["prs"] = prs
-        result = f"SAVED: Day {day} session on {cleaned['date']} with {len(cleaned.get('exercises', []))} exercise(s)."
+        result = (f"SAVED: {'updated' if merged else 'logged'} Day {day} session on "
+                  f"{cleaned['date']} with {len(cleaned.get('exercises', []))} exercise(s).")
         if prs:
             result += " NEW PRs: " + "; ".join(prs)
         return result

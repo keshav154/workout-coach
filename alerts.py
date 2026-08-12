@@ -89,7 +89,8 @@ def run_checks() -> list[str]:
         pct = int((this_week / prev_avg - 1) * 100)
         fired.append(("spend",
             f"Heads up: you've spent Rs {this_week:,.0f} this week, about {pct}% above "
-            f"your recent average of Rs {prev_avg:,.0f}. Type !review for a breakdown."))
+            f"your recent average of Rs {prev_avg:,.0f}. Ask me for a spending review "
+            f"if you want the breakdown."))
 
     # 4) Streak encouragement (positive nudge)
     streak = get_consecutive_workout_days(log_doc)
