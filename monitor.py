@@ -38,6 +38,28 @@ def record_event(name: str) -> None:
         log.error(f"record_event({name}) failed: {e}")
 
 
+def job_done(name: str, key: str | None = None) -> bool:
+    """True if this job already completed for the given period key (default:
+    today, IST). Lets crons be scheduled with multiple attempts — the first
+    ping wakes a sleeping free-tier dyno, a later one does the work — without
+    ever double-sending."""
+    from agent_core import today_iso
+    d = _col("system").find_one({"_id": f"done_{name}"})
+    return bool(d and d.get("key") == (key or today_iso()))
+
+
+def mark_job_done(name: str, key: str | None = None) -> None:
+    from agent_core import today_iso
+    try:
+        _col("system").update_one(
+            {"_id": f"done_{name}"},
+            {"$set": {"key": key or today_iso()}},
+            upsert=True,
+        )
+    except Exception as e:
+        log.error(f"mark_job_done({name}) failed: {e}")
+
+
 def get_event(name: str) -> str | None:
     try:
         d = _col("system").find_one({"_id": name})

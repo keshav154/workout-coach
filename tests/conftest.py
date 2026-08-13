@@ -65,10 +65,13 @@ class FakeCol:
             if d:
                 return dict(d)
             return next((dict(r) for r in self.rows if r.get("_id") == q["_id"]), None)
-        for r in list(self.docs.values()) + self.rows:
-            if _match(r, q or {}):
-                return dict(r)
-        return None
+        matches = [r for r in list(self.docs.values()) + self.rows if _match(r, q or {})]
+        if not matches:
+            return None
+        if sort:
+            key, direction = sort[0]
+            matches.sort(key=lambda d: str(d.get(key, "")), reverse=(direction == -1))
+        return dict(matches[0])
 
     def update_one(self, q, u, upsert=False):
         _id = q.get("_id")

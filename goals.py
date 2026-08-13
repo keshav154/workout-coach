@@ -36,14 +36,13 @@ def clear_goals() -> int:
 
 
 def _weight_series() -> list[tuple[date, float]]:
+    from agent_core import get_weight_entries
     rows = []
-    for e in load_memory().get("weight_log", []):
+    for d, w in get_weight_entries(load_memory()):
         try:
-            d, w = e.split(": ")
-            rows.append((datetime.strptime(d, "%Y-%m-%d").date(), float(w.replace(" kg", ""))))
-        except (ValueError, AttributeError):
+            rows.append((datetime.strptime(d, "%Y-%m-%d").date(), w))
+        except ValueError:
             pass
-    rows.sort()
     return rows
 
 
@@ -134,29 +133,3 @@ def format_goals_block() -> str:
         else:
             lines.append(f"- {_project_lift(g)}")
     return "\n".join(lines)
-
-
-def parse_goal_command(text: str) -> dict | None:
-    """
-    !goal weight 90 by 2026-09-01
-    !goal lift bench 24
-    """
-    parts = text.split()
-    if len(parts) < 3:
-        return None
-    kind = parts[1].lower()
-    try:
-        if kind == "weight":
-            target = float(parts[2])
-            by = None
-            if "by" in parts:
-                by = parts[parts.index("by") + 1]
-            return {"kind": "weight", "target": target, "by_date": by, "exercise": None}
-        if kind == "lift":
-            # !goal lift <exercise...> <target>
-            target = float(parts[-1])
-            exercise = " ".join(parts[2:-1])
-            return {"kind": "lift", "target": target, "by_date": None, "exercise": exercise}
-    except (ValueError, IndexError):
-        return None
-    return None

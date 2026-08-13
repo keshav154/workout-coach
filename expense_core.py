@@ -3,9 +3,7 @@ Expense tracker — MongoDB storage, categorization, summaries.
 """
 
 import json
-import os
 import re
-from datetime import date, datetime
 from typing import Optional
 
 from agent_core import _col, today, today_iso
@@ -83,83 +81,6 @@ def monthly_summary(month: Optional[str] = None) -> str:
                 lines.append(f"{cat}: Rs {spent:,.0f}")
 
     return "\n".join(lines)
-
-
-def today_summary() -> str:
-    d_today = today_iso()
-    docs  = list(_col("expenses").find({"date": d_today}))
-    if not docs:
-        return "No expenses logged today."
-    total = sum(d["amount"] for d in docs)
-    lines = [f"Today ({d_today}) — Rs {total:,.0f} total", ""]
-    for d in docs:
-        lines.append(f"  {d['category']}: Rs {d['amount']:,.0f} — {d['description']}")
-    return "\n".join(lines)
-
-
-# ── Expense detection ─────────────────────────────────────────────────────────
-# Strong verbs that almost always mean a purchase.
-EXPENSE_KEYWORDS = re.compile(
-    r"\b(spent|paid|bought|purchased|expense|cost|costs|charged|recharge|"
-    r"shopping|ordered|subscription)\b",
-    re.IGNORECASE,
-)
-# An explicit currency amount, e.g. "rs 500", "$20", "inr 1200".
-CURRENCY_AMOUNT = re.compile(r"^\s*(\$|rs\.?|inr|rupees?)\s*\d", re.IGNORECASE)
-# A leading amount immediately followed by a word, e.g. "1200 amazon".
-LEADING_AMOUNT = re.compile(r"^\s*\d+(?:\.\d+)?\s*(?:rs|rupees?|inr|\$)?\s+[a-z]", re.IGNORECASE)
-# Words that mean this is fitness/health talk, NOT money — overrides everything.
-NON_EXPENSE = re.compile(
-    r"\b(weight|kg|kgs|kilo|kilos|reps?|sets?|feeling|feel|slept|sleep|"
-    r"hours?|steps?|calories?|protein|workout|tired|sore)\b",
-    re.IGNORECASE,
-)
-
-
-def is_expense_message(text: str) -> bool:
-    if NON_EXPENSE.search(text):
-        return False
-    if EXPENSE_KEYWORDS.search(text):
-        return True
-    if CURRENCY_AMOUNT.search(text):
-        return True
-    if LEADING_AMOUNT.search(text):
-        return True
-    return False
-
-
-# ── System prompt for expense parsing ────────────────────────────────────────
-def build_expense_prompt() -> str:
-    d_today = today_iso()
-    categories = ", ".join(CATEGORIES)
-    return f"""You are an expense tracking assistant for an Indian user.
-Today's date: {d_today}
-Currency: Indian Rupees (Rs)
-Categories: {categories}
-
-Your job:
-1. Parse the user's message to extract: amount (number), description, category.
-2. Always output a hidden block so the app can log it:
-
-<LOG_EXPENSE>
-{{"amount": 0.0, "description": "...", "category": "...", "note": ""}}
-</LOG_EXPENSE>
-
-3. Then reply in one short friendly line confirming what was logged.
-   Example: "Logged Rs 500 for groceries under Food."
-
-Categorization rules:
-- Food: groceries, restaurant, swiggy, zomato, chai, snacks, dal, sabzi
-- Transport: petrol, uber, ola, auto, bus, metro, cab, fuel
-- Bills: electricity, internet, wifi, mobile recharge, rent, gas cylinder
-- Shopping: clothes, amazon, flipkart, gadgets, shoes
-- Health: medicine, doctor, gym, pharmacy, supplements
-- Entertainment: movie, netflix, spotify, game, outing
-- Other: anything that doesn't fit above
-
-If amount is unclear, ask for clarification.
-Keep replies short. Plain text only. Use Rs not symbol.
-"""
 
 
 def try_parse_expense(text: str) -> Optional[dict]:

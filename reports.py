@@ -103,14 +103,11 @@ def build_evening_checkin() -> str | None:
         parts.append(f"Nice, you've logged {totals['calories']} kcal / {totals['protein_g']}g "
                      f"protein today. Keep it up!")
 
+    from agent_core import get_weight_entries
     now = today()
     week_start = now - timedelta(days=now.weekday())
-    last_weight_date = None
-    for e in mem.get("weight_log", []):
-        try:
-            last_weight_date = e.split(": ")[0]
-        except Exception:
-            pass
+    w_entries = get_weight_entries(mem)
+    last_weight_date = w_entries[-1][0] if w_entries else None
     logged_this_week = bool(last_weight_date and last_weight_date >= week_start.isoformat())
     if not logged_this_week:
         parts.append("Also — no weight check-in yet this week. What's your current weight?")
@@ -139,15 +136,13 @@ def auto_adjust_calories() -> str | None:
     if not profile_complete(profile):
         return None
 
+    from agent_core import get_weight_entries
     entries = []
-    for e in load_memory().get("weight_log", []):
+    for d, w in get_weight_entries(load_memory()):
         try:
-            d, w = str(e).split(": ")
-            entries.append((datetime.strptime(d, "%Y-%m-%d").date(),
-                            float(w.replace(" kg", ""))))
-        except (ValueError, AttributeError):
+            entries.append((datetime.strptime(d, "%Y-%m-%d").date(), w))
+        except ValueError:
             pass
-    entries.sort()
     recent = [x for x in entries if x[0] >= today() - timedelta(days=35)]
     if len(recent) < 3 or (recent[-1][0] - recent[0][0]).days < 14:
         return None                     # not enough signal to act on

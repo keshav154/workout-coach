@@ -16,6 +16,10 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **Week-ahead preview**: tap any A–F rotation chip to see that day's exercises and your last weights
 - **Progress photos**: upload from the app (auto-downscaled client-side) or send a Telegram photo captioned "progress" — first-vs-latest comparison on the Progress tab
 - **Daily habits**: "track a habit: drink 3L water daily" — tap-to-toggle checklist with streaks on the Progress tab, pending habits nudged in the evening check-in
+- **Offline gym mode**: the Workout tab falls back to the last cached program with no signal, and saved workouts queue on-device and sync automatically when back online
+- **Dropdown set logging**: weights come from your actual dumbbell set and reps from a list — no typing mid-set
+- **Quick logging without chat**: inline expense form on the Money tab; one-tap frequent-meal chips and "repeat yesterday's meals" on the Fuel tab
+- **Estimated 1RM overlay** on the per-exercise progress chart (Epley), plus a weekly-consistency stat that doesn't punish rest days
 - **Fuel & Money tabs**: today's calories/protein vs target with a 7-day chart and meal list; monthly spending with category budget bars and recent transactions
 - **Voice input everywhere**: mic button in the web app (plus Telegram voice notes), transcribed via Whisper and routed through the normal coach
 - **Weekly calorie auto-tuning**: the Sunday cron compares your weigh-in trend to your goal and adjusts your daily calorie target (±200/week, capped ±600), telling you what changed and why
@@ -86,6 +90,12 @@ Push to GitHub and connect the repo to Render — `render.yaml` configures the s
 - `/cron/backup` — JSON backup sent to Telegram
 
 All accept `?secret=<CRON_SECRET>`.
+
+### Free-tier sleep and missed crons
+
+Render's free tier spins the app down after ~15 minutes idle; a sleeping app takes ~1 minute to cold-start, which can exceed the cron service's request timeout — the ping "fails" and the message never sends. The fix (no always-on keep-alive needed, so free hours aren't burned):
+
+**Schedule each cron job 2–3 times, 5 minutes apart** (e.g. daily nudge at 7:00, 7:05, 7:10). The first ping wakes the app (even if the request itself times out), a later one does the work. The daily/evening/weekly/backup endpoints are deduplicated server-side — once a job has completed for its period, extra pings return `{"skipped": ...}` and nothing is double-sent. The app then goes back to sleep until the next slot, so total awake time stays around 15–20 minutes per cron slot.
 
 ## Using it
 

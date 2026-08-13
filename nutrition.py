@@ -71,23 +71,3 @@ def format_nutrition_block(date_str: str | None = None) -> str:
             f"logged across {totals['count']} meal(s). Target: {cal_t} kcal, {prot_t}g protein "
             f"({'over' if remaining_cal < 0 else remaining_cal} kcal remaining, "
             f"{'over' if remaining_p < 0 else remaining_p}g protein remaining).")
-
-
-def nutrition_summary_text(date_str: str | None = None) -> str:
-    """Human-readable !nutrition command output."""
-    date_str = date_str or today_iso()
-    meals = get_meals(date_str)
-    totals = today_totals(date_str)
-    profile = load_profile()
-    if not meals:
-        return f"No meals logged for {date_str} yet. Tell me what you ate, or send a photo."
-    lines = [f"Nutrition for {date_str}", ""]
-    for m in meals:
-        lines.append(f"  {m['description']}: {m['calories']:g} kcal, {m['protein_g']:g}g protein")
-    lines.append("")
-    lines.append(f"Total: {totals['calories']} kcal | {totals['protein_g']}g protein")
-    if profile:
-        targets = compute_targets(profile)
-        lines.append(f"Target: {effective_calorie_target(profile, targets)} kcal | "
-                     f"{targets['protein_target_g']}g protein")
-    return "\n".join(lines)

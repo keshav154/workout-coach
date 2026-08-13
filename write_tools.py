@@ -229,19 +229,24 @@ def make_write_tools(ctx: dict) -> dict:
     def log_body_weight(kg: float) -> str:
         if not (30 <= float(kg) <= 300):
             return f"REJECTED: {kg} kg is outside the sane range (30-300). Confirm with the user."
-        mem = load_memory()
-        apply_memory_update(mem, {"weight_log": [f"{today_iso()}: {float(kg):.1f} kg"]})
-        save_memory(mem)
         profile = load_profile() or {}
+        prev_kg = profile.get("weight_kg")
+        entry   = f"{today_iso()}: {float(kg):.1f} kg"
+        mem = load_memory()
+        apply_memory_update(mem, {"weight_log": [entry]})
+        save_memory(mem)
         profile["weight_kg"] = float(kg)
         save_profile(profile)
+        record_audit("weight", f"{float(kg):.1f} kg on {today_iso()}",
+                     ref={"entry": entry, "prev_kg": prev_kg})
         ctx.setdefault("notes", []).append(f"⚖️ Weight logged: {float(kg):.1f} kg")
         return f"SAVED: body weight {float(kg):.1f} kg on {today_iso()}."
 
     def log_meal_entry(description: str, calories: float, protein_g: float) -> str:
         if calories and calories > 12000:
             return "REJECTED: calories over 12000 look wrong — confirm with the user."
-        log_meal(description, calories or 0, protein_g or 0)
+        entry = log_meal(description, calories or 0, protein_g or 0)
+        record_audit("meal", f"{description} ({calories or 0:g} kcal)", ref=entry.get("id"))
         ctx.setdefault("notes", []).append("🍽️ Meal logged.")
         from nutrition import today_totals
         t = today_totals()
@@ -347,7 +352,8 @@ def make_write_tools(ctx: dict) -> dict:
             return "REJECTED: couldn't read that measurement."
         if not (10 <= cm <= 250):
             return f"REJECTED: {cm} cm is outside the sane range (10-250). Confirm with the user."
-        _col("measurements").insert_one({"date": today_iso(), "part": part, "cm": cm})
+        result = _col("measurements").insert_one({"date": today_iso(), "part": part, "cm": cm})
+        record_audit("measurement", f"{part} {cm:.1f} cm", ref=str(result.inserted_id))
         ctx.setdefault("notes", []).append(f"📏 {part.capitalize()}: {cm:.1f} cm logged.")
         return f"SAVED: {part} {cm:.1f} cm on {today_iso()}."
 

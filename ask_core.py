@@ -7,14 +7,13 @@ inspects them, and reasons step by step before answering.
 import logging
 from collections import defaultdict
 
-from llm import chat, reason_loop
+from llm import chat
 from agent_core import (
     PROGRAM,
     get_weight_trend,
     load_log,
     load_memory,
     load_profile,
-    today_iso,
     _col,
 )
 
@@ -85,10 +84,11 @@ def query_spending(month: str | None = None) -> str:
 
 
 def query_weight() -> str:
+    from agent_core import get_weight_entries
     mem = load_memory()
-    entries = mem.get("weight_log", [])[-15:]
+    entries = get_weight_entries(mem)[-15:]
     trend = get_weight_trend(mem)
-    body = "\n".join(f"  {e}" for e in entries) if entries else "  (no entries)"
+    body = "\n".join(f"  {d}: {kg:g} kg" for d, kg in entries) if entries else "  (no entries)"
     return f"Weight trend: {trend}\nRecent check-ins:\n{body}"
 
 
@@ -238,52 +238,3 @@ TOOL_IMPLS = {
     "get_system_status":        get_system_status,
     "query_memory":             query_memory_tool,
 }
-
-
-def _answer_without_tools(question: str) -> str:
-    """Fallback for providers/models that don't support tool calling: dump all
-    data into one prompt and answer in a single call."""
-    context = "\n\n".join([
-        query_profile(),
-        query_weight(),
-        query_workouts(),
-        query_spending(),
-    ])
-    messages = [
-        {"role": "system", "content": (
-            f"You are the user's personal data analyst. Today is {today_iso()}. "
-            "Answer ONLY from the DATA provided. Never invent numbers; if it's not there, say so. "
-            "Be concise and specific with dates, counts and amounts. Use Rs for rupees. Plain text only."
-        )},
-        {"role": "user", "content": f"DATA:\n{context}\n\nQUESTION: {question}"},
-    ]
-    return chat(messages, temperature=0.2) or "I couldn't find an answer in your data."
-
-
-def answer_question(question: str) -> str:
-    if not question.strip():
-        return ("Ask me anything about your training, weight, meals, or spending.\n"
-                "e.g. 'how many workouts did I do in June?' or 'what's my best bench press?'")
-
-    system = (
-        f"You are the user's personal data analyst. Today is {today_iso()}.\n"
-        "Think step by step. Use the provided tools to fetch ONLY the data you need to "
-        "answer the question, inspect the results, and call more tools if needed. "
-        "Answer strictly from tool results — never invent numbers; if the data doesn't "
-        "contain the answer, say so. Be concise and specific: cite real dates, counts, "
-        "and amounts. Use Rs for rupees. Plain text only, no markdown."
-    )
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": question},
-    ]
-    try:
-        return reason_loop(messages, TOOLS, TOOL_IMPLS, max_steps=5) or "I couldn't find an answer."
-    except Exception as e:
-        # Model/provider may not support tool calling — fall back to single-shot.
-        log.warning(f"Tool-calling reasoning failed ({e}); using no-tools fallback.")
-        try:
-            return _answer_without_tools(question)
-        except Exception as e2:
-            log.error(f"ask fallback error: {e2}", exc_info=True)
-            return "Couldn't process that question. Try rephrasing."

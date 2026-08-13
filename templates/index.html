@@ -231,13 +231,38 @@
     .wk-ex-meta { font-size: 11px; color: var(--muted); margin: 4px 0 10px; }
     .wk-set-row { display: flex; gap: 8px; align-items: center; margin-bottom: 7px; }
     .wk-set-label { font-size: 10.5px; color: var(--accent3); width: 42px; flex-shrink: 0; font-weight: 600; }
-    .wk-set-row input {
+    .wk-set-row input, .wk-set-row select {
       flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--fg);
-      font-family: var(--font-body);
+      font-family: var(--font-body); min-width: 0;
       padding: 10px 12px; font-size: 14px; outline: none; text-align: center;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .wk-set-row input:focus { border-color: var(--accent); box-shadow: 0 0 5px #00ff8850; }
+    .wk-set-row select { text-align: left; appearance: auto; }
+    .wk-set-row input:focus, .wk-set-row select:focus { border-color: var(--accent); box-shadow: 0 0 5px #00ff8850; }
+
+    /* -- Inline forms (Money / Fuel) + quick chips -- */
+    .inline-form { display: flex; gap: 8px; margin-top: 8px; }
+    .inline-form input, .inline-form select {
+      flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border);
+      color: var(--fg); font-family: var(--font-body); padding: 11px 12px;
+      font-size: 13px; outline: none;
+    }
+    .inline-form input:focus, .inline-form select:focus { border-color: var(--accent); }
+    .add-btn {
+      flex: 0 0 86px; background: var(--accent); border: none; color: var(--bg);
+      font-family: var(--font-body); font-size: 12px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer;
+      box-shadow: 0 0 8px #00ff8860;
+    }
+    .add-btn:disabled { background: var(--muted-bg); color: var(--muted); box-shadow: none; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .chip {
+      border: 1px solid var(--border); color: var(--fg); background: var(--card);
+      padding: 8px 12px; font-size: 12px; cursor: pointer; font-family: var(--font-body);
+      transition: all 0.15s;
+    }
+    .chip:active { border-color: var(--accent); color: var(--accent); }
+    .chip small { color: var(--muted); }
     .wk-save {
       width: 100%; margin-top: 8px;
       background: var(--accent); border: none; color: var(--bg);
@@ -701,6 +726,7 @@
         <div class="big-stat"><div class="label">Current Weight</div><div class="val yellow" id="sv-weight">—</div><div class="sub">last logged</div></div>
         <div class="big-stat"><div class="label">Next Workout</div><div class="val green" id="sv-next">—</div><div class="sub" id="sv-next-name">—</div></div>
         <div class="big-stat"><div class="label">Streak</div><div class="val pink" id="sv-streak">—</div><div class="sub">days in a row</div></div>
+        <div class="big-stat"><div class="label">Consistency</div><div class="val accent" id="sv-weeks">—</div><div class="sub">weeks hitting target</div></div>
       </div>
     </div>
     <div id="sv-goals-wrap" style="display:none">
@@ -721,6 +747,7 @@
       <div class="stats-title">Exercise Progress</div>
       <div class="chart-card">
         <select id="ex-select" class="ex-select" onchange="drawExerciseChart()"></select>
+        <div class="session-date" id="ex-legend" style="display:none;margin-bottom:7px">━ top set weight &nbsp; ┄ estimated 1RM</div>
         <canvas id="chart-exercise" height="140"></canvas>
         <div class="chart-empty" id="chart-exercise-empty">Log an exercise at least twice to chart it.</div>
       </div>
@@ -803,7 +830,9 @@
     <div>
       <div class="stats-title">Today's Meals</div>
       <div class="session-list" id="fu-meals"></div>
-      <button class="wk-save" style="margin-top:10px" onclick="logMealPrompt()">+ Log a Meal</button>
+      <div class="chips" id="fu-quick" style="display:none"></div>
+      <button id="fu-yday" class="wk-sw" style="display:none;margin:10px 0 0" onclick="repeatYesterday()">↻ Repeat yesterday's meals</button>
+      <button class="wk-save" style="margin-top:10px" onclick="logMealPrompt()">+ New meal (coach estimates)</button>
     </div>
   </div>
 
@@ -821,9 +850,25 @@
       <div class="chart-card" id="mo-cats"></div>
     </div>
     <div>
+      <div class="stats-title">Add Expense</div>
+      <div class="chart-card">
+        <div class="inline-form">
+          <input id="mo-amt" type="number" inputmode="decimal" placeholder="Rs" style="flex:0 0 92px" />
+          <input id="mo-desc" type="text" placeholder="what was it for?" maxlength="80" />
+        </div>
+        <div class="inline-form">
+          <select id="mo-cat">
+            <option>Food</option><option>Transport</option><option>Bills</option>
+            <option>Shopping</option><option>Health</option><option>Entertainment</option>
+            <option>Other</option>
+          </select>
+          <button class="add-btn" id="mo-add" onclick="addExpense()">Add</button>
+        </div>
+      </div>
+    </div>
+    <div>
       <div class="stats-title">Recent Transactions</div>
       <div class="session-list" id="mo-txns"></div>
-      <button class="wk-save" style="margin-top:10px" onclick="logExpensePrompt()">+ Log an Expense</button>
     </div>
   </div>
 
@@ -910,8 +955,22 @@
   async function loadWorkout(force) {
     const title = document.getElementById('wk-title');
     const wrap  = document.getElementById('wk-exercises');
+    let d = null, offline = false;
     try {
-      const d = await (await fetch('/today_program', { headers: authHeaders() })).json();
+      d = await (await fetch('/today_program', { headers: authHeaders() })).json();
+      if (d.ready) localStorage.setItem('wc_program', JSON.stringify(d));
+    } catch {
+      // Offline: fall back to the last cached program so the gym session
+      // can still be logged (saves are queued and synced later).
+      const cached = localStorage.getItem('wc_program');
+      if (cached) { d = JSON.parse(cached); offline = true; }
+    }
+    if (!d) { title.textContent = 'Could not load today\'s workout.'; return; }
+    renderProgram(d, offline, force, title, wrap);
+  }
+
+  function renderProgram(d, offline, force, title, wrap) {
+    try {
       if (!d.ready) { title.textContent = 'Finish your profile setup in the Coach tab first.'; wrap.innerHTML = ''; return; }
       // Don't re-render (and wipe typed values) if the same day is already shown.
       if (!force && wkDay === d.day && wrap.children.length) return;
@@ -935,7 +994,11 @@
       wkPreviewDay = null;
 
       const st = document.getElementById('wk-status');
-      if (d.last_logged) {
+      if (offline) {
+        st.innerHTML = `📴 <b>Offline</b> — showing the last cached program. ` +
+                       `Saved workouts will sync automatically when you're back online.`;
+        st.style.display = 'block';
+      } else if (d.last_logged) {
         st.innerHTML = `Last logged: <b>Day ${esc(d.last_logged.day)}</b> · ${esc(d.last_logged.date)}` +
                        ` &nbsp;→&nbsp; Today (${esc(d.today)}): <b>Day ${esc(d.day)}</b>`;
         st.style.display = 'block';
@@ -954,12 +1017,12 @@
         const nSets = ex.scheme ? 1 : (ex.sets || 3);
         let rows = '';
         for (let s = 0; s < nSets; s++) {
+          const preset = (s === 0 && ex.last_weight != null) ? ex.last_weight : null;
           rows += `
             <div class="wk-set-row">
               <span class="wk-set-label">${ex.scheme ? '' : 'Set ' + (s + 1)}</span>
-              <input type="number" step="0.5" inputmode="decimal" placeholder="kg"
-                class="wk-w" data-ex="${i}" value="${(s === 0 && ex.last_weight != null) ? ex.last_weight : ''}" />
-              <input type="number" inputmode="numeric" placeholder="reps" class="wk-r" data-ex="${i}" />
+              <select class="wk-w" data-ex="${i}">${weightOptions(preset)}</select>
+              <select class="wk-r" data-ex="${i}">${repOptions()}</select>
             </div>`;
         }
         const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
@@ -985,6 +1048,22 @@
         wrap.appendChild(div);
       });
     } catch { title.textContent = 'Could not load today\'s workout.'; }
+  }
+
+  // ── Weight / reps dropdown builders ──
+  const DUMBBELLS = [4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24];
+  function weightOptions(preset) {
+    const vals = [...DUMBBELLS];
+    if (preset != null && preset > 0 && !vals.includes(preset)) {
+      vals.push(preset); vals.sort((a, b) => a - b);
+    }
+    return '<option value="">kg</option><option value="0"' + (preset === 0 ? ' selected' : '') + '>BW</option>' +
+      vals.map(v => `<option value="${v}"${v === preset ? ' selected' : ''}>${v} kg</option>`).join('');
+  }
+  function repOptions() {
+    let o = '<option value="">reps</option>';
+    for (let r = 1; r <= 30; r++) o += `<option value="${r}">${r}</option>`;
+    return o;
   }
 
   // ── Week-ahead preview (tap a rotation chip) ──
@@ -1057,12 +1136,13 @@
 
     const bw = parseFloat(document.getElementById('wk-bodyweight').value);
     const duration = swStart ? Math.max(1, Math.round((Date.now() - swStart) / 60000)) : null;
+    const payload = { day: wkDay, exercises, body_weight_kg: isNaN(bw) ? null : bw,
+                      duration_min: duration };
     saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
     try {
       const res = await fetch('/log_workout', {
         method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ day: wkDay, exercises, body_weight_kg: isNaN(bw) ? null : bw,
-                               duration_min: duration }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       const out = document.getElementById('wk-result');
@@ -1075,9 +1155,39 @@
         resetStopwatch();
         wkDay = null;               // next visit reloads the (now advanced) day
       }
-    } catch { document.getElementById('wk-result').innerHTML = '<div class="wk-pr" style="color:var(--accent2)">Network error.</div>'; }
+    } catch { queueLog(payload); }
     saveBtn.disabled = false; saveBtn.textContent = 'Save Workout';
   }
+
+  // ── Offline log queue ──
+  function queueLog(payload) {
+    const q = JSON.parse(localStorage.getItem('wc_queue') || '[]');
+    q.push(payload);
+    localStorage.setItem('wc_queue', JSON.stringify(q));
+    document.getElementById('wk-result').innerHTML =
+      '<div class="wk-pr">📴 No connection — workout saved on this device and will sync automatically.</div>';
+    resetStopwatch();
+    wkDay = null;
+  }
+  async function flushQueue() {
+    let q = JSON.parse(localStorage.getItem('wc_queue') || '[]');
+    if (!q.length) return;
+    const remaining = [];
+    let synced = 0;
+    for (const p of q) {
+      try {
+        const res = await fetch('/log_workout', {
+          method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(p),
+        });
+        if (res.ok) synced++;
+        else if (res.status >= 500) remaining.push(p);   // retry later; 4xx = drop
+      } catch { remaining.push(p); }
+    }
+    localStorage.setItem('wc_queue', JSON.stringify(remaining));
+    if (synced) { addBubble(`✅ Synced ${synced} offline workout log(s).`, 'system'); loadStatsBar(); }
+  }
+  window.addEventListener('online', flushQueue);
 
   // ── Rest timer ──
   let rtEnd = null, rtInt = null, rtAudio = null;
@@ -1206,6 +1316,42 @@
     const hasData = pts.some(p => p.y > 0);
     document.getElementById('chart-fuel-empty').style.display =
       (hasData && drawBarChart('chart-fuel', pts, '#00d4ff')) ? 'none' : 'block';
+    loadMealQuick();
+  }
+
+  // ── One-tap meal logging (frequent meals + repeat yesterday) ──
+  let fuYesterday = [];
+  async function loadMealQuick() {
+    let q;
+    try { q = await (await fetch('/meal_quick', { headers: authHeaders() })).json(); }
+    catch { return; }
+    const box = document.getElementById('fu-quick'); box.innerHTML = '';
+    (q.frequent || []).forEach(m => {
+      const b = document.createElement('button');
+      b.className = 'chip';
+      b.innerHTML = `${esc(m.description)} <small>${Math.round(m.calories)} kcal</small>`;
+      b.onclick = () => quickMeal(m, true);
+      box.appendChild(b);
+    });
+    box.style.display = (q.frequent || []).length ? 'flex' : 'none';
+    fuYesterday = q.yesterday || [];
+    document.getElementById('fu-yday').style.display = fuYesterday.length ? 'block' : 'none';
+  }
+  async function quickMeal(m, reload) {
+    try {
+      const res = await fetch('/log_meal', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ description: m.description, calories: m.calories,
+                               protein_g: m.protein_g }),
+      });
+      const d = await res.json();
+      if (d.error) { alert(d.error); return; }
+      if (reload) loadFuel();
+    } catch { if (reload) alert('Network error — try again.'); }
+  }
+  async function repeatYesterday() {
+    for (const m of fuYesterday) await quickMeal(m, false);
+    loadFuel();
   }
   function logMealPrompt() {
     const t = prompt('What did you eat? (e.g. "2 rotis, dal and paneer bhurji")');
@@ -1247,9 +1393,27 @@
     if (!(d.recent || []).length)
       list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No transactions yet.</div>';
   }
-  function logExpensePrompt() {
-    const t = prompt('What did you spend? (e.g. "500 on groceries")');
-    if (t && t.trim()) { switchTab('chat'); sendMessage('I spent ' + t.trim()); }
+  async function addExpense() {
+    const amt  = parseFloat(document.getElementById('mo-amt').value);
+    const desc = document.getElementById('mo-desc').value.trim();
+    const cat  = document.getElementById('mo-cat').value;
+    if (isNaN(amt) || amt <= 0) { alert('Enter a valid amount.'); return; }
+    const btn = document.getElementById('mo-add');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/log_expense', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ amount: amt, description: desc, category: cat }),
+      });
+      const d = await res.json();
+      if (d.error) alert(d.error);
+      else {
+        document.getElementById('mo-amt').value = '';
+        document.getElementById('mo-desc').value = '';
+        loadMoney();
+      }
+    } catch { alert('Network error — try again.'); }
+    btn.disabled = false;
   }
 
   // ── Menu sheet ──
@@ -1339,6 +1503,7 @@
       document.getElementById('sv-next').textContent = 'Day ' + (d.next_day ?? '—');
       document.getElementById('sv-next-name').textContent = d.next_name ?? '';
       document.getElementById('sv-streak').textContent = (d.streak > 0 ? '🔥 ' : '') + (d.streak ?? 0);
+      document.getElementById('sv-weeks').textContent = (d.consistent_weeks > 0 ? '⚡ ' : '') + (d.consistent_weeks ?? 0);
       drawWeeklyRing(d.sessions_this_week ?? 0, d.days_per_week ?? 6);
       const list = document.getElementById('sv-sessions-list'); list.innerHTML = '';
       (d.recent_sessions || []).forEach(s => {
@@ -1570,11 +1735,11 @@
     return [ctx, w, 140];
   }
 
-  function drawLineChart(id, pts, color) {
+  function drawLineChart(id, pts, color, pts2, color2) {
     const [ctx, W, H] = _prepCanvas(id);
     if (pts.length < 2) return false;
     const pad = { l: 34, r: 8, t: 12, b: 18 };
-    const ys = pts.map(p => p.y);
+    const ys = pts.map(p => p.y).concat(pts2 ? pts2.map(p => p.y) : []);
     let yMin = Math.min(...ys), yMax = Math.max(...ys);
     if (yMax - yMin < 1) { yMin -= 1; yMax += 1; }
     const X = i => pad.l + (i / (pts.length - 1)) * (W - pad.l - pad.r);
@@ -1590,6 +1755,12 @@
     const lastLbl = pts[pts.length - 1].label;
     ctx.fillText(lastLbl, W - pad.r - ctx.measureText(lastLbl).width, H - 4);
 
+    if (pts2 && pts2.length === pts.length) {          // overlay (e.g. est. 1RM), dashed
+      ctx.strokeStyle = color2 || '#ffd245'; ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]); ctx.beginPath();
+      pts2.forEach((p, i) => i ? ctx.lineTo(X(i), Y(p.y)) : ctx.moveTo(X(0), Y(p.y)));
+      ctx.stroke(); ctx.setLineDash([]);
+    }
     ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
     pts.forEach((p, i) => i ? ctx.lineTo(X(i), Y(p.y)) : ctx.moveTo(X(0), Y(p.y)));
     ctx.stroke();
@@ -1653,8 +1824,11 @@
     const sel = document.getElementById('ex-select');
     const series = (chartData && chartData.exercises && chartData.exercises[sel.value]) || [];
     const pts = series.map(p => ({ y: p.kg, label: p.date.slice(5) }));
+    const hasE1rm = series.length > 1 && series.every(p => p.e1rm);
+    const pts2 = hasE1rm ? series.map(p => ({ y: p.e1rm })) : null;
+    document.getElementById('ex-legend').style.display = hasE1rm ? 'block' : 'none';
     document.getElementById('chart-exercise-empty').style.display =
-      drawLineChart('chart-exercise', pts, '#ff00ff') ? 'none' : 'block';
+      drawLineChart('chart-exercise', pts, '#ff00ff', pts2, '#ffd245') ? 'none' : 'block';
   }
 
   // ── Chat ──
@@ -1730,6 +1904,7 @@
 
   // ── Init ──
   async function init() {
+    flushQueue();
     await loadStatsBar();
     const data = await (await fetch('/chat_history', { headers: authHeaders() })).json();
     if (data.history && data.history.length > 0) {

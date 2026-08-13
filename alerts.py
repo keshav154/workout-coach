@@ -45,13 +45,9 @@ def _week_spend(weeks_ago: int) -> float:
 
 
 def _last_weight_date(mem: dict):
-    last = None
-    for e in mem.get("weight_log", []):
-        try:
-            last = e.split(": ")[0]
-        except Exception:
-            pass
-    return last
+    from agent_core import get_weight_entries
+    entries = get_weight_entries(mem)
+    return entries[-1][0] if entries else None
 
 
 def run_checks() -> list[str]:

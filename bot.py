@@ -5,9 +5,11 @@ Data persisted in MongoDB Atlas.
 """
 
 import functools
+import hmac
 import logging
 import os
 import threading
+import time
 from collections import deque
 
 import discord
@@ -31,7 +33,7 @@ from messaging import (
 from reports import build_daily_nudge, build_weekly_report
 from notifier import download_telegram_file, notify, send_telegram, send_telegram_document
 from alerts import run_checks
-from monitor import alert_admin, get_status, record_event
+from monitor import alert_admin, get_status, job_done, mark_job_done, record_event
 from trust import export_all
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -55,6 +57,16 @@ if not CRON_SECRET:
                 "Set it (and add ?secret=... to your cron pings) to lock them down.")
 
 
+# Brute-force guard: after 10 failed password attempts from one IP within
+# 5 minutes, reject further attempts from it until the window clears.
+_AUTH_FAILS: dict[str, list] = {}
+
+
+def _client_ip() -> str:
+    return (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or request.remote_addr or "?")
+
+
 def require_auth(f):
     """Check X-Password header sent by the JS frontend on every API call."""
     @functools.wraps(f)
@@ -63,9 +75,18 @@ def require_auth(f):
             return f(*args, **kwargs)
         if request.path == "/" or (request.method == "GET" and request.path in ("/health",)):
             return f(*args, **kwargs)
+        ip  = _client_ip()
+        now = time.time()
+        fails = [t for t in _AUTH_FAILS.get(ip, []) if now - t < 300]
+        if len(fails) >= 10:
+            _AUTH_FAILS[ip] = fails
+            return jsonify({"error": "too many attempts — wait a few minutes"}), 429
         pwd = request.headers.get("X-Password", "")
-        if pwd == WEB_PASSWORD:
+        if hmac.compare_digest(pwd, WEB_PASSWORD):
+            _AUTH_FAILS.pop(ip, None)
             return f(*args, **kwargs)
+        fails.append(now)
+        _AUTH_FAILS[ip] = fails
         return jsonify({"error": "unauthorized"}), 401
     return decorated
 
@@ -73,6 +94,7 @@ def require_auth(f):
 # ── Flask web app ──────────────────────────────────────────────────────────────
 flask_app = Flask(__name__)
 flask_app.secret_key = FLASK_SECRET
+flask_app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # voice notes are the largest upload
 
 
 @flask_app.route("/")
@@ -104,7 +126,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v7';
+const CACHE = 'coachxkeshav-v8';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -173,7 +195,6 @@ def chat_route():
 @require_auth
 def reset_web():
     reset_history("web")
-    reset_history("web_expense")
     return jsonify({"ok": True})
 
 
@@ -206,17 +227,9 @@ def stats():
     day         = get_next_day(workout_log)
     p           = PROGRAM.get(day, {})
 
-    # Latest weight: parse each entry defensively and take the max by date,
-    # so one malformed legacy entry can't poison the whole display.
-    import re as _re
-    last_weight, best_date = None, ""
-    for e in mem.get("weight_log", []):
-        m = _re.match(r"^(\d{4}-\d{2}-\d{2}):\s*([\d.]+)\s*kg", str(e))
-        if m and m.group(1) >= best_date:
-            try:
-                last_weight, best_date = float(m.group(2)), m.group(1)
-            except ValueError:
-                pass
+    from agent_core import get_weight_entries
+    entries = get_weight_entries(mem)
+    last_weight = entries[-1][1] if entries else None
 
     today      = _today()
     week_start = today - timedelta(days=today.weekday())
@@ -241,15 +254,18 @@ def stats():
                           for e in s.get("exercises", [])],
         })
 
+    from agent_core import get_consistent_weeks
     profile = load_profile() or {}
+    dpw = profile.get("days_per_week", 6)
     return jsonify({
         "total_sessions":     len(sessions),
         "last_weight":        last_weight,
         "next_day":           day,
         "next_name":          p.get("name", ""),
         "sessions_this_week": sessions_this_week,
-        "days_per_week":      profile.get("days_per_week", 6),
+        "days_per_week":      dpw,
         "streak":             get_consecutive_workout_days(workout_log),
+        "consistent_weeks":   get_consistent_weeks(workout_log, dpw),
         "recent_sessions":    recent,
     })
 
@@ -332,18 +348,11 @@ def chart_data():
     from datetime import datetime, timedelta
     from progression import session_volume
 
+    from agent_core import get_weight_entries
     mem      = load_memory()
     sessions = load_log().get("sessions", [])
 
-    # Weight trend series from memory weight_log ("YYYY-MM-DD: XX.X kg")
-    weight = []
-    for e in mem.get("weight_log", []):
-        try:
-            d, w = e.split(": ")
-            weight.append({"date": d, "kg": float(w.replace(" kg", ""))})
-        except (ValueError, AttributeError):
-            pass
-    weight.sort(key=lambda x: x["date"])
+    weight = [{"date": d, "kg": w} for d, w in get_weight_entries(mem)]
 
     # Weekly volume (last 8 weeks, keyed by Monday)
     by_week = {}
@@ -356,7 +365,7 @@ def chart_data():
         by_week[wk] = by_week.get(wk, 0) + session_volume(s)
     volume = [{"week": k, "kg": round(v)} for k, v in sorted(by_week.items())][-8:]
 
-    # Per-exercise top weight per session date (exercises with 2+ data points)
+    # Per-exercise top weight + estimated 1RM (Epley) per session date
     from agent_core import _num
     ex_hist: dict[str, list] = {}
     for s in sessions:
@@ -364,8 +373,12 @@ def chart_data():
         for e in s.get("exercises", []):
             name = e.get("name")
             w = _num(e.get("weight"))
+            r = _num(e.get("reps_done"))
             if name and w > 0:
-                ex_hist.setdefault(name, []).append({"date": d, "kg": w})
+                point = {"date": d, "kg": w}
+                if r > 0:
+                    point["e1rm"] = round(w * (1 + r / 30), 1)
+                ex_hist.setdefault(name, []).append(point)
     exercises = {n: sorted(v, key=lambda x: x["date"])
                  for n, v in ex_hist.items() if len(v) >= 2}
 
@@ -597,12 +610,10 @@ def export_csv():
             w.writerow([d.get("date"), d.get("description"), d.get("calories"),
                         d.get("protein_g")])
     elif what == "weight":
+        from agent_core import get_weight_entries
         w.writerow(["date", "kg"])
-        import re as _re
-        for e in load_memory().get("weight_log", []):
-            m = _re.match(r"^(\d{4}-\d{2}-\d{2}):\s*([\d.]+)", str(e))
-            if m:
-                w.writerow([m.group(1), m.group(2)])
+        for d, kg in get_weight_entries(load_memory()):
+            w.writerow([d, kg])
     else:
         return jsonify({"error": "unknown export"}), 400
     return buf.getvalue(), 200, {
@@ -679,6 +690,78 @@ def money_data():
         "by_category": by_category,
         "recent":      recent,
     })
+
+
+@flask_app.route("/log_expense", methods=["POST"])
+@require_auth
+def log_expense_route():
+    """Inline expense logging from the Money tab — no chat round-trip."""
+    from expense_core import CATEGORIES, log_expense
+    from trust import record_audit, validate_expense
+    data = request.json or {}
+    ok, reason = validate_expense(data.get("amount"))
+    if not ok:
+        return jsonify({"error": reason}), 400
+    amount = float(data["amount"])
+    desc   = str(data.get("description") or "").strip()[:80] or "expense"
+    cat    = str(data.get("category") or "Other").capitalize()
+    if cat not in CATEGORIES:
+        cat = "Other"
+    entry = log_expense(amount=amount, description=desc, category=cat)
+    record_audit("expense", f"Rs {entry['amount']:,.0f} {cat} — {desc}", ref=entry.get("id"))
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/log_meal", methods=["POST"])
+@require_auth
+def log_meal_route():
+    """Inline meal logging from the Fuel tab (quick-repeat chips)."""
+    from nutrition import log_meal, today_totals
+    from trust import record_audit
+    data = request.json or {}
+    desc = str(data.get("description") or "").strip()[:120]
+    if not desc:
+        return jsonify({"error": "describe the meal"}), 400
+    try:
+        cal  = float(data.get("calories") or 0)
+        prot = float(data.get("protein_g") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "calories/protein must be numbers"}), 400
+    if cal < 0 or prot < 0 or cal > 12000:
+        return jsonify({"error": "those numbers look wrong"}), 400
+    entry = log_meal(desc, cal, prot)
+    record_audit("meal", f"{desc} ({cal:g} kcal, {prot:g}g)", ref=entry.get("id"))
+    return jsonify({"ok": True, "totals": today_totals()})
+
+
+@flask_app.route("/meal_quick")
+@require_auth
+def meal_quick():
+    """One-tap meal suggestions: most frequent meals (last 90 days) and
+    yesterday's meals for a 'repeat yesterday' action."""
+    from collections import Counter
+    from datetime import timedelta
+    from agent_core import _col, today
+    cutoff = (today() - timedelta(days=90)).isoformat()
+    yday   = (today() - timedelta(days=1)).isoformat()
+    counts: Counter = Counter()
+    info: dict[str, dict] = {}
+    yesterday = []
+    for m in _col("meals").find():
+        d, desc = m.get("date", ""), (m.get("description") or "").strip()
+        if not desc or d < cutoff:
+            continue
+        key = desc.lower()
+        counts[key] += 1
+        info[key] = {"description": desc,
+                     "calories": float(m.get("calories") or 0),
+                     "protein_g": float(m.get("protein_g") or 0)}
+        if d == yday:
+            yesterday.append({"description": desc,
+                              "calories": float(m.get("calories") or 0),
+                              "protein_g": float(m.get("protein_g") or 0)})
+    frequent = [dict(info[k], count=c) for k, c in counts.most_common(8) if c >= 2]
+    return jsonify({"frequent": frequent, "yesterday": yesterday})
 
 
 @flask_app.route("/voice", methods=["POST"])
@@ -769,7 +852,7 @@ def reset_profile():
     from agent_core import _col
     _col("profile").delete_one({"_id": "user"})
     reset_history("web")
-    reset_history("web_expense")
+    reset_history("telegram")
     reset_history("discord")
     reset_history("whatsapp")
     return jsonify({"ok": True})
@@ -832,8 +915,14 @@ def cron_daily():
     if not _cron_authorized():
         return "forbidden", 403
     record_event("cron_daily")
+    # Multiple scheduled attempts per day are expected (first ping wakes the
+    # sleeping dyno) — only the first successful one sends.
+    if job_done("cron_daily"):
+        return jsonify({"skipped": "already ran today"})
     msg = build_daily_nudge()
     sent = notify(msg) if msg else False
+    if sent or msg is None:
+        mark_job_done("cron_daily")
     log.info(f"Daily cron: nudge={'sent' if sent else 'skipped'}")
     return jsonify({"sent": sent, "message": msg})
 
@@ -843,8 +932,14 @@ def cron_weekly():
     if not _cron_authorized():
         return "forbidden", 403
     record_event("cron_weekly")
+    from agent_core import today as _today
+    week_key = "{}-W{:02d}".format(*_today().isocalendar()[:2])
+    if job_done("cron_weekly", week_key):
+        return jsonify({"skipped": "already ran this week"})
     msg  = build_weekly_report()
     sent = notify(msg)
+    if sent:
+        mark_job_done("cron_weekly", week_key)
     # Autonomous calorie tuning: adjust the daily target from the weigh-in
     # trend and tell the user what changed and why.
     adjustment = None
@@ -893,11 +988,15 @@ def cron_backup():
     if not _cron_authorized():
         return "forbidden", 403
     record_event("cron_backup")
+    if job_done("cron_backup"):
+        return jsonify({"skipped": "already ran today"})
     from datetime import datetime, timezone
     try:
         dump = export_all()
         fname = f"coachx_backup_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
         sent = send_telegram_document(dump, fname, caption="CoachxKeshav weekly backup")
+        if sent:
+            mark_job_done("cron_backup")
         log.info(f"Backup cron: {'sent' if sent else 'failed'} ({len(dump)} bytes)")
         return jsonify({"sent": sent, "bytes": len(dump)})
     except Exception as e:
@@ -963,11 +1062,15 @@ def cron_evening():
     if not _cron_authorized():
         return "forbidden", 403
     record_event("cron_evening")
+    if job_done("cron_evening"):
+        return jsonify({"skipped": "already ran today"})
     from reports import build_evening_checkin
     from memory_core import summarize_today
     try:
         msg = build_evening_checkin()
         sent = notify(msg) if msg else False
+        if sent or msg is None:
+            mark_job_done("cron_evening")
         episode = None
         try:
             episode = summarize_today()

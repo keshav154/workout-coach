@@ -400,18 +400,37 @@ def reset_history(source: str) -> None:
 
 
 # ── Weight trend helpers ──────────────────────────────────────────────────────
+def get_weight_entries(mem: dict | None = None) -> list[tuple[str, float]]:
+    """THE canonical weight_log parser — every consumer goes through here.
+    Tolerates legacy string entries ('YYYY-MM-DD: 97.5 kg', with or without
+    trailing text) and dict entries ({'date', 'kg'}). Returns [(date_iso, kg)]
+    sorted by date; malformed entries are skipped, never propagated."""
+    if mem is None:
+        mem = load_memory()
+    out = []
+    for e in mem.get("weight_log", []):
+        if isinstance(e, dict):
+            try:
+                d, w = str(e.get("date", "")), float(e.get("kg"))
+            except (TypeError, ValueError):
+                continue
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", d):
+                out.append((d, w))
+        else:
+            m = re.match(r"^(\d{4}-\d{2}-\d{2}):\s*([\d.]+)", str(e))
+            if m:
+                try:
+                    out.append((m.group(1), float(m.group(2))))
+                except ValueError:
+                    pass
+    out.sort(key=lambda x: x[0])
+    return out
+
+
 def get_weight_trend(mem: dict) -> str:
-    entries = mem.get("weight_log", [])
-    parsed = []
-    for e in entries:
-        try:
-            d, w = e.split(": ")
-            parsed.append((d, float(w.replace(" kg", ""))))
-        except (ValueError, AttributeError):
-            pass
+    parsed = get_weight_entries(mem)
     if not parsed:
         return "no weight history yet"
-    parsed.sort(key=lambda x: x[0])
     latest_date, latest_kg = parsed[-1]
     if len(parsed) == 1:
         return f"last recorded: {latest_kg} kg on {latest_date}"
@@ -445,6 +464,30 @@ def get_consecutive_workout_days(log: dict) -> int:
     while d in dates:
         streak += 1
         d -= timedelta(days=1)
+    return streak
+
+
+def get_consistent_weeks(log: dict, days_per_week: int) -> int:
+    """Consecutive calendar weeks (ending this week or last) with at least
+    `days_per_week` distinct training days — a kinder consistency measure than
+    the day streak, which resets on any rest day."""
+    from collections import defaultdict
+    weeks: dict[str, set] = defaultdict(set)
+    for s in log.get("sessions", []):
+        try:
+            d = datetime.strptime(s.get("date", ""), "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        weeks[(d - timedelta(days=d.weekday())).isoformat()].add(d)
+    target = max(1, int(days_per_week))
+    wk = today() - timedelta(days=today().weekday())
+    streak = 0
+    if len(weeks.get(wk.isoformat(), ())) >= target:
+        streak = 1                      # current week already complete
+    wk -= timedelta(days=7)
+    while len(weeks.get(wk.isoformat(), ())) >= target:
+        streak += 1
+        wk -= timedelta(days=7)
     return streak
 
 

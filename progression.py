@@ -7,7 +7,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from agent_core import PROGRAM, _col, _num, load_log, today
+from agent_core import _col, _num, load_log, today
 
 log = logging.getLogger(__name__)
 
@@ -149,26 +149,3 @@ def format_progression_block(log: dict | None = None) -> str:
     if not lines:
         return ""
     return "PROGRESSION:\n" + "\n".join(f"- {l}" for l in lines)
-
-
-def progress_summary() -> str:
-    """Human-readable !progress command output."""
-    log = load_log()
-    vol = weekly_volume(log)
-    plateaus = detect_plateaus(log)
-    out = ["Progress report", ""]
-    out.append(f"Volume this week: {vol['this_week']:,} kg")
-    out.append(f"Volume last week: {vol['last_week']:,} kg")
-    if vol["last_week"]:
-        diff = vol["this_week"] - vol["last_week"]
-        out.append(f"Change: {'+' if diff >= 0 else ''}{diff:,} kg")
-    out.append("")
-    if plateaus:
-        out.append("Plateaus (no weight increase in 3 sessions):")
-        for p in plateaus:
-            out.append(f"  - {p}")
-        out.append("")
-        out.append("Tip: deload that lift 10% and build back, or swap the variation.")
-    else:
-        out.append("No plateaus detected — progressing well!")
-    return "\n".join(out)

@@ -83,6 +83,13 @@ def last_audit_summary(n: int = 3) -> list[str]:
     return [f"{d.get('kind')}: {d.get('summary')}" for d in docs]
 
 
+def _delete_by_id(collection: str, ref) -> None:
+    try:
+        _col(collection).delete_one({"_id": ObjectId(ref)})
+    except Exception:
+        _col(collection).delete_one({"_id": ref})
+
+
 def undo_last() -> str:
     doc = _col("audit").find_one(sort=[("_id", -1)])
     if not doc:
@@ -101,10 +108,18 @@ def undo_last() -> str:
         else:
             _col("workout_log").update_one({"_id": "log"}, {"$pop": {"sessions": 1}})
     elif kind == "expense" and ref:
-        try:
-            _col("expenses").delete_one({"_id": ObjectId(ref)})
-        except Exception:
-            _col("expenses").delete_one({"_id": ref})
+        _delete_by_id("expenses", ref)
+    elif kind == "meal" and ref:
+        _delete_by_id("meals", ref)
+    elif kind == "measurement" and ref:
+        _delete_by_id("measurements", ref)
+    elif kind == "weight" and isinstance(ref, dict) and ref.get("entry"):
+        mem = _col("memory").find_one({"_id": "mem"}) or {}
+        wl = [e for e in mem.get("weight_log", []) if e != ref["entry"]]
+        _col("memory").update_one({"_id": "mem"}, {"$set": {"weight_log": wl}}, upsert=True)
+        if ref.get("prev_kg"):
+            _col("profile").update_one({"_id": "user"},
+                                       {"$set": {"weight_kg": ref["prev_kg"]}})
     else:
         return f"The last action ({kind}) can't be undone automatically."
 
