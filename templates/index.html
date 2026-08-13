@@ -508,6 +508,13 @@
       transition: all 0.15s;
     }
     .wk-swap:active { color: var(--accent); border-color: var(--accent); }
+    .wk-video {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      font-size: 12px; width: 30px; height: 30px; cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      text-decoration: none; transition: all 0.15s;
+    }
+    .wk-video:active { color: var(--accent3); border-color: var(--accent3); }
     .wk-warm-line { font-size: 11px; color: var(--accent3); margin: -4px 0 9px; }
 
     /* -- Rest timer (Workout mode) -- */
@@ -1028,6 +1035,7 @@
         const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
         const swap = (ex.alternatives || []).length
           ? `<button class="wk-swap" title="Swap exercise" onclick="swapExercise(${i})">⇄</button>` : '';
+        const video = `<a class="wk-video" href="${ytSearchUrl(ex.name)}" target="_blank" rel="noopener" title="Watch form">▶</a>`;
         const warm = ex.warmup_weight
           ? `<div class="wk-warm-line">Warm-up first: 12-15 easy reps @ ${esc(ex.warmup_weight)}kg (don't log it)</div>` : '';
         const hist = (ex.history || []).length
@@ -1039,7 +1047,7 @@
         div.dataset.name = ex.name;
         div.dataset.orig = ex.name;
         div.innerHTML = `
-          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${swap}</div>
+          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${video}${swap}</div>
           <div class="wk-ex-meta">${esc(target)} · ${esc(last)}</div>
           ${hist}
           ${warm}
@@ -1048,6 +1056,10 @@
         wrap.appendChild(div);
       });
     } catch { title.textContent = 'Could not load today\'s workout.'; }
+  }
+
+  function ytSearchUrl(name) {
+    return 'https://www.youtube.com/results?search_query=' + encodeURIComponent(name + ' proper form');
   }
 
   // ── Weight / reps dropdown builders ──
@@ -1092,6 +1104,8 @@
     const next = opts[(opts.indexOf(card.dataset.name) + 1) % opts.length];
     card.dataset.name = next;
     card.querySelector('.wk-ex-name').textContent = next;
+    const vid = card.querySelector('.wk-video');
+    if (vid) vid.href = ytSearchUrl(next);
     const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
     const last = (ex.last_weight != null) ? `last: ${ex.last_weight}kg x ${ex.last_reps ?? '?'}` : 'first time';
     card.querySelector('.wk-ex-meta').textContent =

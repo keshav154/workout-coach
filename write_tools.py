@@ -216,7 +216,8 @@ def make_write_tools(ctx: dict) -> dict:
                     clear_autodeload_flag(e["name"])
         if body_weight_kg:
             mem = load_memory()
-            apply_memory_update(mem, {"weight_log": [f"{today_iso()}: {float(body_weight_kg):.1f} kg"]})
+            apply_memory_update(mem, {"weight_log": [
+                {"date": today_iso(), "kg": round(float(body_weight_kg), 1)}]})
             save_memory(mem)
         ctx["session"] = cleaned
         ctx["prs"] = prs
@@ -231,7 +232,7 @@ def make_write_tools(ctx: dict) -> dict:
             return f"REJECTED: {kg} kg is outside the sane range (30-300). Confirm with the user."
         profile = load_profile() or {}
         prev_kg = profile.get("weight_kg")
-        entry   = f"{today_iso()}: {float(kg):.1f} kg"
+        entry   = {"date": today_iso(), "kg": round(float(kg), 1)}
         mem = load_memory()
         apply_memory_update(mem, {"weight_log": [entry]})
         save_memory(mem)

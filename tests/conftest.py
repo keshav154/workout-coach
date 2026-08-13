@@ -76,15 +76,20 @@ class FakeCol:
     def update_one(self, q, u, upsert=False):
         _id = q.get("_id")
         doc = self.docs.get(_id)
+        inserted = False
         if doc is None and upsert:
             doc = {"_id": _id}
             self.docs[_id] = doc
+            inserted = True
         if doc is None:
             return
         for k, v in u.get("$set", {}).items():
             if k.startswith("sessions."):
                 doc["sessions"][int(k.split(".", 1)[1])] = v
             else:
+                doc[k] = v
+        if inserted:
+            for k, v in u.get("$setOnInsert", {}).items():
                 doc[k] = v
         for k, v in u.get("$push", {}).items():
             doc.setdefault(k, []).append(v)

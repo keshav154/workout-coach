@@ -3,6 +3,7 @@ All workout logic — program definition, MongoDB storage, system prompt builder
 Profile is stored in MongoDB; onboarding collects it on first run via chat.
 """
 
+import copy
 import json
 import os
 import re
@@ -54,6 +55,19 @@ def save_profile(profile: dict) -> None:
         {"$set": profile},
         upsert=True,
     )
+
+def seed_default_habit() -> None:
+    """Called once, right after onboarding completes. Logging meals is the
+    single highest-leverage habit for the nutrition features to pay off, so
+    it starts pre-tracked on the Progress tab instead of requiring the user
+    to discover and set it up themselves. $setOnInsert keeps this idempotent
+    if onboarding ever runs again (e.g. after a profile reset)."""
+    _col("habits").update_one(
+        {"_id": "Log meals"},
+        {"$setOnInsert": {"created": today_iso()}},
+        upsert=True,
+    )
+
 
 def profile_complete(profile: dict | None) -> bool:
     if not profile:
@@ -335,7 +349,10 @@ def load_memory() -> dict:
     if doc:
         doc.pop("_id", None)
         return doc
-    return dict(DEFAULT_MEMORY)
+    # deepcopy — dict(DEFAULT_MEMORY) would share the (mutable) list values
+    # with the module-level default, so a later append() anywhere would
+    # silently poison DEFAULT_MEMORY for the rest of the process.
+    return copy.deepcopy(DEFAULT_MEMORY)
 
 
 def save_memory(mem: dict) -> None:
@@ -346,13 +363,21 @@ def save_memory(mem: dict) -> None:
     )
 
 
+def _dedup_key(item):
+    """Hashable key for dedup — plain items hash themselves; dicts (e.g.
+    structured weight_log entries) hash their sorted JSON form."""
+    return json.dumps(item, sort_keys=True) if isinstance(item, dict) else item
+
+
 def apply_memory_update(mem: dict, update: dict) -> None:
     for key, new_items in update.items():
         if key in mem and isinstance(new_items, list):
-            existing = set(mem[key])
+            existing = {_dedup_key(x) for x in mem[key]}
             for item in new_items:
-                if item not in existing:
+                k = _dedup_key(item)
+                if k not in existing:
                     mem[key].append(item)
+                    existing.add(k)
 
 
 def try_parse_memory_update(text: str) -> dict | None:
@@ -804,7 +829,7 @@ WHEN TO SAVE — CRITICAL JUDGMENT RULES (apply to the WRITE tools):
 - record_memory_note for durable facts worth remembering (injury, preference, form cue, pattern).
 - After a WRITE tool responds, relay the outcome honestly: SAVED means confirmed; REJECTED means tell the user why and re-ask. Never say "logged" without a SAVED result.
 
-LEGACY FALLBACK — ONLY if you are unable to call tools in this conversation, you may emit these hidden blocks instead (they are parsed and stripped): <LOG_SESSION>{{"day": "{day}", "date": "{today_str}", "body_weight_kg": 0.0, "exercises": [{{"name": "...", "weight": 0, "reps_done": 0}}]}}</LOG_SESSION>, <LOG_MEAL>{{"description": "...", "calories": 0, "protein": 0}}</LOG_MEAL>, <LOG_EXPENSE>{{"amount": 0.0, "description": "...", "category": "..."}}</LOG_EXPENSE>, <CHECKIN>{{"sleep_hours": 7, "energy": 8, "soreness": 3}}</CHECKIN>, <SET_GOAL>{{"kind": "weight", "target": 90, "by_date": "2026-09-01"}}</SET_GOAL>, <SET_BUDGET>{{"category": "Food", "amount": 8000}}</SET_BUDGET>, <UPDATE_PROFILE>{{"days_per_week": 5}}</UPDATE_PROFILE>, <UNDO></UNDO>, <CLEAR_GOALS></CLEAR_GOALS>, <UPDATE_MEMORY>{{"weight_log": ["{today_str}: XX.X kg"], "injuries_soreness": [], "preferences": []}}</UPDATE_MEMORY>. Prefer tools whenever available.
+LEGACY FALLBACK (only if tool calls aren't working this turn — hidden blocks below, parsed and stripped; prefer tools): <LOG_SESSION>{{"day": "{day}", "date": "{today_str}", "body_weight_kg": 0.0, "exercises": [{{"name": "...", "weight": 0, "reps_done": 0}}]}}</LOG_SESSION>, <LOG_MEAL>{{"description": "...", "calories": 0, "protein": 0}}</LOG_MEAL>, <LOG_EXPENSE>{{"amount": 0.0, "description": "...", "category": "..."}}</LOG_EXPENSE>, <CHECKIN>{{"sleep_hours": 7, "energy": 8, "soreness": 3}}</CHECKIN>, <SET_GOAL>{{"kind": "weight", "target": 90, "by_date": "2026-09-01"}}</SET_GOAL>, <SET_BUDGET>{{"category": "Food", "amount": 8000}}</SET_BUDGET>, <UPDATE_PROFILE>{{"days_per_week": 5}}</UPDATE_PROFILE>, <UNDO></UNDO>, <CLEAR_GOALS></CLEAR_GOALS>, <UPDATE_MEMORY>{{"weight_log": ["{today_str}: XX.X kg"], "injuries_soreness": [], "preferences": []}}</UPDATE_MEMORY>.
 
 There is NO command syntax in this app — never tell the user to type a command. Everything happens by talking normally. If the user asks what they can do, describe it in plain sentences ("just tell me...").
 For QUESTIONS about progress, plateaus, goals, spending, or recovery, answer from the data provided above or call a READ tool — never tell the user to run a command.

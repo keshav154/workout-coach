@@ -30,6 +30,7 @@ from agent_core import (
     save_memory,
     save_profile,
     save_session,
+    seed_default_habit,
     today_iso,
     try_parse_log,
     try_parse_memory_update,
@@ -155,6 +156,7 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         # established user's profile be overwritten by a hallucinated block.
         if parsed_profile:
             save_profile(parsed_profile)
+            seed_default_habit()
     elif tool_acted:
         # Tool path (primary): actions already happened inside the loop and the
         # model saw each result. Skip ALL legacy block parsing to avoid
