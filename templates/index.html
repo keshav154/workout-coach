@@ -319,14 +319,32 @@
       border: 1px dashed var(--border-lit);
       text-transform: uppercase; letter-spacing: 0.08em;
     }
+    /* Full-sentence system messages (connection retry) need normal case + room */
+    .bubble.system.retry {
+      text-transform: none; letter-spacing: normal; font-size: 12.5px; line-height: 1.5;
+      max-width: 86%; padding: 12px 16px;
+      display: flex; flex-direction: column; gap: 9px; align-items: center; text-align: center;
+    }
+    .retry-btn {
+      background: transparent; border: 1px solid var(--accent); color: var(--accent);
+      padding: 7px 16px; font-size: 11px; font-weight: 700; cursor: pointer;
+      font-family: var(--font-body); text-transform: uppercase; letter-spacing: 0.08em;
+      transition: all 0.15s;
+    }
+    .retry-btn:active { background: var(--accent); color: var(--bg); }
 
     .typing {
-      display: flex; gap: 5px; align-items: center;
+      display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center;
       background: var(--card);
-      padding: 14px 18px;
+      padding: 14px 18px; max-width: 86%;
       border: 1px solid var(--border); border-left: 2px solid var(--accent);
       align-self: flex-start; margin-left: 30px;
     }
+    .typing small {
+      flex-basis: 100%; font-size: 10.5px; color: var(--muted);
+      font-family: var(--font-body); margin-top: 2px; line-height: 1.4;
+    }
+    .typing small:empty { display: none; }
     .typing span { width: 6px; height: 6px; background: var(--accent); animation: bounce 1.2s infinite; box-shadow: 0 0 4px #00ff88; }
     .typing span:nth-child(2) { animation-delay: 0.2s; }
     .typing span:nth-child(3) { animation-delay: 0.4s; }
@@ -686,8 +704,8 @@
     <div id="quick-actions">
       <button class="quick-btn" onclick="quickSend('What is my workout today?')">🏋️ Today's Workout</button>
       <button class="quick-btn" onclick="quickSend('Let us do my daily check-in')">🛌 Check-in</button>
-      <button class="quick-btn" onclick="quickSend('How is my progress? Any plateaus?')">📈 My Progress</button>
-      <button class="quick-btn" onclick="quickSend('What are my goals and am I on track?')">🎯 My Goals</button>
+      <button class="quick-btn" onclick="goToProgress()">📈 My Progress</button>
+      <button class="quick-btn" onclick="goToGoals()">🎯 My Goals</button>
       <button class="quick-btn" onclick="quickSend('How much have I spent this month?')">💸 Spending</button>
       <button class="quick-btn" onclick="quickSend('What should I eat now for protein?')">🥗 Meal Idea</button>
       <button class="quick-btn" onclick="logWeight()">⚖️ Log Weight</button>
@@ -703,6 +721,10 @@
 
   <!-- Progress view -->
   <div id="stats-view" class="view">
+    <div id="sv-plateaus-wrap" style="display:none">
+      <div class="stats-title">Plateaus</div>
+      <div class="session-list" id="sv-plateaus"></div>
+    </div>
     <div id="sv-habits-wrap" style="display:none">
       <div class="stats-title">Daily Habits</div>
       <div class="chart-card" id="sv-habits"></div>
@@ -924,10 +946,16 @@
   function unlock() {
     const val = document.getElementById('lock-input').value.trim();
     if (!val) return;
-    fetch('/day_info', { headers: { 'X-Password': val } }).then(r => {
+    const btn = document.getElementById('lock-btn');
+    btn.disabled = true; btn.textContent = 'Connecting…';
+    // 45s bound: if the server is asleep this may cold-start rather than
+    // reject, so on any failure we still let the user in — init() below
+    // retries the real data fetches once it's actually warm.
+    fetchTimeout('/day_info', { headers: { 'X-Password': val } }, 45000).then(r => {
       if (r.status === 401) {
         document.getElementById('lock-error').style.display = 'block';
         document.getElementById('lock-input').value = '';
+        btn.disabled = false; btn.textContent = 'Unlock';
       } else { enter(val); }
     }).catch(() => enter(val));
   }
@@ -938,6 +966,36 @@
     init();
   }
   function authHeaders(extra) { return Object.assign({ 'X-Password': password }, extra || {}); }
+
+  // ── Network resilience ──
+  // Render's free tier sleeps the app after ~15min idle; a cold start can
+  // take up to a minute, and a request in flight when it sleeps just hangs.
+  // These helpers bound every request and retry once, so a cold start reads
+  // as "a bit slow" instead of "broken".
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function fetchTimeout(url, opts, ms) {
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), ms);
+    try {
+      return await fetch(url, Object.assign({}, opts, { signal: ctrl.signal }));
+    } finally {
+      clearTimeout(id);
+    }
+  }
+
+  async function fetchRetry(url, opts, { timeoutMs = 25000, retries = 1, retryDelayMs = 2500 } = {}) {
+    let lastErr;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fetchTimeout(url, opts, timeoutMs);
+      } catch (e) {
+        lastErr = e;
+        if (attempt < retries) await sleep(retryDelayMs);
+      }
+    }
+    throw lastErr;
+  }
 
   // ── Tabs ──
   const TAB_VIEWS = { chat: 'chat-view', workout: 'workout-view', fuel: 'fuel-view',
@@ -1465,10 +1523,22 @@
   function showTyping() {
     const t = document.createElement('div');
     t.className = 'typing'; t.id = 'typing';
-    t.innerHTML = '<span></span><span></span><span></span>';
+    t.innerHTML = '<span></span><span></span><span></span><small id="typing-note"></small>';
     chat.appendChild(t); chat.scrollTop = chat.scrollHeight;
   }
+  function updateTyping(msg) {
+    const note = document.getElementById('typing-note');
+    if (note) note.textContent = msg;
+  }
   function hideTyping() { const t = document.getElementById('typing'); if (t) t.remove(); }
+  function addRetryBubble(msg, onRetry) {
+    const div = document.createElement('div');
+    div.className = 'bubble system retry';
+    div.innerHTML = `<div>${esc(msg)}</div><button class="retry-btn">↻ Retry</button>`;
+    div.querySelector('.retry-btn').onclick = () => { div.remove(); onRetry(); };
+    chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
 
   // ── Stats ──
   function animateCount(el, target, suffix) {
@@ -1496,12 +1566,12 @@
 
   async function loadStatsBar() {
     try {
-      const d = await (await fetch('/day_info', { headers: authHeaders() })).json();
+      const d = await (await fetchRetry('/day_info', { headers: authHeaders() })).json();
       document.getElementById('stat-day').textContent = 'Day ' + d.day;
       document.getElementById('stat-focus').textContent = d.focus || d.name;
     } catch {}
     try {
-      const s = await (await fetch('/stats', { headers: authHeaders() })).json();
+      const s = await (await fetchRetry('/stats', { headers: authHeaders() })).json();
       animateCount(document.getElementById('stat-sessions'), s.total_sessions ?? 0);
       document.getElementById('stat-weight').textContent = s.last_weight ? s.last_weight + ' kg' : '—';
       const streakEl = document.getElementById('stat-streak');
@@ -1511,7 +1581,7 @@
   }
   async function loadStatsView() {
     try {
-      const d = await (await fetch('/stats', { headers: authHeaders() })).json();
+      const d = await (await fetchRetry('/stats', { headers: authHeaders() })).json();
       document.getElementById('sv-sessions').textContent = d.total_sessions ?? '—';
       document.getElementById('sv-weight').textContent = d.last_weight ? d.last_weight + ' kg' : '—';
       document.getElementById('sv-next').textContent = 'Day ' + (d.next_day ?? '—');
@@ -1519,6 +1589,17 @@
       document.getElementById('sv-streak').textContent = (d.streak > 0 ? '🔥 ' : '') + (d.streak ?? 0);
       document.getElementById('sv-weeks').textContent = (d.consistent_weeks > 0 ? '⚡ ' : '') + (d.consistent_weeks ?? 0);
       drawWeeklyRing(d.sessions_this_week ?? 0, d.days_per_week ?? 6);
+
+      const pWrap = document.getElementById('sv-plateaus-wrap');
+      const pBox  = document.getElementById('sv-plateaus');
+      if ((d.plateaus || []).length) {
+        pWrap.style.display = 'block';
+        pBox.innerHTML = d.plateaus.map(p => `<div class="session-item" style="border-left-color:var(--accent3)">
+            <div class="session-day">📉 ${esc(p)}</div></div>`).join('');
+      } else {
+        pWrap.style.display = 'none';
+      }
+
       const list = document.getElementById('sv-sessions-list'); list.innerHTML = '';
       (d.recent_sessions || []).forEach(s => {
         const item = document.createElement('div'); item.className = 'session-item expandable';
@@ -1851,25 +1932,66 @@
     if (!text) return;
     input.value = ''; input.style.height = 'auto'; btn.disabled = true;
     addBubble(text, 'user'); showTyping();
+
+    // The coach's reply can involve several sequential LLM calls, and on a
+    // cold Render instance the whole request can take a while — say so
+    // instead of leaving the dots looking frozen.
+    const hintTimer = setTimeout(
+      () => updateTyping('Still working — the server may be waking up, this can take a bit…'),
+      8000);
+
+    let res;
     try {
-      const res = await fetch('/chat', {
+      res = await fetchRetry('/chat', {
         method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ message: text }),
-      });
-      const data = await res.json(); hideTyping();
-      if (res.status === 401) { sessionStorage.removeItem('wc_pwd'); location.reload(); return; }
-      if (data.error) addBubble('Error: ' + data.error, 'system');
-      else {
-        addBubble(data.reply, 'coach');
-        if (data.reply.includes('Session logged')) addBubble('Session saved!', 'system');
-        // Any logging action (session/weight/meal/expense/undo) may have changed
-        // the stats — always refresh so the bar never shows stale data.
-        loadStatsBar();
-      }
-    } catch { hideTyping(); addBubble('Network error. Check your connection.', 'system'); }
+      }, { timeoutMs: 90000, retries: 1, retryDelayMs: 2000 });
+    } catch {
+      clearTimeout(hintTimer); hideTyping();
+      addRetryBubble("Couldn't reach the coach — if the app was idle it may still be waking up.",
+        () => sendMessage(text));
+      btn.disabled = false; input.focus();
+      return;
+    }
+    clearTimeout(hintTimer);
+
+    let data;
+    try { data = await res.json(); }
+    catch {
+      hideTyping();
+      addRetryBubble('Got an unexpected response from the server.', () => sendMessage(text));
+      btn.disabled = false; input.focus();
+      return;
+    }
+    hideTyping();
+    if (res.status === 401) { sessionStorage.removeItem('wc_pwd'); location.reload(); return; }
+    if (data.error) addBubble('Error: ' + data.error, 'system');
+    else {
+      addBubble(data.reply, 'coach');
+      if (data.reply.includes('Session logged')) addBubble('Session saved!', 'system');
+      // Any logging action (session/weight/meal/expense/undo) may have changed
+      // the stats — always refresh so the bar never shows stale data.
+      loadStatsBar();
+    }
     btn.disabled = false; input.focus();
   }
   function quickSend(text) { switchTab('chat'); sendMessage(text); }
+
+  // "My Progress" / "My Goals" used to ask the coach and wait on an LLM
+  // reply; they now jump straight to the Progress tab's real numbers —
+  // faster, exact, and immune to the coach misreading the data.
+  function goToProgress() {
+    switchTab('stats');
+    document.getElementById('stats-view').scrollTop = 0;
+  }
+  function goToGoals() {
+    switchTab('stats');
+    loadGoalsView().then(() => {
+      const el = document.getElementById('sv-goals-wrap');
+      if (el && el.style.display !== 'none') el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      else document.getElementById('stats-view').scrollTop = 0;
+    });
+  }
   function logWeight() {
     const kg = prompt('Enter your weight in kg (e.g. 97.5):');
     if (kg && !isNaN(parseFloat(kg))) sendMessage('My weight today is ' + parseFloat(kg) + ' kg');
@@ -1920,22 +2042,34 @@
   async function init() {
     flushQueue();
     await loadStatsBar();
-    const data = await (await fetch('/chat_history', { headers: authHeaders() })).json();
-    if (data.history && data.history.length > 0) {
-      data.history.forEach(m => { if (m.role !== 'system') addBubble(m.content, m.role === 'user' ? 'user' : 'coach'); });
-    } else {
-      const pd = await (await fetch('/profile_status', { headers: authHeaders() })).json();
-      sendMessage(pd.complete ? "What's my workout today?" : "Hi! I'm new here, let's get started.");
+    try {
+      const data = await (await fetchRetry('/chat_history', { headers: authHeaders() },
+        { timeoutMs: 25000, retries: 1 })).json();
+      if (data.history && data.history.length > 0) {
+        data.history.forEach(m => { if (m.role !== 'system') addBubble(m.content, m.role === 'user' ? 'user' : 'coach'); });
+      } else {
+        const pd = await (await fetchRetry('/profile_status', { headers: authHeaders() },
+          { timeoutMs: 25000, retries: 1 })).json();
+        sendMessage(pd.complete ? "What's my workout today?" : "Hi! I'm new here, let's get started.");
+      }
+    } catch {
+      addRetryBubble("Couldn't reach the server — if the app was idle it may still be waking up.", init);
     }
   }
 
   window.onload = () => {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
     if (password) {
-      fetch('/day_info', { headers: authHeaders() }).then(r => {
+      fetchRetry('/day_info', { headers: authHeaders() }, { timeoutMs: 30000, retries: 1 }).then(r => {
         if (r.status === 401) { sessionStorage.removeItem('wc_pwd'); password = ''; }
         else { document.getElementById('lock-screen').style.display = 'none';
                document.getElementById('app').style.display = 'flex'; init(); }
+      }).catch(() => {
+        // Both attempts failed (likely a slow cold start) — let the user in
+        // anyway; init() has its own retry + a visible retry button if it
+        // still can't reach the server.
+        document.getElementById('lock-screen').style.display = 'none';
+        document.getElementById('app').style.display = 'flex'; init();
       });
     }
   };

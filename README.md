@@ -9,6 +9,7 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **Progressive overload**: suggests the next dumbbell up from your exact set when you hit the top of a rep range; plateau detection with automatic scheduled deloads
 - **Workout mode**: per-set logging UI with last-session weights pre-filled, PR detection and confetti, a rest timer (60/90/120s with vibration + beep), the day's warm-up routine plus computed warm-up sets (~55% of working weight), one-tap exercise swaps to equipment-appropriate alternatives, a session stopwatch that logs workout duration, and an A–F rotation strip
 - **Record wall**: best weight x reps per exercise on the Progress tab
+- **Instant Progress/Goals**: the Coach tab's "My Progress" and "My Goals" quick actions jump straight to the Progress tab's real numbers (streaks, plateaus, goal % bars) instead of asking the LLM and waiting on a reply
 - **Body measurements**: tell the coach "waist is 92 cm" — tracked per part (waist, chest, arm, ...) with trend charts on the Progress tab
 - **Goal progress bars & achievements**: live % progress toward weight/lift goals with projections, plus milestone badges (sessions, streaks, PRs, weigh-ins, total kg lifted)
 - **Per-exercise history**: tap an exercise name in Workout mode to see your last 5 performances
@@ -96,6 +97,8 @@ All accept `?secret=<CRON_SECRET>`.
 Render's free tier spins the app down after ~15 minutes idle; a sleeping app takes ~1 minute to cold-start, which can exceed the cron service's request timeout — the ping "fails" and the message never sends. The fix (no always-on keep-alive needed, so free hours aren't burned):
 
 **Schedule each cron job 2–3 times, 5 minutes apart** (e.g. daily nudge at 7:00, 7:05, 7:10). The first ping wakes the app (even if the request itself times out), a later one does the work. The daily/evening/weekly/backup endpoints are deduplicated server-side — once a job has completed for its period, extra pings return `{"skipped": ...}` and nothing is double-sent. The app then goes back to sleep until the next slot, so total awake time stays around 15–20 minutes per cron slot.
+
+The web app is resilient to the same cold-start behavior: every request the frontend makes is time-bounded and retried once, and the chat input shows "the server may be waking up" instead of going silent, with a one-tap Retry if it still can't connect after that. This doesn't eliminate cold-start latency (nothing client-side can) — it just means a sleepy first request reads as "a bit slow" instead of "broken".
 
 ## Using it
 

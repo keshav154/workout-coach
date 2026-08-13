@@ -126,7 +126,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v8';
+const CACHE = 'coachxkeshav-v9';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -255,6 +255,7 @@ def stats():
         })
 
     from agent_core import get_consistent_weeks
+    from progression import detect_plateaus, weekly_volume
     profile = load_profile() or {}
     dpw = profile.get("days_per_week", 6)
     return jsonify({
@@ -267,6 +268,8 @@ def stats():
         "streak":             get_consecutive_workout_days(workout_log),
         "consistent_weeks":   get_consistent_weeks(workout_log, dpw),
         "recent_sessions":    recent,
+        "plateaus":           detect_plateaus(workout_log),
+        "volume":             weekly_volume(workout_log),
     })
 
 

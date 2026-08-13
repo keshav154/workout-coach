@@ -54,6 +54,29 @@ def test_records(client, db, profile_doc):
     assert d["best"][0]["weight"] == 18
 
 
+def test_stats_includes_plateaus_and_volume(client, db, profile_doc):
+    db["profile"].docs["user"] = dict(profile_doc)
+    # Same top weight three sessions running -> a plateau; distinct from the
+    # increasing-weight bench fixture in seed_basics, which must NOT plateau.
+    db["workout_log"].docs["log"] = {"_id": "log", "sessions": [
+        {"day": "A", "date": "2026-07-20", "exercises": [
+            {"name": "Goblet Squat", "weight": 20, "reps_done": 10}]},
+        {"day": "A", "date": "2026-07-27", "exercises": [
+            {"name": "Goblet Squat", "weight": 20, "reps_done": 10}]},
+        {"day": "A", "date": "2026-08-03", "exercises": [
+            {"name": "Goblet Squat", "weight": 20, "reps_done": 10}]},
+    ]}
+    d = client.get("/stats").get_json()
+    assert any("Goblet Squat" in p for p in d["plateaus"])
+    assert "this_week" in d["volume"] and "last_week" in d["volume"]
+
+
+def test_stats_no_plateau_when_progressing(client, db, profile_doc):
+    seed_basics(db, profile_doc)   # bench goes 16kg -> 18kg
+    d = client.get("/stats").get_json()
+    assert d["plateaus"] == []
+
+
 def test_goals_data_progress(client, db, profile_doc):
     seed_basics(db, profile_doc)
     db["goals"].rows = [
