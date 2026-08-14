@@ -100,6 +100,16 @@ Render's free tier spins the app down after ~15 minutes idle; a sleeping app tak
 
 The web app is resilient to the same cold-start behavior: every request the frontend makes is time-bounded and retried once, and the chat input shows "the server may be waking up" instead of going silent, with a one-tap Retry if it still can't connect after that. This doesn't eliminate cold-start latency (nothing client-side can) — it just means a sleepy first request reads as "a bit slow" instead of "broken".
 
+### Diagnosing a message that never arrived
+
+If a scheduled Telegram message doesn't show up, open these in a browser (append `?secret=<CRON_SECRET>` if you set one):
+
+- **`/cron/test`** — sends a fixed test message immediately and returns JSON with `sent` and a `notify_config` block. This is the fastest check: if `sent` is false, `notify_config.hint` tells you exactly which env var is missing.
+- **`/cron/daily?force=1`** — re-runs the real daily nudge, bypassing the once-a-day dedup. Returns `{"sent": true, ...}`, or a `reason` explaining why not (e.g. `no nudge needed today` if you already logged a workout, or `notify failed` with the config).
+- **`/status`** (or ask the coach "system status") — now shows the active notification channel and the last time each cron actually executed.
+
+**The most common cause:** outbound notifications need **both** `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set in Render. The bot can reply to messages you send it using only the token (it reuses your incoming chat id), so two-way chat can work fine while scheduled nudges silently fail — the missing piece is almost always `TELEGRAM_CHAT_ID`. Get your chat id by messaging the bot and opening `https://api.telegram.org/bot<TOKEN>/getUpdates`, then set it in Render and hit `/cron/test`.
+
 ## Using it
 
 There is **no command syntax** — just talk:

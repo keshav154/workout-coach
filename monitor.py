@@ -113,6 +113,19 @@ def get_status() -> str:
         lines.append("Tool-call usage: no data yet — ask a data question (e.g. "
                      "'what's my best bench press?') to generate a sample.")
 
+    # Outbound notification channel — the usual reason a scheduled message
+    # "never arrives" is that this is misconfigured and failing silently.
+    try:
+        from notifier import notify_config
+        cfg = notify_config()
+        lines.append("")
+        lines.append(f"Notifications: {cfg['channel']}"
+                     + ("" if cfg["channel"] != "none" else " ⚠️"))
+        if cfg["hint"]:
+            lines.append("  " + cfg["hint"])
+    except Exception as e:
+        lines.append(f"Notifications: unknown ({e})")
+
     lines.append("")
     lines.append("Last runs:")
     for ev, label in [("cron_daily", "Daily nudge"),

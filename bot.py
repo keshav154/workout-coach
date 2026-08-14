@@ -913,6 +913,31 @@ def _cron_authorized() -> bool:
     return request.args.get("secret", "") == CRON_SECRET
 
 
+def _cron_force() -> bool:
+    """?force=1 bypasses the once-per-period dedup so a message can be
+    re-triggered on demand — e.g. to test that Telegram delivery works."""
+    return request.args.get("force", "") in ("1", "true", "yes")
+
+
+@flask_app.route("/cron/test", methods=["GET", "POST"])
+def cron_test():
+    """Diagnostic: unconditionally send a fixed test message and report whether
+    delivery succeeded, plus how notifications are configured. Open this URL in
+    a browser to check 'why didn't I get a Telegram message?' — no dedup, no
+    dependence on whether there's a workout/nudge to send today."""
+    if not _cron_authorized():
+        return "forbidden", 403
+    from datetime import datetime, timezone
+    from notifier import notify_config
+    cfg = notify_config()
+    stamp = datetime.now(timezone.utc).strftime("%H:%M UTC")
+    sent = notify(f"✅ CoachxKeshav test message ({stamp}). "
+                  f"If you can read this, scheduled notifications are working.")
+    return jsonify({"sent": sent, "notify_config": cfg,
+                    "hint": ("Delivered — notifications work." if sent else
+                             "Not delivered — see notify_config for what's missing.")})
+
+
 @flask_app.route("/cron/daily", methods=["GET", "POST"])
 def cron_daily():
     if not _cron_authorized():
@@ -920,14 +945,23 @@ def cron_daily():
     record_event("cron_daily")
     # Multiple scheduled attempts per day are expected (first ping wakes the
     # sleeping dyno) — only the first successful one sends.
-    if job_done("cron_daily"):
-        return jsonify({"skipped": "already ran today"})
+    if not _cron_force() and job_done("cron_daily"):
+        return jsonify({"sent": False, "skipped": "already ran today",
+                        "hint": "add ?force=1 to re-send for testing"})
     msg = build_daily_nudge()
-    sent = notify(msg) if msg else False
-    if sent or msg is None:
+    if msg is None:
         mark_job_done("cron_daily")
-    log.info(f"Daily cron: nudge={'sent' if sent else 'skipped'}")
-    return jsonify({"sent": sent, "message": msg})
+        return jsonify({"sent": False,
+                        "reason": "no nudge needed today (already trained, or profile not set up)"})
+    sent = notify(msg)
+    if sent:
+        mark_job_done("cron_daily")
+        log.info("Daily cron: nudge sent")
+        return jsonify({"sent": True, "message": msg})
+    from notifier import notify_config
+    log.warning("Daily cron: notify FAILED — channel not configured or send error")
+    return jsonify({"sent": False, "reason": "notify failed — check notification config",
+                    "notify_config": notify_config(), "message": msg})
 
 
 @flask_app.route("/cron/weekly", methods=["GET", "POST"])
@@ -937,8 +971,9 @@ def cron_weekly():
     record_event("cron_weekly")
     from agent_core import today as _today
     week_key = "{}-W{:02d}".format(*_today().isocalendar()[:2])
-    if job_done("cron_weekly", week_key):
-        return jsonify({"skipped": "already ran this week"})
+    if not _cron_force() and job_done("cron_weekly", week_key):
+        return jsonify({"skipped": "already ran this week",
+                        "hint": "add ?force=1 to re-send for testing"})
     msg  = build_weekly_report()
     sent = notify(msg)
     if sent:
@@ -991,8 +1026,9 @@ def cron_backup():
     if not _cron_authorized():
         return "forbidden", 403
     record_event("cron_backup")
-    if job_done("cron_backup"):
-        return jsonify({"skipped": "already ran today"})
+    if not _cron_force() and job_done("cron_backup"):
+        return jsonify({"skipped": "already ran today",
+                        "hint": "add ?force=1 to re-send for testing"})
     from datetime import datetime, timezone
     try:
         dump = export_all()
@@ -1065,8 +1101,9 @@ def cron_evening():
     if not _cron_authorized():
         return "forbidden", 403
     record_event("cron_evening")
-    if job_done("cron_evening"):
-        return jsonify({"skipped": "already ran today"})
+    if not _cron_force() and job_done("cron_evening"):
+        return jsonify({"skipped": "already ran today",
+                        "hint": "add ?force=1 to re-send for testing"})
     from reports import build_evening_checkin
     from memory_core import summarize_today
     try:

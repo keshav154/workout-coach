@@ -128,3 +128,34 @@ def notify(body: str) -> bool:
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         return send_telegram(body)
     return send_whatsapp(body)
+
+
+def notify_config() -> dict:
+    """Describe how outbound notifications are configured, WITHOUT leaking any
+    secret values — just which pieces are present. Used by diagnostics so a
+    silently-misconfigured channel (the usual cause of 'I got no message') is
+    visible instead of failing quietly."""
+    tg_ready = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+    wa_ready = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN
+                    and TWILIO_WHATSAPP_FROM and ALLOWED_WHATSAPP_NUMBER)
+    if tg_ready:
+        channel, hint = "telegram", ""
+    elif wa_ready:
+        channel, hint = "whatsapp", ""
+    else:
+        channel = "none"
+        missing = []
+        if not TELEGRAM_BOT_TOKEN:
+            missing.append("TELEGRAM_BOT_TOKEN")
+        if not TELEGRAM_CHAT_ID:
+            missing.append("TELEGRAM_CHAT_ID")
+        hint = ("Outbound notifications are NOT configured — the bot can reply to "
+                "messages you send it, but cannot start a message on its own. "
+                "Set these env vars in Render: " + ", ".join(missing) + ".")
+    return {
+        "channel": channel,
+        "telegram_token_set": bool(TELEGRAM_BOT_TOKEN),
+        "telegram_chat_id_set": bool(TELEGRAM_CHAT_ID),
+        "whatsapp_ready": wa_ready,
+        "hint": hint,
+    }
