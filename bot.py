@@ -127,7 +127,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v12';
+const CACHE = 'coachxkeshav-v13';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -751,6 +751,45 @@ def _protein_options(gap: float) -> list[dict]:
                 break
         picks = chosen[:2]
     return [{"name": n, "calories": c, "protein_g": p} for n, c, p in picks]
+
+
+@flask_app.route("/water")
+@require_auth
+def water():
+    from water import GLASS_ML, water_goal_ml, water_today, water_week
+    profile = load_profile() or {}
+    t = water_today()
+    return jsonify({
+        "ml":       t["ml"],
+        "count":    t["count"],
+        "goal":     water_goal_ml(profile),
+        "glass_ml": GLASS_ML,
+        "week":     water_week(),
+    })
+
+
+@flask_app.route("/water_add", methods=["POST"])
+@require_auth
+def water_add():
+    from water import add_water, water_goal_ml, water_today
+    try:
+        ml = int(float((request.json or {}).get("ml", 250)))
+    except (TypeError, ValueError):
+        return jsonify({"error": "bad amount"}), 400
+    if not (1 <= ml <= 3000):
+        return jsonify({"error": "amount out of range"}), 400
+    add_water(ml)
+    t = water_today()
+    return jsonify({"ok": True, "ml": t["ml"], "count": t["count"], "goal": water_goal_ml()})
+
+
+@flask_app.route("/water_undo", methods=["POST"])
+@require_auth
+def water_undo():
+    from water import undo_water, water_today
+    undo_water()
+    t = water_today()
+    return jsonify({"ok": True, "ml": t["ml"], "count": t["count"]})
 
 
 @flask_app.route("/money_data")

@@ -24,7 +24,8 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **CSV export**: download workouts/expenses/meals/weight as CSV from the menu
 - **Week-ahead preview**: tap any A–F rotation chip to see that day's exercises and your last weights
 - **Progress photos**: upload from the app (auto-downscaled client-side) or send a Telegram photo captioned "progress" — first-vs-latest comparison on the Progress tab
-- **Daily habits**: "track a habit: drink 3L water daily" — tap-to-toggle checklist with streaks on the Progress tab, pending habits nudged in the evening check-in
+- **Water tracking**: one-tap +Glass (250ml) / +Bottle (500ml) buttons on the Fuel tab with a live progress bar toward a bodyweight-derived daily goal (~35 ml/kg); also loggable by chat ("drank 3 glasses"), nudged in the evening check-in, and summarised weekly
+- **Daily habits**: "track a habit: stretch every morning" — tap-to-toggle checklist with streaks on the Progress tab, pending habits nudged in the evening check-in
 - **Offline gym mode**: the Workout tab falls back to the last cached program with no signal, and saved workouts queue on-device and sync automatically when back online
 - **Dropdown set logging**: weights come from your actual dumbbell set and reps from a list — no typing mid-set
 - **Quick logging without chat**: inline expense form on the Money tab; one-tap frequent-meal chips and "repeat yesterday's meals" on the Fuel tab

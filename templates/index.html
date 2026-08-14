@@ -433,6 +433,25 @@
     .session-ex { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--accent3); padding: 3px 0; }
     .session-ex span:first-child { color: var(--fg); }
 
+    /* -- Water tracker -- */
+    .water-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+    .water-count { font-family: var(--font-head); font-size: 26px; font-weight: 800; color: var(--accent3); text-shadow: 0 0 8px #00d4ff50; }
+    .water-goal { font-size: 12px; color: var(--muted); font-family: var(--font-body); }
+    .water-fill { background: linear-gradient(90deg, #00d4ff, #00ff88); box-shadow: 0 0 8px #00d4ff60; }
+    .water-fill.full { background: linear-gradient(90deg, #00ff88, #00ff88); }
+    .water-btns { display: flex; gap: 8px; margin-top: 12px; }
+    .water-btn {
+      flex: 1; background: var(--card); border: 1px solid var(--accent3); color: var(--accent3);
+      padding: 12px 4px; font-family: var(--font-body); font-size: 13px; font-weight: 700;
+      cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px;
+      transition: all 0.12s;
+    }
+    .water-btn small { font-size: 9px; color: var(--muted); font-weight: 500; }
+    .water-btn:active { background: var(--accent3); color: var(--bg); }
+    .water-btn:active small { color: var(--bg); }
+    .water-btn.undo { border-color: var(--border); color: var(--muted); flex: 0 0 78px; }
+    .water-btn.undo:active { background: var(--muted-bg); color: var(--fg); }
+
     /* -- Progress bars (Fuel / Money) -- */
     .bar-row { margin-bottom: 14px; }
     .bar-row:last-child { margin-bottom: 2px; }
@@ -927,6 +946,21 @@
 
   <!-- Fuel (nutrition) view -->
   <div id="fuel-view" class="view">
+    <div>
+      <div class="stats-title">Water</div>
+      <div class="chart-card">
+        <div class="water-top">
+          <div class="water-count" id="wa-count">— L</div>
+          <div class="water-goal" id="wa-goal"></div>
+        </div>
+        <div class="bar-track" style="height:12px"><div class="bar-fill water-fill" id="wa-bar"></div></div>
+        <div class="water-btns">
+          <button class="water-btn" onclick="addWater(250)">＋ Glass<small>250ml</small></button>
+          <button class="water-btn" onclick="addWater(500)">＋ Bottle<small>500ml</small></button>
+          <button class="water-btn undo" onclick="undoWater()">↩ Undo</button>
+        </div>
+      </div>
+    </div>
     <div>
       <div class="stats-title">Today vs Target</div>
       <div class="chart-card">
@@ -1550,7 +1584,41 @@
   }
 
   // ── Fuel (nutrition) view ──
+  // ── Water ──
+  function renderWater(w) {
+    const l = (w.ml || 0) / 1000, goal = (w.goal || 0) / 1000;
+    document.getElementById('wa-count').textContent = l.toFixed(2) + ' L';
+    document.getElementById('wa-goal').textContent =
+      `goal ${goal.toFixed(1)} L · ${w.count || 0} logged`;
+    const bar = document.getElementById('wa-bar');
+    const pct = goal > 0 ? Math.min(w.ml / w.goal * 100, 100) : 0;
+    bar.style.width = pct + '%';
+    bar.classList.toggle('full', pct >= 100);
+  }
+  async function loadWater() {
+    try { renderWater(await (await fetch('/water', { headers: authHeaders() })).json()); }
+    catch {}
+  }
+  async function addWater(ml) {
+    // optimistic: the bar nudges immediately, then syncs with the server total
+    try {
+      const w = await (await fetch('/water_add', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ ml }),
+      })).json();
+      renderWater(w);
+      if (navigator.vibrate) navigator.vibrate(15);
+    } catch { alert('Network error — try again.'); }
+  }
+  async function undoWater() {
+    try {
+      await fetch('/water_undo', { method: 'POST', headers: authHeaders() });
+      loadWater();     // refetch for the full payload (goal included)
+    } catch {}
+  }
+
   async function loadFuel() {
+    loadWater();
     let d;
     try { d = await (await fetch('/nutrition_data', { headers: authHeaders() })).json(); }
     catch { return; }
@@ -2058,6 +2126,11 @@
       html += `<div class="ws-section"><h3>Nutrition</h3>
         <div class="ws-row"><span>Logged ${d.nutrition.days_logged} day(s)</span>
         <span class="muted">avg ${d.nutrition.avg_calories} kcal · ${d.nutrition.avg_protein} g protein</span></div></div>`;
+    }
+    if (d.water_avg_ml) {
+      html += `<div class="ws-section"><h3>Hydration</h3>
+        <div class="ws-row"><span>Water</span>
+        <span class="muted">avg ${(d.water_avg_ml/1000).toFixed(1)} L/day</span></div></div>`;
     }
     if ((d.prs || []).length) {
       html += `<div class="ws-section"><h3>Recent PRs</h3>` +

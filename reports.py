@@ -115,6 +115,13 @@ def build_evening_checkin() -> str | None:
     if not logged_this_week:
         parts.append("Also — no weight check-in yet this week. What's your current weight?")
 
+    # Water short of goal
+    from water import water_goal_ml, water_today
+    wt, wgoal = water_today()["ml"], water_goal_ml(profile)
+    if wgoal and wt < wgoal * 0.8:
+        parts.append(f"💧 You're at {wt/1000:.1f}L of your {wgoal/1000:.1f}L water goal — "
+                     f"get another glass or two in before bed.")
+
     # Tracked habits still pending today
     from agent_core import _col
     habit_names = [d["_id"] for d in _col("habits").find()]
@@ -309,11 +316,13 @@ def weekly_summary_data(week_offset: int = 0) -> dict:
             spend_total += amt
             spend_cats[e.get("category", "Other")] = spend_cats.get(e.get("category", "Other"), 0) + amt
 
+    from water import week_avg_ml
     days_per_week = profile.get("days_per_week", 6)
     return {
         "name": profile.get("name", ""),
         "week_start": week_start.isoformat(),
         "week_end": week_end.isoformat(),
+        "water_avg_ml": week_avg_ml(),
         "sessions": session_rows,
         "sessions_done": len(session_rows),
         "sessions_target": days_per_week,

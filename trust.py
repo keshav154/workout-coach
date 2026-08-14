@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 BACKUP_COLLECTIONS = ["profile", "workout_log", "memory", "expenses", "budget",
                       "history", "checkin", "goals", "audit", "meals",
                       "episodes", "lessons", "measurements", "habits",
-                      "habit_log", "photos", "rest_days"]
+                      "habit_log", "photos", "rest_days", "water"]
 
 
 # ── Validation ────────────────────────────────────────────────────────────────

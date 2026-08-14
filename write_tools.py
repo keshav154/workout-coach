@@ -119,6 +119,14 @@ WRITE_TOOLS = [
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
+        "name": "log_water",
+        "description": "Log water the user drank today. Pass glasses (250ml each) OR ml directly. Use set_total_litres to overwrite the day's total when they state a running total ('I've had 2 litres today').",
+        "parameters": {"type": "object", "properties": {
+            "glasses": {"type": "number", "description": "number of 250ml glasses"},
+            "ml": {"type": "number", "description": "millilitres, if given directly"},
+            "set_total_litres": {"type": "number", "description": "overwrite today's total, in litres"}}},
+    }},
+    {"type": "function", "function": {
         "name": "mark_rest_day",
         "description": "Record TODAY as a deliberate rest day when the user says they're resting / taking a rest day / not training today. Suppresses the workout nudge and keeps their streak intact.",
         "parameters": {"type": "object", "properties": {}},
@@ -318,6 +326,23 @@ def make_write_tools(ctx: dict) -> dict:
         ctx.setdefault("notes", []).append("🛌 Rest day logged.")
         return f"SAVED: {d} marked as a rest day. Enjoy the recovery — your streak stays intact."
 
+    def log_water(glasses: float | None = None, ml: float | None = None,
+                  set_total_litres: float | None = None) -> str:
+        from water import (GLASS_ML, add_water, set_water_total, water_goal_ml,
+                           water_today)
+        if set_total_litres is not None:
+            set_water_total(int(float(set_total_litres) * 1000))
+        else:
+            amount = int(float(ml)) if ml else int(float(glasses or 1) * GLASS_ML)
+            if amount <= 0 or amount > 6000:
+                return "REJECTED: that water amount looks off — confirm with the user."
+            add_water(amount)
+        t = water_today()
+        goal = water_goal_ml()
+        ctx.setdefault("notes", []).append(f"💧 Water: {t['ml']/1000:.2f}L today")
+        return (f"SAVED. Water today: {t['ml']/1000:.2f}L of {goal/1000:.1f}L goal "
+                f"({max(0, goal - t['ml'])/1000:.2f}L to go).")
+
     def _habit_names() -> list[str]:
         return [d["_id"] for d in _col("habits").find()]
 
@@ -393,6 +418,7 @@ def make_write_tools(ctx: dict) -> dict:
         "update_training_days": update_training_days,
         "undo_last_action":     undo_last_action,
         "mark_rest_day":        mark_rest_day,
+        "log_water":            log_water,
         "add_habit":            add_habit,
         "log_habit_done":       log_habit_done,
         "remove_habit":         remove_habit,
