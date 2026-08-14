@@ -10,6 +10,10 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **Workout mode**: per-set logging UI with last-session weights pre-filled, PR detection and confetti, a rest timer (60/90/120s with vibration + beep), the day's warm-up routine plus computed warm-up sets (~55% of working weight), one-tap exercise swaps to equipment-appropriate alternatives, a session stopwatch that logs workout duration, and an A–F rotation strip
 - **Record wall**: best weight x reps per exercise on the Progress tab
 - **Instant Progress/Goals**: the Coach tab's "My Progress" and "My Goals" quick actions jump straight to the Progress tab's real numbers (streaks, plateaus, goal % bars) instead of asking the LLM and waiting on a reply
+- **Rest days**: mark today a rest day (button in Workout mode, or just tell the coach "rest day today") — suppresses the nudge and bridges your streak instead of breaking it; a rest is also suggested after 6 straight training days
+- **Deload surfacing**: the Workout tab shows a deload-week banner (every ~6 weeks) and per-exercise "deload" tags for lifts the plateau system has auto-flagged
+- **Per-exercise notes**: jot a note on any exercise while logging ("left shoulder tight") — shown in the session history and available to the coach
+- **Printable weekly summary**: a menu → Weekly Summary view with workouts, volume, weight change, nutrition adherence, PRs, plateaus and spending for any week, with a Print button
 - **Body measurements**: tell the coach "waist is 92 cm" — tracked per part (waist, chest, arm, ...) with trend charts on the Progress tab
 - **Goal progress bars & achievements**: live % progress toward weight/lift goals with projections, plus milestone badges (sessions, streaks, PRs, weigh-ins, total kg lifted)
 - **Per-exercise history**: tap an exercise name in Workout mode to see your last 5 performances
@@ -32,7 +36,7 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 
 ## Equipment assumed
 
-- Adjustable dumbbells: 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg
+- Adjustable dumbbells: 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20.5, 22, 24 kg
 - Incline-decline bench, treadmill
 
 ## Stack

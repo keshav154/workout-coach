@@ -68,6 +68,35 @@ def get_event(name: str) -> str | None:
         return None
 
 
+def record_notify_failure(job: str, reason: str = "") -> None:
+    """Remember the last time a scheduled message failed to send, so a silent
+    delivery problem is visible in /status (the channel itself may be down, so
+    we can't alert THROUGH it)."""
+    try:
+        _col("system").update_one(
+            {"_id": "notify_failure"},
+            {"$set": {"job": job, "reason": reason[:200],
+                      "ts": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+    except Exception as e:
+        log.error(f"record_notify_failure failed: {e}")
+
+
+def clear_notify_failure() -> None:
+    try:
+        _col("system").delete_one({"_id": "notify_failure"})
+    except Exception:
+        pass
+
+
+def last_notify_failure() -> dict | None:
+    try:
+        return _col("system").find_one({"_id": "notify_failure"})
+    except Exception:
+        return None
+
+
 def alert_admin(text: str) -> bool:
     """Send an operational alert to the owner's Telegram."""
     if not ADMIN_CHAT:
@@ -123,6 +152,10 @@ def get_status() -> str:
                      + ("" if cfg["channel"] != "none" else " ⚠️"))
         if cfg["hint"]:
             lines.append("  " + cfg["hint"])
+        fail = last_notify_failure()
+        if fail:
+            lines.append(f"  ⚠️ Last delivery failure: {fail.get('job')} at "
+                         f"{fail.get('ts', '?')} — {fail.get('reason', '')}")
     except Exception as e:
         lines.append(f"Notifications: unknown ({e})")
 

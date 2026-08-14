@@ -52,7 +52,8 @@ def query_exercise(name: str) -> str:
         for e in s.get("exercises", []):
             if name_l in (e.get("name", "").lower()):
                 w = e.get("weight", "?"); r = e.get("reps_done", "?")
-                rows.append(f"  {s.get('date','?')}: {w}kg x {r}")
+                note = f"  — note: {e['note']}" if e.get("note") else ""
+                rows.append(f"  {s.get('date','?')}: {w}kg x {r}{note}")
                 try:
                     cur = (float(w), float(str(r).split('-')[0].split()[0]))
                     if best is None or cur > best[0]:

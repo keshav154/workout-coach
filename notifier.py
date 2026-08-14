@@ -6,6 +6,7 @@ Fallback channel: WhatsApp via Twilio.
 
 import logging
 import os
+import time
 
 import requests
 
@@ -51,6 +52,29 @@ def download_telegram_file(file_id: str) -> bytes | None:
         return None
 
 
+def _post_with_retry(url: str, payload: dict, attempts: int = 3) -> bool:
+    """POST with a few retries and backoff — a single transient Telegram API
+    blip or timeout must not silently drop the day's message."""
+    delay = 1.5
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.post(url, json=payload, timeout=15)
+            if r.status_code == 200:
+                return True
+            # 429 / 5xx are worth retrying; 4xx (bad token/chat) are not.
+            if r.status_code not in (429,) and not (500 <= r.status_code < 600):
+                log.error(f"Telegram send failed {r.status_code}: {r.text[:200]} (not retrying)")
+                return False
+            log.warning(f"Telegram send {r.status_code} (attempt {attempt}/{attempts}): {r.text[:150]}")
+        except Exception as e:
+            log.warning(f"Telegram send error (attempt {attempt}/{attempts}): {e}")
+        if attempt < attempts:
+            time.sleep(delay)
+            delay *= 2
+    log.error(f"Telegram send failed after {attempts} attempts")
+    return False
+
+
 def send_telegram(body: str, chat_id: str | None = None) -> bool:
     """Send a Telegram message. Splits messages over Telegram's 4096-char limit."""
     if not body:
@@ -60,20 +84,15 @@ def send_telegram(body: str, chat_id: str | None = None) -> bool:
         log.warning("Telegram not configured; cannot send.")
         return False
     url = TG_API.format(token=TELEGRAM_BOT_TOKEN, method="sendMessage")
-    try:
-        for i in range(0, max(len(body), 1), TG_LIMIT):
-            r = requests.post(url, json={
-                "chat_id": chat_id,
-                "text": body[i:i + TG_LIMIT],
-                "disable_web_page_preview": True,
-            }, timeout=15)
-            if r.status_code != 200:
-                log.error(f"Telegram send failed {r.status_code}: {r.text[:200]}")
-                return False
-        return True
-    except Exception as e:
-        log.error(f"Telegram send error: {e}", exc_info=True)
-        return False
+    for i in range(0, max(len(body), 1), TG_LIMIT):
+        ok = _post_with_retry(url, {
+            "chat_id": chat_id,
+            "text": body[i:i + TG_LIMIT],
+            "disable_web_page_preview": True,
+        })
+        if not ok:
+            return False
+    return True
 
 
 def send_telegram_document(content, filename: str, caption: str = "", chat_id: str | None = None) -> bool:

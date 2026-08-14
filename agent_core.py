@@ -190,7 +190,7 @@ PROGRAM = {
 
 DAY_ROTATION = ["A", "B", "C", "D", "E", "F"]
 
-AVAILABLE_DUMBBELLS = [4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24]
+AVAILABLE_DUMBBELLS = [4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20.5, 22, 24]
 
 
 def warmup_weight_for(working_kg) -> float | None:
@@ -466,28 +466,57 @@ def get_weight_trend(mem: dict) -> str:
             f"{trend} {abs(delta):.1f} kg since {first_date}")
 
 
+# ── Rest days ─────────────────────────────────────────────────────────────────
+def mark_rest_day(date_str: str | None = None) -> str:
+    """Record a deliberate rest day. Returns the date marked."""
+    d = date_str or today_iso()
+    _col("rest_days").update_one({"_id": d}, {"$set": {"date": d}}, upsert=True)
+    return d
+
+
+def unmark_rest_day(date_str: str | None = None) -> None:
+    _col("rest_days").delete_one({"_id": date_str or today_iso()})
+
+
+def is_rest_day(date_str: str | None = None) -> bool:
+    return _col("rest_days").find_one({"_id": date_str or today_iso()}) is not None
+
+
 def get_consecutive_workout_days(log: dict) -> int:
-    """Count strictly consecutive training days ending today or yesterday.
-    The 'yesterday' anchor is a one-time grace (you may not have trained yet
-    today) — after the anchor, any missed day breaks the streak."""
+    """Count consecutive training days ending today or yesterday. Deliberate
+    rest days don't count as training but also don't BREAK the streak — a
+    planned rest between cycles shouldn't wipe your run."""
     dates: set = set()
     for s in log.get("sessions", []):
         try:
             dates.add(datetime.strptime(s.get("date", ""), "%Y-%m-%d").date())
         except (ValueError, TypeError):
             pass
+    rest: set = set()
+    try:
+        for r in _col("rest_days").find():
+            try:
+                rest.add(datetime.strptime(r.get("_id", ""), "%Y-%m-%d").date())
+            except (ValueError, TypeError):
+                pass
+    except Exception:
+        pass
     if not dates:
         return 0
     now = today()
-    if now in dates:
+    # Anchor on the most recent training day at today/yesterday; a rest day
+    # today or yesterday is also an acceptable anchor (streak continues through
+    # the planned rest).
+    if now in dates or now in rest:
         anchor = now
-    elif now - timedelta(days=1) in dates:
+    elif (now - timedelta(days=1)) in dates or (now - timedelta(days=1)) in rest:
         anchor = now - timedelta(days=1)
     else:
-        return 0                      # no session today or yesterday -> no streak
+        return 0
     streak, d = 0, anchor
-    while d in dates:
-        streak += 1
+    while d in dates or d in rest:
+        if d in dates:            # rest days bridge the streak but don't add to it
+            streak += 1
         d -= timedelta(days=1)
     return streak
 
@@ -583,7 +612,7 @@ Ask ONE question at a time, in this order:
 9. Any injuries or body parts to avoid?
 10. Have they been working out recently? (yes / no / used to but stopped)
     - If yes or used to: ask which exercises they were doing and roughly what dumbbell weights they were using.
-      Map their answer to the closest available weights: 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg.
+      Map their answer to the closest available weights: 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20.5, 22, 24 kg.
       Save these as starting weights in recent_weights.
     - If no (complete beginner to weights): set recent_weights as empty, coach will start them light.
 
@@ -616,7 +645,7 @@ If they are a complete beginner with no recent training, set all weights to 0 (c
 
 Then immediately greet them warmly, show their calorie target, protein target, and tell them the 6-day Push/Pull/Legs split that trains every muscle twice a week (A: Push-chest, B: Pull-back, C: Legs-quad, D: Push-shoulders, E: Pull-width+arms, F: Legs-posterior). Tell them to tap "Today's Workout" to begin.
 
-Equipment available: adjustable dumbbells (4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg), incline-decline bench, treadmill.
+Equipment available: adjustable dumbbells (4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20.5, 22, 24 kg), incline-decline bench, treadmill.
 Keep messages short, warm, and encouraging. Mobile-friendly plain text only.
 """
 
@@ -707,7 +736,7 @@ AUTHORITATIVE FACTS (set by the system — these are TRUE, do not contradict or 
 
 TOOLS ARE HOW YOU ACT — you have READ tools and WRITE tools.
 READ tools (query_today_workout, query_workouts, query_exercise, query_weight, query_measurements, query_spending, query_profile, query_memory, generate_spending_review, get_system_status): when you need ANY fact — a past weight, a rep count, session counts, spending totals, a personal best, something from a previous day's conversation — CALL THE TOOL and treat its result as the single source of truth. Never guess a number; fetch it. If a tool result and your memory disagree, the tool is correct.
-WRITE tools (log_workout_session, log_body_weight, log_body_measurement, log_meal_entry, log_expense_entry, save_daily_checkin, set_user_goal, clear_user_goals, set_category_budget, update_training_days, add_habit, log_habit_done, remove_habit, undo_last_action, record_memory_note, record_lesson): when the user reports something that should be saved, CALL THE MATCHING TOOL — do not merely say you logged it. The tool returns SAVED or REJECTED with details: only claim success if it returned SAVED; if REJECTED, tell the user why and ask them to confirm. One message can require several tools (e.g. finished workout + mentions weight + what they ate = log_workout_session + log_body_weight + log_meal_entry).
+WRITE tools (log_workout_session, log_body_weight, log_body_measurement, log_meal_entry, log_expense_entry, save_daily_checkin, set_user_goal, clear_user_goals, set_category_budget, update_training_days, mark_rest_day, add_habit, log_habit_done, remove_habit, undo_last_action, record_memory_note, record_lesson): when the user reports something that should be saved, CALL THE MATCHING TOOL — do not merely say you logged it. The tool returns SAVED or REJECTED with details: only claim success if it returned SAVED; if REJECTED, tell the user why and ask them to confirm. One message can require several tools (e.g. finished workout + mentions weight + what they ate = log_workout_session + log_body_weight + log_meal_entry).
 LEARNING: whenever the user corrects you — wrong day, misread number, wrong intent, anything — call record_lesson with what you got wrong and the generalized rule. This is mandatory, not optional.
 
 USER PROFILE:
@@ -716,7 +745,7 @@ USER PROFILE:
   Diet: {profile['diet']} | Session: {profile['session_min']} min | Activity outside gym: {profile.get('activity_level','sedentary')}
   Injuries: {injuries}
   Equipment: adjustable dumbbells, incline-decline bench, treadmill (the user does NOT have resistance bands — never suggest band exercises)
-  Available dumbbell weights (kg): 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24
+  Available dumbbell weights (kg): 4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20.5, 22, 24
   IMPORTANT: Always recommend weights from the above list only. Never suggest a weight not in this list.
   When progressive overload calls for an increase, pick the next available weight up from the list.
   Calorie target (auto-adjusted): {cal_target} kcal/day
@@ -782,7 +811,7 @@ WORKOUT:
     - Only present the FULL workout listing when: this is the first time it's being shown in the conversation, OR the user explicitly asks to see it again ("show me the workout again", "what's the list").
 - Before presenting the workout (first time only), REASON in your hidden section (before ===REPLY===) exercise by exercise to pick a concrete recommended weight for each one:
     1. Start from last session's weight for that exercise (shown in the program block above as "last: Xkg").
-    2. If they hit the TOP of the rep range last time, progress to the next available dumbbell weight up (4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24 kg). If they fell short, keep the same weight.
+    2. If they hit the TOP of the rep range last time, progress to the next available dumbbell weight up (4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20.5, 22, 24 kg). If they fell short, keep the same weight.
     3. If no history exists, use their onboarding starting weight; if that's 0, pick a sensible beginner weight and say it's a starting estimate to adjust live.
     4. Adjust for context: long gap or low recovery readiness -> drop ~10-15% (round to an available weight); deload week -> ~60%; good recovery and consistent progress -> confident progression.
 - THEN present today's workout: each exercise with sets, rep range, AND the specific recommended weight you reasoned out (only weights from the available list).

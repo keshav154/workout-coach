@@ -40,9 +40,12 @@ def build_daily_nudge() -> str | None:
     if not profile_complete(profile):
         return "Good morning! Open CoachxKeshav to finish your quick setup and get your first workout plan."
 
+    from agent_core import is_rest_day
     workout_log = load_log()
     if _worked_out_today(workout_log):
         return None  # already trained today, don't nag
+    if is_rest_day():
+        return None  # deliberate rest day — don't nag to train
 
     day  = get_next_day(workout_log)
     p    = PROGRAM.get(day, {})
@@ -242,3 +245,84 @@ def _fallback_weekly(name, done, target, weight_trend, spending) -> str:
         f"{spending}\n\n"
         f"Next week: aim for all {target} sessions and keep spending in check!"
     )
+
+
+def weekly_summary_data(week_offset: int = 0) -> dict:
+    """Deterministic (no-LLM) structured recap for a calendar week —
+    week_offset=0 is the current week, 1 the previous, etc. Powers the
+    printable weekly summary; fast and never depends on the model."""
+    from agent_core import _col, get_weight_entries
+    from progression import detect_plateaus, session_volume
+    from nutrition import get_meals
+
+    profile = load_profile() or {}
+    log_doc = load_log()
+    now = today()
+    week_start = now - timedelta(days=now.weekday()) - timedelta(days=7 * week_offset)
+    week_end = week_start + timedelta(days=6)
+
+    def in_week(d: str) -> bool:
+        return week_start.isoformat() <= (d or "") <= week_end.isoformat()
+
+    sessions = [s for s in log_doc.get("sessions", []) if in_week(s.get("date", ""))]
+    session_rows, volume, minutes = [], 0.0, 0
+    for s in sorted(sessions, key=lambda x: x.get("date", "")):
+        v = session_volume(s)
+        volume += v
+        minutes += int(s.get("duration_min") or 0)
+        session_rows.append({
+            "date": s.get("date"), "day": s.get("day"),
+            "name": PROGRAM.get(s.get("day"), {}).get("name", ""),
+            "exercises": len(s.get("exercises", [])),
+            "volume": round(v), "duration": s.get("duration_min"),
+        })
+
+    # Weight change within the week
+    entries = [e for e in get_weight_entries(load_memory()) if in_week(e[0])]
+    weight = None
+    if entries:
+        weight = {"start": entries[0][1], "end": entries[-1][1],
+                  "change": round(entries[-1][1] - entries[0][1], 1)}
+
+    # Nutrition adherence: days a meal was logged, avg kcal/protein on those days
+    meal_days: dict[str, list] = {}
+    for i in range(7):
+        d = (week_start + timedelta(days=i)).isoformat()
+        if d > now.isoformat():
+            continue
+        ms = get_meals(d)
+        if ms:
+            meal_days[d] = ms
+    nutrition = None
+    if meal_days:
+        days = len(meal_days)
+        cal = sum(sum(m.get("calories", 0) for m in ms) for ms in meal_days.values())
+        prot = sum(sum(m.get("protein_g", 0) for m in ms) for ms in meal_days.values())
+        nutrition = {"days_logged": days, "avg_calories": round(cal / days),
+                     "avg_protein": round(prot / days)}
+
+    # Spending in the week
+    spend_total, spend_cats = 0.0, {}
+    for e in _col("expenses").find():
+        if in_week(e.get("date", "")):
+            amt = e.get("amount", 0) or 0
+            spend_total += amt
+            spend_cats[e.get("category", "Other")] = spend_cats.get(e.get("category", "Other"), 0) + amt
+
+    days_per_week = profile.get("days_per_week", 6)
+    return {
+        "name": profile.get("name", ""),
+        "week_start": week_start.isoformat(),
+        "week_end": week_end.isoformat(),
+        "sessions": session_rows,
+        "sessions_done": len(session_rows),
+        "sessions_target": days_per_week,
+        "total_volume": round(volume),
+        "total_minutes": minutes,
+        "weight": weight,
+        "nutrition": nutrition,
+        "plateaus": detect_plateaus(log_doc),
+        "prs": load_memory().get("personal_records", [])[-6:],
+        "spending": {"total": round(spend_total),
+                     "by_category": sorted(spend_cats.items(), key=lambda x: -x[1])},
+    }

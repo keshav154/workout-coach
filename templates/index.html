@@ -534,6 +534,28 @@
     }
     .wk-video:active { color: var(--accent3); border-color: var(--accent3); }
     .wk-warm-line { font-size: 11px; color: var(--accent3); margin: -4px 0 9px; }
+    .wk-deload {
+      background: rgba(255,210,69,0.08); border: 1px solid #ffd245; border-left: 3px solid #ffd245;
+      color: #ffd245; padding: 10px 13px; font-size: 12px; margin-bottom: 13px;
+      font-family: var(--font-body); line-height: 1.5;
+    }
+    .wk-rest-banner {
+      background: rgba(0,212,255,0.08); border: 1px solid var(--accent3); border-left: 3px solid var(--accent3);
+      color: var(--accent3); padding: 10px 13px; font-size: 12px; margin-bottom: 13px;
+      font-family: var(--font-body); line-height: 1.5;
+    }
+    .wk-ex-tag {
+      font-size: 9.5px; padding: 2px 7px; border: 1px solid #ffd245; color: #ffd245;
+      text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0;
+    }
+    .wk-note {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--fg);
+      font-family: var(--font-body); padding: 8px 11px; font-size: 12px; outline: none;
+      margin-top: 6px;
+    }
+    .wk-note:focus { border-color: var(--accent3); }
+    .wk-note::placeholder { color: var(--muted); }
+    .session-ex-note { font-size: 10.5px; color: #ffd245; font-style: italic; padding: 1px 0 4px; }
 
     /* -- Rest timer (Workout mode) -- */
     #rest-timer {
@@ -644,6 +666,41 @@
     .sheet-btn:active { background: var(--muted-bg); border-left-color: var(--accent); }
     .sheet-btn.danger { color: var(--danger); }
     .sheet-btn .ico { font-size: 17px; width: 24px; text-align: center; }
+
+    /* -- Weekly summary overlay -- */
+    #weekly-overlay {
+      display: none; position: fixed; inset: 0; z-index: 400;
+      background: var(--bg); overflow-y: auto;
+      padding: calc(10px + var(--safe-top)) 16px calc(24px + var(--safe-bottom));
+    }
+    #weekly-overlay.open { display: block; }
+    #weekly-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+    #weekly-body { max-width: 640px; margin: 0 auto; }
+    .ws-h1 { font-family: var(--font-head); font-size: 20px; font-weight: 800; letter-spacing: 0.04em; }
+    .ws-sub { color: var(--muted); font-size: 12px; margin: 4px 0 18px; font-family: var(--font-body); }
+    .ws-section { margin-bottom: 20px; }
+    .ws-section h3 {
+      font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase;
+      letter-spacing: 0.14em; margin-bottom: 8px; font-family: var(--font-body);
+    }
+    .ws-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .ws-kpi { background: var(--card); border: 1px solid var(--border); padding: 12px; text-align: center; }
+    .ws-kpi .v { font-family: var(--font-head); font-size: 20px; font-weight: 800; color: var(--accent); }
+    .ws-kpi .l { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+    .ws-row { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; padding: 6px 0; border-bottom: 1px dashed var(--border); font-family: var(--font-body); }
+    .ws-row:last-child { border-bottom: none; }
+    .ws-row .muted { color: var(--muted); }
+    .ws-empty { color: var(--muted); font-size: 12.5px; font-family: var(--font-body); }
+
+    @media print {
+      body > *:not(#weekly-overlay) { display: none !important; }
+      body::before, body::after { display: none !important; }
+      #weekly-overlay { position: static; background: #fff; color: #000; overflow: visible; padding: 0; }
+      #weekly-bar { display: none !important; }
+      .ws-h1, .ws-kpi .v, .ws-section h3 { color: #000 !important; text-shadow: none !important; }
+      .ws-kpi, .ws-row { border-color: #ccc !important; background: #fff !important; }
+      .ws-sub, .ws-row .muted, .ws-kpi .l, .ws-empty { color: #444 !important; }
+    }
 
     /* -- Install banner -- */
     #install-banner {
@@ -820,6 +877,9 @@
       <div id="wk-rotation" class="wk-rotation"></div>
       <div id="wk-preview" class="wk-warmup" style="display:none"></div>
       <div id="wk-status" class="wk-status"></div>
+      <div id="wk-deload" class="wk-deload" style="display:none"></div>
+      <div id="wk-rest-banner" class="wk-rest-banner" style="display:none"></div>
+      <button id="wk-rest-btn" class="wk-sw" onclick="toggleRestDay()">🛌 Mark today a rest day</button>
       <div id="wk-warmup" class="wk-warmup" style="display:none"></div>
       <button id="wk-stopwatch" class="wk-sw" onclick="toggleStopwatch()">▶ Start Session</button>
       <input id="wk-bodyweight" type="number" step="0.1" placeholder="Body weight today (kg) — optional" class="wk-bw" />
@@ -925,6 +985,7 @@
 <div id="sheet-backdrop" onclick="closeSheet()"></div>
 <div id="sheet">
   <div class="sheet-handle"></div>
+  <button class="sheet-btn" onclick="closeSheet(); openWeekly()"><span class="ico">🗓️</span>Weekly summary</button>
   <button class="sheet-btn" onclick="closeSheet(); quickSend('Give me a summary of my month — training, weight and spending')"><span class="ico">🔎</span>Ask about my data</button>
   <button class="sheet-btn" onclick="closeSheet(); quickSend('Is everything working? Run a system status check')"><span class="ico">🩺</span>System status</button>
   <button class="sheet-btn" onclick="closeSheet(); deleteLastSession()"><span class="ico">↩️</span>Undo last log</button>
@@ -933,6 +994,18 @@
   <button class="sheet-btn" onclick="closeSheet(); exportCsv('expenses')"><span class="ico">📄</span>Export expenses CSV</button>
   <button class="sheet-btn" onclick="closeSheet(); resetChat()"><span class="ico">✨</span>New session</button>
   <button class="sheet-btn danger" onclick="closeSheet(); resetProfile()"><span class="ico">🗑️</span>Reset profile</button>
+</div>
+
+<!-- Weekly summary overlay (printable) -->
+<div id="weekly-overlay">
+  <div id="weekly-bar">
+    <button class="wk-sw" style="flex:0 0 auto;margin:0" onclick="changeWeek(1)">‹ Prev</button>
+    <button class="wk-sw" style="flex:0 0 auto;margin:0" id="weekly-next" onclick="changeWeek(-1)">Next ›</button>
+    <div style="flex:1"></div>
+    <button class="wk-sw" style="flex:0 0 auto;margin:0;border-color:var(--accent3);color:var(--accent3)" onclick="window.print()">🖨 Print</button>
+    <button class="wk-sw" style="flex:0 0 auto;margin:0;border-color:var(--danger);color:var(--danger)" onclick="closeWeekly()">✕ Close</button>
+  </div>
+  <div id="weekly-body"></div>
 </div>
 
 <script>
@@ -1076,6 +1149,32 @@
       if (d.warmup) { wu.innerHTML = '<b>🔥 WARM-UP:</b> ' + esc(d.warmup); wu.style.display = 'block'; }
       else wu.style.display = 'none';
 
+      // Deload week banner
+      const dl = document.getElementById('wk-deload');
+      const auto = d.autodeload || [];
+      if (d.deload || auto.length) {
+        let m = '';
+        if (d.deload) m += '🔄 <b>Deload week</b> — use ~60% of your normal weights, same sets/reps. Helps you recover and come back stronger.';
+        if (auto.length) m += (m ? '<br>' : '') + '📉 Scheduled deload for: ' + esc(auto.join(', ')) + ' — drop ~10% on these (they had plateaued).';
+        dl.innerHTML = m; dl.style.display = 'block';
+      } else dl.style.display = 'none';
+
+      // Rest-day state + suggestion
+      const rb = document.getElementById('wk-rest-banner');
+      const rbtn = document.getElementById('wk-rest-btn');
+      wkRestDay = !!d.rest_day;
+      if (d.rest_day) {
+        rb.innerHTML = '🛌 <b>Rest day</b> — logged for today. Recovery is where the gains happen. Your streak stays intact.';
+        rb.style.display = 'block';
+        rbtn.textContent = '↩ Undo rest day';
+      } else {
+        rbtn.textContent = '🛌 Mark today a rest day';
+        if (d.rest_suggested) {
+          rb.innerHTML = `🛌 You've trained ${esc(d.consecutive_days)} days straight — a rest day is well earned before restarting the cycle.`;
+          rb.style.display = 'block';
+        } else rb.style.display = 'none';
+      }
+
       wrap.innerHTML = '';
       d.exercises.forEach((ex, i) => {
         const last = (ex.last_weight != null) ? `last: ${ex.last_weight}kg x ${ex.last_reps ?? '?'}` : 'first time';
@@ -1094,6 +1193,7 @@
         const swap = (ex.alternatives || []).length
           ? `<button class="wk-swap" title="Swap exercise" onclick="swapExercise(${i})">⇄</button>` : '';
         const video = `<a class="wk-video" href="${ytSearchUrl(ex.name)}" target="_blank" rel="noopener" title="Watch form">▶</a>`;
+        const deloadTag = (auto.includes(ex.name)) ? `<span class="wk-ex-tag">deload</span>` : '';
         const warm = ex.warmup_weight
           ? `<div class="wk-warm-line">Warm-up first: 12-15 easy reps @ ${esc(ex.warmup_weight)}kg (don't log it)</div>` : '';
         const hist = (ex.history || []).length
@@ -1105,15 +1205,29 @@
         div.dataset.name = ex.name;
         div.dataset.orig = ex.name;
         div.innerHTML = `
-          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${video}${swap}</div>
+          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${deloadTag}${video}${swap}</div>
           <div class="wk-ex-meta">${esc(target)} · ${esc(last)}</div>
           ${hist}
           ${warm}
-          ${rows}`;
+          ${rows}
+          <input class="wk-note" data-ex="${i}" maxlength="200" placeholder="Note (optional) — e.g. left shoulder felt tight" />`;
         if (hist) div.querySelector('.wk-ex-name').onclick = () => div.classList.toggle('hist-open');
         wrap.appendChild(div);
       });
     } catch { title.textContent = 'Could not load today\'s workout.'; }
+  }
+
+  let wkRestDay = false;
+  async function toggleRestDay() {
+    const btn = document.getElementById('wk-rest-btn');
+    btn.disabled = true;
+    try {
+      const r = await (await fetchRetry('/rest_day', { method: 'POST', headers: authHeaders() })).json();
+      wkDay = null;               // force a re-render with the new state
+      await loadWorkout(true);
+      loadStatsBar();
+    } catch { alert('Network error — try again.'); }
+    btn.disabled = false;
   }
 
   function ytSearchUrl(name) {
@@ -1121,7 +1235,7 @@
   }
 
   // ── Weight / reps dropdown builders ──
-  const DUMBBELLS = [4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20, 22, 24];
+  const DUMBBELLS = [4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20.5, 22, 24];
   function weightOptions(preset) {
     const vals = [...DUMBBELLS];
     if (preset != null && preset > 0 && !vals.includes(preset)) {
@@ -1202,7 +1316,9 @@
         const r = parseInt(row.querySelector('.wk-r').value, 10);
         if (!isNaN(w) || !isNaN(r)) sets.push({ weight: isNaN(w) ? 0 : w, reps: isNaN(r) ? 0 : r });
       });
-      if (sets.length) exercises.push({ name: exEl.dataset.name, sets });
+      const noteEl = exEl.querySelector('.wk-note');
+      const note = noteEl ? noteEl.value.trim() : '';
+      if (sets.length) exercises.push({ name: exEl.dataset.name, sets, note });
     });
     if (!exercises.length) { alert('Fill in at least one set.'); return; }
 
@@ -1607,7 +1723,8 @@
           const sets = (e.sets && e.sets.length)
             ? e.sets.map(x => `${x.weight ?? 0}kg x ${x.reps ?? 0}`).join('  ·  ')
             : `${e.weight ?? '?'}kg x ${e.reps ?? '?'}`;
-          return `<div class="session-ex"><span>${esc(e.name)}</span><span>${esc(sets)}</span></div>`;
+          const note = e.note ? `<div class="session-ex-note">✎ ${esc(e.note)}</div>` : '';
+          return `<div class="session-ex"><span>${esc(e.name)}</span><span>${esc(sets)}</span></div>${note}`;
         }).join('');
         item.innerHTML = `<div class="session-row"><div><div class="session-day">Day ${esc(s.day)} — ${esc(s.name)}</div>
             <div class="session-date">${esc(s.date)}${s.weight ? ' · ' + esc(s.weight) + ' kg' : ''}${s.duration ? ' · ' + esc(s.duration) + ' min' : ''}</div></div>
@@ -1797,6 +1914,69 @@
       a.click();
       URL.revokeObjectURL(a.href);
     } catch { alert('Export failed — try again.'); }
+  }
+
+  // ── Weekly summary (printable) ──
+  let weekOffset = 0;
+  function openWeekly() { weekOffset = 0; document.getElementById('weekly-overlay').classList.add('open'); renderWeekly(); }
+  function closeWeekly() { document.getElementById('weekly-overlay').classList.remove('open'); }
+  function changeWeek(delta) {
+    weekOffset = Math.max(0, weekOffset + delta);
+    document.getElementById('weekly-next').disabled = (weekOffset === 0);
+    renderWeekly();
+  }
+  async function renderWeekly() {
+    const body = document.getElementById('weekly-body');
+    body.innerHTML = '<div class="ws-empty">Loading…</div>';
+    let d;
+    try { d = await (await fetchRetry('/weekly_summary?offset=' + weekOffset, { headers: authHeaders() })).json(); }
+    catch { body.innerHTML = '<div class="ws-empty">Could not load — try again.</div>'; return; }
+
+    const label = weekOffset === 0 ? 'This week' : weekOffset === 1 ? 'Last week' : `${weekOffset} weeks ago`;
+    let html = `<div class="ws-h1">Weekly Summary${d.name ? ' — ' + esc(d.name) : ''}</div>
+      <div class="ws-sub">${esc(label)} · ${esc(d.week_start)} to ${esc(d.week_end)}</div>`;
+
+    html += `<div class="ws-section"><div class="ws-kpis">
+        <div class="ws-kpi"><div class="v">${d.sessions_done}/${d.sessions_target}</div><div class="l">Workouts</div></div>
+        <div class="ws-kpi"><div class="v">${(d.total_volume||0).toLocaleString()}</div><div class="l">kg lifted</div></div>
+        <div class="ws-kpi"><div class="v">${d.total_minutes||0}</div><div class="l">minutes</div></div>
+      </div></div>`;
+
+    html += `<div class="ws-section"><h3>Sessions</h3>`;
+    if (d.sessions.length) {
+      html += d.sessions.map(s => `<div class="ws-row"><span>${esc(s.date)} · Day ${esc(s.day)} ${esc(s.name)}</span>
+        <span class="muted">${esc(s.exercises)} ex · ${(s.volume||0).toLocaleString()} kg${s.duration ? ' · ' + esc(s.duration) + ' min' : ''}</span></div>`).join('');
+    } else html += '<div class="ws-empty">No sessions logged this week.</div>';
+    html += `</div>`;
+
+    if (d.weight) {
+      const arrow = d.weight.change < 0 ? '▼' : d.weight.change > 0 ? '▲' : '–';
+      html += `<div class="ws-section"><h3>Body weight</h3>
+        <div class="ws-row"><span>${d.weight.start} kg → ${d.weight.end} kg</span>
+        <span class="muted">${arrow} ${Math.abs(d.weight.change)} kg this week</span></div></div>`;
+    }
+    if (d.nutrition) {
+      html += `<div class="ws-section"><h3>Nutrition</h3>
+        <div class="ws-row"><span>Logged ${d.nutrition.days_logged} day(s)</span>
+        <span class="muted">avg ${d.nutrition.avg_calories} kcal · ${d.nutrition.avg_protein} g protein</span></div></div>`;
+    }
+    if ((d.prs || []).length) {
+      html += `<div class="ws-section"><h3>Recent PRs</h3>` +
+        d.prs.map(p => `<div class="ws-row"><span>🏆 ${esc(p)}</span></div>`).join('') + `</div>`;
+    }
+    if ((d.plateaus || []).length) {
+      html += `<div class="ws-section"><h3>Plateaus to address</h3>` +
+        d.plateaus.map(p => `<div class="ws-row"><span>📉 ${esc(p)}</span></div>`).join('') + `</div>`;
+    }
+    html += `<div class="ws-section"><h3>Spending</h3>`;
+    if (d.spending.total) {
+      html += `<div class="ws-row"><span>Total</span><span class="muted">Rs ${d.spending.total.toLocaleString('en-IN')}</span></div>`;
+      html += d.spending.by_category.map(([c, v]) =>
+        `<div class="ws-row"><span>${esc(c)}</span><span class="muted">Rs ${Math.round(v).toLocaleString('en-IN')}</span></div>`).join('');
+    } else html += '<div class="ws-empty">No spending logged this week.</div>';
+    html += `</div>`;
+
+    body.innerHTML = html;
   }
 
   async function loadRecords() {

@@ -33,7 +33,8 @@ from messaging import (
 from reports import build_daily_nudge, build_weekly_report
 from notifier import download_telegram_file, notify, send_telegram, send_telegram_document
 from alerts import run_checks
-from monitor import alert_admin, get_status, job_done, mark_job_done, record_event
+from monitor import (alert_admin, clear_notify_failure, get_status, job_done,
+                     mark_job_done, record_event, record_notify_failure)
 from trust import export_all
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -126,7 +127,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v9';
+const CACHE = 'coachxkeshav-v10';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -250,6 +251,7 @@ def stats():
             "detail":    [{"name":   e.get("name"),
                            "weight": e.get("weight"),
                            "reps":   e.get("reps_done"),
+                           "note":   e.get("note"),
                            "sets":   e.get("sets") if isinstance(e.get("sets"), list) else None}
                           for e in s.get("exercises", [])],
         })
@@ -334,13 +336,34 @@ def today_program():
                         "last_weight": prev0.get("weight") if prev0 else None})
         week.append({"day": d0, "name": pd["name"], "focus": pd["focus"], "exercises": exs})
 
+    from agent_core import (get_consecutive_workout_days, is_rest_day,
+                            should_suggest_deload)
+    from progression import get_autodeload_flags
+    consec = get_consecutive_workout_days(workout_log)
     return jsonify({"ready": True, "day": day, "name": p.get("name", ""),
                     "today": today_iso(), "last_logged": last_logged,
                     "warmup": p.get("warmup", ""),
                     "rotation": [{"day": d0, "name": PROGRAM[d0]["name"]}
                                  for d0 in DAY_ROTATION],
                     "week": week,
+                    "deload": should_suggest_deload(workout_log),
+                    "autodeload": get_autodeload_flags(),
+                    "rest_day": is_rest_day(),
+                    "rest_suggested": consec >= 6,
+                    "consecutive_days": consec,
                     "exercises": exercises})
+
+
+@flask_app.route("/rest_day", methods=["POST"])
+@require_auth
+def rest_day_route():
+    """Toggle today as a rest day from the Workout tab."""
+    from agent_core import is_rest_day, mark_rest_day, unmark_rest_day
+    if is_rest_day():
+        unmark_rest_day()
+        return jsonify({"ok": True, "rest_day": False})
+    mark_rest_day()
+    return jsonify({"ok": True, "rest_day": True})
 
 
 @flask_app.route("/chart_data")
@@ -625,6 +648,18 @@ def export_csv():
     }
 
 
+@flask_app.route("/weekly_summary")
+@require_auth
+def weekly_summary():
+    """Deterministic weekly recap data for the printable summary view."""
+    from reports import weekly_summary_data
+    try:
+        offset = max(0, min(52, int(request.args.get("offset", "0"))))
+    except (TypeError, ValueError):
+        offset = 0
+    return jsonify(weekly_summary_data(offset))
+
+
 @flask_app.route("/records")
 @require_auth
 def records():
@@ -814,6 +849,9 @@ def log_workout():
         else:
             item["weight"]    = float(e.get("weight") or 0)
             item["reps_done"] = int(float(e.get("reps_done") or 0))
+        note = str(e.get("note") or "").strip()[:200]
+        if note:
+            item["note"] = note
         exercises.append(item)
 
     session = {"day": day, "date": today_iso(), "exercises": exercises}
@@ -956,9 +994,11 @@ def cron_daily():
     sent = notify(msg)
     if sent:
         mark_job_done("cron_daily")
+        clear_notify_failure()
         log.info("Daily cron: nudge sent")
         return jsonify({"sent": True, "message": msg})
     from notifier import notify_config
+    record_notify_failure("cron_daily", notify_config().get("hint", "send failed"))
     log.warning("Daily cron: notify FAILED — channel not configured or send error")
     return jsonify({"sent": False, "reason": "notify failed — check notification config",
                     "notify_config": notify_config(), "message": msg})

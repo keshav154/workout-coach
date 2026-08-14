@@ -19,6 +19,7 @@ from agent_core import (
     load_log,
     load_memory,
     load_profile,
+    mark_rest_day as _mark_rest_day,
     save_memory,
     save_profile,
     save_session,
@@ -115,6 +116,11 @@ WRITE_TOOLS = [
     {"type": "function", "function": {
         "name": "undo_last_action",
         "description": "Reverse the most recently logged item (session or expense). Only when the user asks to undo/remove/delete the last thing.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "mark_rest_day",
+        "description": "Record TODAY as a deliberate rest day when the user says they're resting / taking a rest day / not training today. Suppresses the workout nudge and keeps their streak intact.",
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
@@ -307,6 +313,11 @@ def make_write_tools(ctx: dict) -> dict:
         ctx.setdefault("notes", []).append("↩️ " + result)
         return result
 
+    def mark_rest_day() -> str:
+        d = _mark_rest_day()
+        ctx.setdefault("notes", []).append("🛌 Rest day logged.")
+        return f"SAVED: {d} marked as a rest day. Enjoy the recovery — your streak stays intact."
+
     def _habit_names() -> list[str]:
         return [d["_id"] for d in _col("habits").find()]
 
@@ -381,6 +392,7 @@ def make_write_tools(ctx: dict) -> dict:
         "set_category_budget":  set_category_budget,
         "update_training_days": update_training_days,
         "undo_last_action":     undo_last_action,
+        "mark_rest_day":        mark_rest_day,
         "add_habit":            add_habit,
         "log_habit_done":       log_habit_done,
         "remove_habit":         remove_habit,
