@@ -534,6 +534,11 @@
     }
     .wk-video:active { color: var(--accent3); border-color: var(--accent3); }
     .wk-warm-line { font-size: 11px; color: var(--accent3); margin: -4px 0 9px; }
+    .wk-prog-line { font-size: 11.5px; font-weight: 600; margin: 2px 0 8px; font-family: var(--font-body); }
+    .wk-prog-weight_up { color: var(--accent); }
+    .wk-prog-rep_up    { color: var(--accent3); }
+    .wk-prog-deload    { color: #ffd245; }
+    .wk-prog-max, .wk-prog-same { color: var(--muted); }
     .wk-deload {
       background: rgba(255,210,69,0.08); border: 1px solid #ffd245; border-left: 3px solid #ffd245;
       color: #ffd245; padding: 10px 13px; font-size: 12px; margin-bottom: 13px;
@@ -1178,10 +1183,14 @@
       wrap.innerHTML = '';
       d.exercises.forEach((ex, i) => {
         const last = (ex.last_weight != null) ? `last: ${ex.last_weight}kg x ${ex.last_reps ?? '?'}` : 'first time';
+        const sug = ex.suggestion;
+        // Autofill Set 1 with the progression-suggested weight (falls back to
+        // last weight); the reps target is shown as a hint, not pre-filled.
+        const presetW = sug ? sug.weight : (ex.last_weight != null ? ex.last_weight : null);
         const nSets = ex.scheme ? 1 : (ex.sets || 3);
         let rows = '';
         for (let s = 0; s < nSets; s++) {
-          const preset = (s === 0 && ex.last_weight != null) ? ex.last_weight : null;
+          const preset = (s === 0) ? presetW : null;
           rows += `
             <div class="wk-set-row">
               <span class="wk-set-label">${ex.scheme ? '' : 'Set ' + (s + 1)}</span>
@@ -1194,6 +1203,7 @@
           ? `<button class="wk-swap" title="Swap exercise" onclick="swapExercise(${i})">⇄</button>` : '';
         const video = `<a class="wk-video" href="${ytSearchUrl(ex.name)}" target="_blank" rel="noopener" title="Watch form">▶</a>`;
         const deloadTag = (auto.includes(ex.name)) ? `<span class="wk-ex-tag">deload</span>` : '';
+        const prog = sug ? `<div class="wk-prog-line wk-prog-${esc(sug.kind)}">🎯 ${esc(sug.reason)}</div>` : '';
         const warm = ex.warmup_weight
           ? `<div class="wk-warm-line">Warm-up first: 12-15 easy reps @ ${esc(ex.warmup_weight)}kg (don't log it)</div>` : '';
         const hist = (ex.history || []).length
@@ -1207,6 +1217,7 @@
         div.innerHTML = `
           <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${deloadTag}${video}${swap}</div>
           <div class="wk-ex-meta">${esc(target)} · ${esc(last)}</div>
+          ${prog}
           ${hist}
           ${warm}
           ${rows}
@@ -1282,6 +1293,10 @@
     const last = (ex.last_weight != null) ? `last: ${ex.last_weight}kg x ${ex.last_reps ?? '?'}` : 'first time';
     card.querySelector('.wk-ex-meta').textContent =
       next === card.dataset.orig ? `${target} · ${last}` : `${target} · ⇄ swapped in for ${card.dataset.orig}`;
+    // The progression suggestion is specific to the original lift — hide it
+    // while a different exercise is swapped in.
+    const prog = card.querySelector('.wk-prog-line');
+    if (prog) prog.style.display = (next === card.dataset.orig) ? '' : 'none';
   }
 
   // ── Session stopwatch ──

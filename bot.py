@@ -127,7 +127,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v10';
+const CACHE = 'coachxkeshav-v11';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -278,9 +278,9 @@ def stats():
 @flask_app.route("/today_program")
 @require_auth
 def today_program():
-    from agent_core import (DAY_ROTATION, get_last_session_for_day, today_iso,
-                            warmup_weight_for)
-    from progression import alternatives_for
+    from agent_core import (DAY_ROTATION, get_last_session_for_day,
+                            should_suggest_deload, today_iso, warmup_weight_for)
+    from progression import alternatives_for, get_autodeload_flags, suggest_next
     profile = load_profile()
     if not profile_complete(profile):
         return jsonify({"ready": False})
@@ -288,6 +288,8 @@ def today_program():
     day  = get_next_day(workout_log)
     p    = PROGRAM.get(day, {})
     last = get_last_session_for_day(workout_log, day)
+    deload_week = should_suggest_deload(workout_log)
+    autoflags   = set(get_autodeload_flags())
 
     # Rotation status: the most recent session by date (for the status line)
     sessions = workout_log.get("sessions", [])
@@ -310,6 +312,11 @@ def today_program():
                              "reps": e.get("reps_done")})
             if len(hist) >= 5:
                 break
+        ex_deload = deload_week or ex["name"] in autoflags
+        suggestion = suggest_next(ex["rep_range"],
+                                  prev.get("weight") if prev else None,
+                                  prev.get("reps_done") if prev else None,
+                                  deload=ex_deload)
         exercises.append({
             "name":          ex["name"],
             "sets":          ex["sets"],
@@ -317,8 +324,10 @@ def today_program():
             "scheme":        ex.get("scheme"),
             "last_weight":   prev.get("weight") if prev else None,
             "last_reps":     prev.get("reps_done") if prev else None,
-            "warmup_weight": warmup_weight_for(prev.get("weight") if prev else None),
+            "warmup_weight": warmup_weight_for((suggestion or {}).get("weight")
+                                               if suggestion else (prev.get("weight") if prev else None)),
             "alternatives":  alternatives_for(ex["name"]),
+            "suggestion":    suggestion,
             "history":       hist,
         })
     # Week-ahead preview: every rotation day with its exercises + last weights,

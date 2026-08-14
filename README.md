@@ -6,7 +6,8 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 
 - **6-day Push/Pull/Legs x2 split**: every muscle trained twice a week (A: Push-chest, B: Pull-back, C: Legs-quad, D: Push-shoulders, E: Pull-width+arms, F: Legs-posterior)
 - **Agentic coach**: the LLM reads real data and writes through validated tools (log sessions, weight, meals, expenses, goals, budgets, check-ins, undo) — never just "says" it logged something
-- **Progressive overload**: suggests the next dumbbell up from your exact set when you hit the top of a rep range; plateau detection with automatic scheduled deloads
+- **Progressive overload (double progression)**: the Workout tab pre-fills each set with the suggested weight and shows a hint — add reps at the same weight until you hit the top of the range, then it bumps you to the next dumbbell and resets reps. Adding reps or sets counts as progress, not a plateau
+- **Rep/volume-aware plateau detection**: a lift is only flagged as plateaued when neither estimated 1RM (weight *or* reps) nor volume (sets) improved over the last 3 sessions — so more reps or more sets clears it. Auto-scheduled deloads for genuine plateaus
 - **Workout mode**: per-set logging UI with last-session weights pre-filled, PR detection and confetti, a rest timer (60/90/120s with vibration + beep), the day's warm-up routine plus computed warm-up sets (~55% of working weight), one-tap exercise swaps to equipment-appropriate alternatives, a session stopwatch that logs workout duration, and an A–F rotation strip
 - **Record wall**: best weight x reps per exercise on the Progress tab
 - **Instant Progress/Goals**: the Coach tab's "My Progress" and "My Goals" quick actions jump straight to the Progress tab's real numbers (streaks, plateaus, goal % bars) instead of asking the LLM and waiting on a reply

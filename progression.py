@@ -4,10 +4,11 @@ weak-point spotting, and exercise-swap suggestions.
 """
 
 import logging
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from agent_core import _col, _num, load_log, today
+from agent_core import AVAILABLE_DUMBBELLS, _col, _num, load_log, today
 
 log = logging.getLogger(__name__)
 
@@ -66,39 +67,130 @@ def weekly_volume(log: dict | None = None) -> dict:
     return {"this_week": round(this_wk), "last_week": round(last_wk)}
 
 
-def _plateau_exercise_weights(log: dict, lookback: int) -> dict[str, list[float]]:
-    by_ex: dict[str, list[float]] = defaultdict(list)
+def epley_1rm(weight: float, reps: float) -> float:
+    """Estimated 1-rep max (Epley). Captures BOTH heavier weight and more reps
+    as progress, so adding reps at the same weight counts as an improvement."""
+    w, r = _num(weight), _num(reps)
+    return w * (1 + r / 30.0) if w > 0 and r > 0 else 0.0
+
+
+def _exercise_best_and_volume(e: dict) -> tuple[float, float, float, float]:
+    """For one logged exercise: (best_e1rm, best_weight, best_reps, total_volume).
+    Uses per-set detail when present (workout mode), else the summary set."""
+    sets = e.get("sets")
+    if isinstance(sets, list) and sets:
+        best_w, best_r, best_e1, vol = 0.0, 0.0, 0.0, 0.0
+        for s in sets:
+            w, r = _num(s.get("weight")), _num(s.get("reps"))
+            vol += w * r
+            e1 = epley_1rm(w, r)
+            if e1 > best_e1:
+                best_e1, best_w, best_r = e1, w, r
+        return best_e1, best_w, best_r, vol
+    w, r = _num(e.get("weight")), _num(e.get("reps_done"))
+    return epley_1rm(w, r), w, r, w * r
+
+
+def _plateau_series(log: dict) -> dict[str, list[dict]]:
+    """Per exercise, one entry per session it appeared in, capturing best e1RM,
+    the top set, and the total volume for that exercise that session."""
+    by_ex: dict[str, list[dict]] = defaultdict(list)
     for s in log.get("sessions", []):
-        seen = {}
+        per: dict[str, dict] = {}
         for e in s.get("exercises", []):
             name = e.get("name")
             if not name:
                 continue
-            seen[name] = max(seen.get(name, 0), _num(e.get("weight")))
-        for name, w in seen.items():
-            if w > 0:
-                by_ex[name].append(w)
+            e1, w, r, vol = _exercise_best_and_volume(e)
+            cur = per.get(name)
+            if cur is None:
+                per[name] = {"e1rm": e1, "weight": w, "reps": r, "vol": vol}
+            else:                       # same exercise logged twice in a session
+                cur["vol"] += vol
+                if e1 > cur["e1rm"]:
+                    cur.update(e1rm=e1, weight=w, reps=r)
+        for name, d in per.items():
+            if d["weight"] > 0:
+                by_ex[name].append(d)
     return by_ex
 
 
+def _is_plateau(series: list[dict], lookback: int) -> bool:
+    """A plateau only if NEITHER estimated-1RM (weight or reps) NOR volume
+    (sets) improved across the window — so more reps or more sets clears it."""
+    if len(series) < lookback:
+        return False
+    window = series[-lookback:]
+    eps = 1e-6
+    e1_improved = window[-1]["e1rm"] > window[0]["e1rm"] + eps
+    vol_improved = window[-1]["vol"] > window[0]["vol"] + eps
+    return not (e1_improved or vol_improved)
+
+
 def detect_plateaus(log: dict | None = None, lookback: int = 3) -> list[str]:
-    """Human-readable plateau lines: exercises whose top working weight hasn't
-    increased over the last `lookback` sessions in which they appeared."""
+    """Human-readable plateau lines: exercises with no strength (weight/reps)
+    OR volume (sets) gain over the last `lookback` sessions they appeared in."""
     log = log or load_log()
-    by_ex = _plateau_exercise_weights(log, lookback)
     plateaus = []
-    for name, weights in by_ex.items():
-        if len(weights) >= lookback and weights[-lookback:][-1] <= weights[-lookback:][0]:
-            plateaus.append(f"{name} (stuck at {weights[-1]:g}kg for {lookback} sessions)")
+    for name, series in _plateau_series(log).items():
+        if _is_plateau(series, lookback):
+            last = series[-1]
+            plateaus.append(f"{name} (no strength or volume gain in {lookback} "
+                            f"sessions — top set {last['weight']:g}kg x {last['reps']:g})")
     return plateaus
 
 
 def detect_plateau_exercise_names(log: dict | None = None, lookback: int = 3) -> list[str]:
     """Bare exercise names currently plateaued (for autonomous deload flagging)."""
     log = log or load_log()
-    by_ex = _plateau_exercise_weights(log, lookback)
-    return [name for name, weights in by_ex.items()
-            if len(weights) >= lookback and weights[-lookback:][-1] <= weights[-lookback:][0]]
+    return [name for name, series in _plateau_series(log).items()
+            if _is_plateau(series, lookback)]
+
+
+# ── Progressive-overload suggestion (double progression) ──────────────────────
+def _rep_bounds(rep_range) -> tuple[int, int]:
+    """(bottom, top) rep targets from '8-12', '10 each', '15', '15-20'."""
+    nums = re.findall(r"\d+", str(rep_range))
+    if not nums:
+        return (8, 12)
+    if len(nums) == 1:
+        return (int(nums[0]), int(nums[0]))
+    return (int(nums[0]), int(nums[1]))
+
+
+def next_dumbbell_up(weight: float) -> float | None:
+    for a in AVAILABLE_DUMBBELLS:
+        if a > _num(weight) + 1e-9:
+            return a
+    return None                          # already at the heaviest dumbbell
+
+
+def suggest_next(rep_range, last_weight, last_reps, deload: bool = False) -> dict | None:
+    """Double progression: keep the weight and add reps until the top of the
+    range, then move up a dumbbell and reset to the bottom of the range.
+    Returns {weight, target_reps, reason, kind} or None when there's no history."""
+    lw = _num(last_weight)
+    if lw <= 0:
+        return None
+    bottom, top = _rep_bounds(rep_range)
+    if deload:
+        target = lw * 0.9
+        lighter = [a for a in AVAILABLE_DUMBBELLS if a <= target] or [AVAILABLE_DUMBBELLS[0]]
+        return {"weight": lighter[-1], "target_reps": top, "kind": "deload",
+                "reason": f"scheduled deload — ~10% lighter than {lw:g}kg"}
+    lr = _num(last_reps)
+    if lr >= top:
+        up = next_dumbbell_up(lw)
+        if up:
+            return {"weight": up, "target_reps": bottom, "kind": "weight_up",
+                    "reason": f"↑ up to {up:g}kg — you hit {lr:g} reps at {lw:g}kg last time"}
+        return {"weight": lw, "target_reps": top, "kind": "max",
+                "reason": "already at your heaviest dumbbell — add reps or a set"}
+    if lr > 0:
+        return {"weight": lw, "target_reps": min(lr + 1, top), "kind": "rep_up",
+                "reason": f"same {lw:g}kg — aim for {int(lr) + 1}+ reps (last {lr:g})"}
+    return {"weight": lw, "target_reps": bottom, "kind": "same",
+            "reason": f"around {lw:g}kg"}
 
 
 # ── Autonomous plateau intervention (auto-deload flags) ───────────────────────
