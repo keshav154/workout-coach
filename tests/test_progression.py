@@ -67,9 +67,13 @@ def test_suggest_at_max_dumbbell():
     assert s["kind"] == "max" and s["weight"] == 24
 
 
-def test_suggest_deload():
-    s = suggest_next("8-12", last_weight=20.5, last_reps=12, deload=True)
-    assert s["kind"] == "deload" and s["weight"] <= 18   # ~10% down, rounded
+def test_suggest_deload_week_vs_plateau_factor():
+    # Deload WEEK ~60% of normal (much lighter than a plateau's ~10% touch).
+    week = suggest_next("8-12", last_weight=20.5, last_reps=12, deload_factor=0.6)
+    assert week["kind"] == "deload" and week["weight"] <= 13.5   # ~60% of 20.5
+    plateau = suggest_next("8-12", last_weight=20.5, last_reps=12, deload_factor=0.9)
+    assert plateau["kind"] == "deload" and plateau["weight"] == 18   # ~10% down
+    assert week["weight"] < plateau["weight"]
 
 
 def test_suggest_none_without_history():

@@ -127,7 +127,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v11';
+const CACHE = 'coachxkeshav-v12';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -312,11 +312,13 @@ def today_program():
                              "reps": e.get("reps_done")})
             if len(hist) >= 5:
                 break
-        ex_deload = deload_week or ex["name"] in autoflags
+        # Deload week = ~60% of normal (banner says so); a per-exercise plateau
+        # flag is a lighter ~10% touch. Week takes precedence when both apply.
+        deload_factor = 0.6 if deload_week else (0.9 if ex["name"] in autoflags else None)
         suggestion = suggest_next(ex["rep_range"],
                                   prev.get("weight") if prev else None,
                                   prev.get("reps_done") if prev else None,
-                                  deload=ex_deload)
+                                  deload_factor=deload_factor)
         exercises.append({
             "name":          ex["name"],
             "sets":          ex["sets"],
@@ -704,12 +706,51 @@ def nutrition_data():
         cal_t, prot_t = effective_calorie_target(profile, targets), targets["protein_target_g"]
     else:
         cal_t = prot_t = 0
+    totals = today_totals()
+    gap = prot_t - totals["protein_g"]
+    protein_fix = None
+    if prot_t and gap >= 12:            # meaningfully short on protein today
+        protein_fix = {"gap": round(gap), "options": _protein_options(gap)}
     return jsonify({
-        "meals":   get_meals(),
-        "totals":  today_totals(),
-        "targets": {"calories": cal_t, "protein_g": prot_t},
-        "week":    week_series(),
+        "meals":       get_meals(),
+        "totals":      totals,
+        "targets":     {"calories": cal_t, "protein_g": prot_t},
+        "week":        week_series(),
+        "protein_fix": protein_fix,
     })
+
+
+# Indian veg high-protein options (name, kcal, protein g) for closing a gap.
+_PROTEIN_FOODS = [
+    ("Paneer bhurji (150g)", 400, 30),
+    ("Soya chunks sabzi (50g dry)", 180, 26),
+    ("Protein shake (1 scoop)", 120, 24),
+    ("Rajma chawal", 450, 16),
+    ("Tofu bhurji (150g)", 180, 16),
+    ("Moong dal chilla (2 pcs)", 250, 14),
+    ("Curd + sprouts", 200, 14),
+    ("Greek curd (200g)", 130, 18),
+]
+
+
+def _protein_options(gap: float) -> list[dict]:
+    """1-2 suggestions that roughly close the protein gap without overshooting
+    calories more than needed."""
+    picks = []
+    # Prefer a single item that covers most of the gap; else pair two.
+    single = min((f for f in _PROTEIN_FOODS if f[2] >= gap * 0.8),
+                 key=lambda f: f[1], default=None)
+    if single:
+        picks = [single]
+    else:
+        ordered = sorted(_PROTEIN_FOODS, key=lambda f: -f[2])
+        total, chosen = 0, []
+        for f in ordered:
+            chosen.append(f); total += f[2]
+            if total >= gap or len(chosen) >= 2:
+                break
+        picks = chosen[:2]
+    return [{"name": n, "calories": c, "protein_g": p} for n, c, p in picks]
 
 
 @flask_app.route("/money_data")
@@ -923,6 +964,111 @@ def delete_last_session():
     _col("workout_log").update_one({"_id": "log"}, {"$set": {"sessions": sessions}})
     return jsonify({"ok": True, "modified": 1,
                     "removed": {"date": removed.get("date"), "day": removed.get("day")}})
+
+
+@flask_app.route("/update_session", methods=["POST"])
+@require_auth
+def update_session():
+    """Edit a past session identified by date+day. Overwrites its exercises
+    (top set weight/reps), body weight and duration. Per-set detail is kept
+    only for exercises whose top set is unchanged."""
+    from agent_core import _col, _num
+    from trust import record_audit, validate_session
+    data = request.json or {}
+    date, day = data.get("date"), data.get("day")
+    if not date or not day:
+        return jsonify({"error": "missing session id"}), 400
+    doc = _col("workout_log").find_one({"_id": "log"}) or {}
+    sessions = doc.get("sessions", [])
+    idx = next((i for i, s in enumerate(sessions)
+                if s.get("date") == date and s.get("day") == day), None)
+    if idx is None:
+        return jsonify({"error": "session not found"}), 404
+
+    old_ex = {e.get("name"): e for e in sessions[idx].get("exercises", [])}
+    new_ex = []
+    for e in data.get("exercises", []):
+        name = (e.get("name") or "").strip()
+        if not name:
+            continue
+        w = _num(e.get("weight"))
+        r = int(_num(e.get("reps")))
+        if w <= 0 and r <= 0:
+            continue                       # blanked out — drop this exercise
+        item = {"name": name, "weight": w, "reps_done": r}
+        prev = old_ex.get(name)
+        # Preserve per-set detail only if the top set is unchanged.
+        if prev and isinstance(prev.get("sets"), list) and \
+           _num(prev.get("weight")) == w and int(_num(prev.get("reps_done"))) == r:
+            item["sets"] = prev["sets"]
+        if prev and prev.get("note"):
+            item["note"] = prev["note"]
+        new_ex.append(item)
+
+    if not new_ex:
+        return jsonify({"error": "a session needs at least one exercise — "
+                                 "delete it instead if you meant to remove it"}), 400
+
+    session = {"day": day, "date": date, "exercises": new_ex}
+    if data.get("body_weight_kg"):
+        try:
+            session["body_weight_kg"] = float(data["body_weight_kg"])
+        except (TypeError, ValueError):
+            pass
+    if data.get("duration_min"):
+        try:
+            dur = int(float(data["duration_min"]))
+            if 1 <= dur <= 600:
+                session["duration_min"] = dur
+        except (TypeError, ValueError):
+            pass
+
+    ok, reason, cleaned = validate_session(session)
+    if not ok:
+        return jsonify({"error": reason}), 400
+    cleaned["date"], cleaned["day"] = date, day     # validate_session may reset date
+    sessions[idx] = cleaned
+    _col("workout_log").update_one({"_id": "log"}, {"$set": {"sessions": sessions}})
+    record_audit("edit", f"Edited Day {day} on {date}")
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/delete_session", methods=["POST"])
+@require_auth
+def delete_session():
+    """Delete a specific session by date+day (from the Progress tab)."""
+    from agent_core import _col
+    data = request.json or {}
+    date, day = data.get("date"), data.get("day")
+    if not date or not day:
+        return jsonify({"error": "missing session id"}), 400
+    _col("workout_log").update_one(
+        {"_id": "log"}, {"$pull": {"sessions": {"date": date, "day": day}}})
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/clear_autodeload", methods=["POST"])
+@require_auth
+def clear_autodeload():
+    """Cancel a scheduled auto-deload flag for one exercise."""
+    from progression import clear_autodeload_flag
+    name = ((request.json or {}).get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "missing name"}), 400
+    clear_autodeload_flag(name)
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/backup_download")
+@require_auth
+def backup_download():
+    """Download a full JSON backup on demand — a Telegram-independent copy."""
+    from agent_core import today_iso
+    dump = export_all()
+    return dump, 200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": f"attachment; filename=coachx_backup_{today_iso()}.json",
+    }
 
 
 @flask_app.route("/repair_data", methods=["POST"])

@@ -697,6 +697,30 @@
     .ws-row .muted { color: var(--muted); }
     .ws-empty { color: var(--muted); font-size: 12.5px; font-family: var(--font-body); }
 
+    /* -- Session edit/delete -- */
+    .session-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .mini-btn {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      padding: 7px 13px; font-size: 11px; cursor: pointer; font-family: var(--font-body);
+      text-transform: uppercase; letter-spacing: 0.05em; transition: all 0.15s;
+    }
+    .mini-btn:active { border-color: var(--accent); color: var(--accent); }
+    .mini-btn.danger:active { border-color: var(--danger); color: var(--danger); }
+    #edit-overlay {
+      display: none; position: fixed; inset: 0; z-index: 401;
+      background: var(--bg); overflow-y: auto;
+      padding: calc(10px + var(--safe-top)) 16px calc(24px + var(--safe-bottom));
+    }
+    #edit-overlay.open { display: block; }
+    .edit-ex { background: var(--card); border: 1px solid var(--border); border-left: 2px solid var(--accent2); padding: 12px 14px; margin-bottom: 10px; }
+    .edit-ex-name { font-weight: 700; font-size: 12.5px; text-transform: uppercase; font-family: var(--font-body); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .edit-fields { display: flex; gap: 8px; align-items: center; }
+    .edit-fields select, .edit-fields input {
+      flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--fg);
+      font-family: var(--font-body); padding: 9px 11px; font-size: 13px; outline: none; text-align: center;
+    }
+    .edit-rm { background: none; border: 1px solid var(--border); color: var(--danger); width: 30px; height: 30px; cursor: pointer; flex-shrink: 0; }
+
     @media print {
       body > *:not(#weekly-overlay) { display: none !important; }
       body::before, body::after { display: none !important; }
@@ -914,6 +938,7 @@
           <div class="bar-head"><span>Protein</span><span id="fu-prot-txt">—</span></div>
           <div class="bar-track"><div class="bar-fill pink" id="fu-prot-bar"></div></div>
         </div>
+        <div id="fu-protein-fix" class="wk-prog-line wk-prog-rep_up" style="display:none;margin:10px 0 0"></div>
       </div>
     </div>
     <div>
@@ -997,6 +1022,7 @@
   <button class="sheet-btn" onclick="closeSheet(); repairData()"><span class="ico">🧹</span>Fix workout data</button>
   <button class="sheet-btn" onclick="closeSheet(); exportCsv('workouts')"><span class="ico">📄</span>Export workouts CSV</button>
   <button class="sheet-btn" onclick="closeSheet(); exportCsv('expenses')"><span class="ico">📄</span>Export expenses CSV</button>
+  <button class="sheet-btn" onclick="closeSheet(); downloadBackup()"><span class="ico">💾</span>Download full backup</button>
   <button class="sheet-btn" onclick="closeSheet(); resetChat()"><span class="ico">✨</span>New session</button>
   <button class="sheet-btn danger" onclick="closeSheet(); resetProfile()"><span class="ico">🗑️</span>Reset profile</button>
 </div>
@@ -1011,6 +1037,15 @@
     <button class="wk-sw" style="flex:0 0 auto;margin:0;border-color:var(--danger);color:var(--danger)" onclick="closeWeekly()">✕ Close</button>
   </div>
   <div id="weekly-body"></div>
+</div>
+
+<!-- Edit-session overlay -->
+<div id="edit-overlay">
+  <div id="weekly-bar">
+    <div id="edit-title" class="ws-h1" style="flex:1;font-size:15px">Edit session</div>
+    <button class="wk-sw" style="flex:0 0 auto;margin:0;border-color:var(--danger);color:var(--danger)" onclick="closeEdit()">✕ Close</button>
+  </div>
+  <div id="edit-body" style="max-width:640px;margin:0 auto"></div>
 </div>
 
 <script>
@@ -1154,14 +1189,27 @@
       if (d.warmup) { wu.innerHTML = '<b>🔥 WARM-UP:</b> ' + esc(d.warmup); wu.style.display = 'block'; }
       else wu.style.display = 'none';
 
-      // Deload week banner
+      // Deload week banner + per-exercise auto-deload flags (dismissable)
       const dl = document.getElementById('wk-deload');
       const auto = d.autodeload || [];
       if (d.deload || auto.length) {
-        let m = '';
-        if (d.deload) m += '🔄 <b>Deload week</b> — use ~60% of your normal weights, same sets/reps. Helps you recover and come back stronger.';
-        if (auto.length) m += (m ? '<br>' : '') + '📉 Scheduled deload for: ' + esc(auto.join(', ')) + ' — drop ~10% on these (they had plateaued).';
-        dl.innerHTML = m; dl.style.display = 'block';
+        dl.innerHTML = '';
+        if (d.deload) {
+          const div = document.createElement('div');
+          div.innerHTML = '🔄 <b>Deload week</b> — use ~60% of your normal weights, same sets/reps. Helps you recover and come back stronger.';
+          dl.appendChild(div);
+        }
+        auto.forEach(name => {
+          const row = document.createElement('div');
+          row.style.marginTop = '4px';
+          row.innerHTML = `📉 Scheduled deload: <b>${esc(name)}</b> (~10% lighter, it had plateaued) `;
+          const x = document.createElement('button');
+          x.className = 'mini-btn'; x.textContent = '✕ cancel'; x.style.marginLeft = '6px';
+          x.onclick = () => cancelAutodeload(name);
+          row.appendChild(x);
+          dl.appendChild(row);
+        });
+        dl.style.display = 'block';
       } else dl.style.display = 'none';
 
       // Rest-day state + suggestion
@@ -1226,6 +1274,16 @@
         wrap.appendChild(div);
       });
     } catch { title.textContent = 'Could not load today\'s workout.'; }
+  }
+
+  async function cancelAutodeload(name) {
+    try {
+      await fetch('/clear_autodeload', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ name }),
+      });
+      wkDay = null; await loadWorkout(true);
+    } catch { alert('Network error — try again.'); }
   }
 
   let wkRestDay = false;
@@ -1505,6 +1563,14 @@
     document.getElementById('fu-prot-bar').style.width = (prT ? Math.min(pr / prT * 100, 100) : 0) + '%';
     document.getElementById('fu-prot-txt').textContent = `${pr} / ${prT} g`;
 
+    // Proactive protein-gap suggestions
+    const pf = document.getElementById('fu-protein-fix');
+    if (d.protein_fix && (d.protein_fix.options || []).length) {
+      const opts = d.protein_fix.options.map(o => `${esc(o.name)} (+${o.protein_g}g)`).join(' · or · ');
+      pf.innerHTML = `🥛 ${d.protein_fix.gap}g short on protein — try: ${opts}`;
+      pf.style.display = 'block';
+    } else pf.style.display = 'none';
+
     const list = document.getElementById('fu-meals'); list.innerHTML = '';
     (d.meals || []).forEach(m => {
       const item = document.createElement('div'); item.className = 'session-item';
@@ -1744,8 +1810,14 @@
         item.innerHTML = `<div class="session-row"><div><div class="session-day">Day ${esc(s.day)} — ${esc(s.name)}</div>
             <div class="session-date">${esc(s.date)}${s.weight ? ' · ' + esc(s.weight) + ' kg' : ''}${s.duration ? ' · ' + esc(s.duration) + ' min' : ''}</div></div>
             <div class="session-tag">${esc(s.exercises)} ex</div></div>
-          <div class="session-detail">${detail || '<div class="session-ex"><span>No exercise details logged.</span></div>'}</div>`;
+          <div class="session-detail">${detail || '<div class="session-ex"><span>No exercise details logged.</span></div>'}
+            <div class="session-actions">
+              <button class="mini-btn" data-act="edit">✎ Edit</button>
+              <button class="mini-btn danger" data-act="del">🗑 Delete</button>
+            </div></div>`;
         item.querySelector('.session-row').onclick = () => item.classList.toggle('open');
+        item.querySelector('[data-act="edit"]').onclick = (ev) => { ev.stopPropagation(); openEditSession(s); };
+        item.querySelector('[data-act="del"]').onclick = (ev) => { ev.stopPropagation(); deleteSession(s); };
         list.appendChild(item);
       });
       if (!d.recent_sessions || !d.recent_sessions.length)
@@ -1930,6 +2002,18 @@
       URL.revokeObjectURL(a.href);
     } catch { alert('Export failed — try again.'); }
   }
+  async function downloadBackup() {
+    try {
+      const res = await fetchRetry('/backup_download', { headers: authHeaders() }, { timeoutMs: 40000 });
+      if (!res.ok) throw 0;
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'coachx_backup.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch { alert('Backup download failed — try again.'); }
+  }
 
   // ── Weekly summary (printable) ──
   let weekOffset = 0;
@@ -1992,6 +2076,76 @@
     html += `</div>`;
 
     body.innerHTML = html;
+  }
+
+  // ── Edit / delete a past session ──
+  let editSession = null;
+  function openEditSession(s) {
+    editSession = s;
+    document.getElementById('edit-title').textContent = `Edit · Day ${s.day} · ${s.date}`;
+    const body = document.getElementById('edit-body');
+    let html = (s.detail || []).map((e, i) => `
+      <div class="edit-ex" data-i="${i}">
+        <div class="edit-ex-name"><span>${esc(e.name)}</span>
+          <button class="edit-rm" title="Remove exercise" onclick="this.closest('.edit-ex').remove()">✕</button></div>
+        <div class="edit-fields">
+          <select class="edit-w">${weightOptions(e.weight != null ? Number(e.weight) : null)}</select>
+          <select class="edit-r">${repOptionsSel(e.reps)}</select>
+        </div>
+      </div>`).join('');
+    html += `<div class="edit-ex" style="border-left-color:var(--accent3)">
+        <div class="edit-fields">
+          <input id="edit-bw" type="number" step="0.1" placeholder="body weight (kg)" value="${s.weight ?? ''}" />
+          <input id="edit-dur" type="number" placeholder="duration (min)" value="${s.duration ?? ''}" />
+        </div></div>
+      <button class="wk-save" onclick="saveEditSession()">Save changes</button>
+      <div id="edit-result" style="margin-top:10px"></div>`;
+    body.innerHTML = html;
+    // Attach each exercise name to its row for the payload
+    body.querySelectorAll('.edit-ex[data-i]').forEach((row, i) => {
+      row.dataset.name = (s.detail[i] || {}).name || '';
+    });
+    document.getElementById('edit-overlay').classList.add('open');
+  }
+  function repOptionsSel(sel) {
+    let o = '<option value="">reps</option>';
+    for (let r = 1; r <= 30; r++) o += `<option value="${r}"${Number(sel) === r ? ' selected' : ''}>${r}</option>`;
+    return o;
+  }
+  function closeEdit() { document.getElementById('edit-overlay').classList.remove('open'); editSession = null; }
+  async function saveEditSession() {
+    if (!editSession) return;
+    const exercises = [];
+    document.querySelectorAll('#edit-body .edit-ex[data-name]').forEach(row => {
+      const name = row.dataset.name;
+      const w = parseFloat(row.querySelector('.edit-w').value);
+      const r = parseInt(row.querySelector('.edit-r').value, 10);
+      if (name) exercises.push({ name, weight: isNaN(w) ? 0 : w, reps: isNaN(r) ? 0 : r });
+    });
+    if (!exercises.length) { alert('A session needs at least one exercise. Use Delete to remove it.'); return; }
+    const bw = parseFloat(document.getElementById('edit-bw').value);
+    const dur = parseInt(document.getElementById('edit-dur').value, 10);
+    const out = document.getElementById('edit-result');
+    try {
+      const res = await fetch('/update_session', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ date: editSession.date, day: editSession.day, exercises,
+          body_weight_kg: isNaN(bw) ? null : bw, duration_min: isNaN(dur) ? null : dur }),
+      });
+      const d = await res.json();
+      if (d.error) { out.innerHTML = `<div class="wk-pr" style="color:var(--accent2)">${esc(d.error)}</div>`; return; }
+      closeEdit(); loadStatsView(); loadStatsBar();
+    } catch { out.innerHTML = '<div class="wk-pr" style="color:var(--accent2)">Network error.</div>'; }
+  }
+  async function deleteSession(s) {
+    if (!confirm(`Delete the Day ${s.day} session from ${s.date}? This can't be undone.`)) return;
+    try {
+      const res = await fetch('/delete_session', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ date: s.date, day: s.day }),
+      });
+      if ((await res.json()).ok) { loadStatsView(); loadStatsBar(); }
+    } catch { alert('Network error — try again.'); }
   }
 
   async function loadRecords() {

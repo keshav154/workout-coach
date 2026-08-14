@@ -165,19 +165,22 @@ def next_dumbbell_up(weight: float) -> float | None:
     return None                          # already at the heaviest dumbbell
 
 
-def suggest_next(rep_range, last_weight, last_reps, deload: bool = False) -> dict | None:
+def suggest_next(rep_range, last_weight, last_reps, deload_factor: float | None = None) -> dict | None:
     """Double progression: keep the weight and add reps until the top of the
     range, then move up a dumbbell and reset to the bottom of the range.
-    Returns {weight, target_reps, reason, kind} or None when there's no history."""
+    `deload_factor` (e.g. 0.6 for a deload WEEK, 0.9 for a per-exercise plateau
+    flag) overrides that with a lighter target. Returns {weight, target_reps,
+    reason, kind} or None when there's no history."""
     lw = _num(last_weight)
     if lw <= 0:
         return None
     bottom, top = _rep_bounds(rep_range)
-    if deload:
-        target = lw * 0.9
+    if deload_factor:
+        target = lw * deload_factor
         lighter = [a for a in AVAILABLE_DUMBBELLS if a <= target] or [AVAILABLE_DUMBBELLS[0]]
+        pct = round((1 - deload_factor) * 100)
         return {"weight": lighter[-1], "target_reps": top, "kind": "deload",
-                "reason": f"scheduled deload — ~10% lighter than {lw:g}kg"}
+                "reason": f"deload — ~{pct}% lighter than {lw:g}kg"}
     lr = _num(last_reps)
     if lr >= top:
         up = next_dumbbell_up(lw)

@@ -14,6 +14,9 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **Rest days**: mark today a rest day (button in Workout mode, or just tell the coach "rest day today") — suppresses the nudge and bridges your streak instead of breaking it; a rest is also suggested after 6 straight training days
 - **Deload surfacing**: the Workout tab shows a deload-week banner (every ~6 weeks) and per-exercise "deload" tags for lifts the plateau system has auto-flagged
 - **Per-exercise notes**: jot a note on any exercise while logging ("left shoulder tight") — shown in the session history and available to the coach
+- **Edit / delete past sessions**: expand any session on the Progress tab to fix a weight/reps typo or remove it — per-set detail is preserved when the top set is unchanged
+- **Proactive protein**: the Fuel tab flags when you're short on protein and suggests 1-2 Indian veg options to close the gap
+- **On-demand backup + cancel deload**: download a full JSON backup from the menu (Telegram-independent), and cancel a scheduled auto-deload from the Workout tab if it was a false alarm
 - **Printable weekly summary**: a menu → Weekly Summary view with workouts, volume, weight change, nutrition adherence, PRs, plateaus and spending for any week, with a Print button
 - **Body measurements**: tell the coach "waist is 92 cm" — tracked per part (waist, chest, arm, ...) with trend charts on the Progress tab
 - **Goal progress bars & achievements**: live % progress toward weight/lift goals with projections, plus milestone badges (sessions, streaks, PRs, weigh-ins, total kg lifted)
