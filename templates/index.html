@@ -207,6 +207,16 @@
     /* -- Today dashboard -- */
     .dash-greeting { font-family: var(--font-head); font-size: 18px; font-weight: 800; letter-spacing: 0.03em; }
     .dash-greeting span { color: var(--muted); font-size: 12px; font-weight: 400; display: block; margin-top: 3px; font-family: var(--font-body); letter-spacing: 0; }
+    .dash-strip { display: flex; gap: 6px; }
+    .dash-dot { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .dash-dot .d-lbl { font-size: 8.5px; color: var(--muted); font-family: var(--font-body); font-weight: 600; }
+    .dash-dot .d-cell {
+      width: 100%; aspect-ratio: 1; max-width: 34px; border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center; font-size: 11px;
+    }
+    .dash-dot .d-cell.trained { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px #00ff8860; color: var(--bg); }
+    .dash-dot .d-cell.rest { border-color: var(--accent3); color: var(--accent3); }
+    .dash-dot.is-today .d-cell { outline: 2px solid var(--accent2); outline-offset: 1px; }
     .dash-card { background: var(--card); border: 1px solid var(--border); padding: 16px; }
     .dash-card-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.15em; font-weight: 600; font-family: var(--font-body); }
     .dash-workout { border-left: 3px solid var(--accent); cursor: pointer; transition: border-color 0.15s; }
@@ -665,6 +675,24 @@
       box-shadow: 0 0 10px #ff336680; animation: blink 1s steps(1) infinite;
     }
 
+    /* -- Progress segmented control -- */
+    .seg-ctrl { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); padding: 4px; position: sticky; top: 0; z-index: 5; }
+    .seg-btn { flex: 1; background: none; border: none; color: var(--muted); padding: 9px 4px; font-family: var(--font-body); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; transition: all 0.15s; }
+    .seg-btn.active { background: var(--muted-bg); color: var(--accent); box-shadow: inset 0 0 8px rgba(0,255,136,0.1); }
+    .seg-sec { display: none; }
+    #stats-view[data-seg="overview"] .seg-sec[data-seg="overview"],
+    #stats-view[data-seg="strength"] .seg-sec[data-seg="strength"],
+    #stats-view[data-seg="body"] .seg-sec[data-seg="body"] { display: block; }
+    .seg-sec.optional:not(.has-content) { display: none !important; }
+
+    /* -- Training heatmap -- */
+    .hm-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+    .hm-cell { aspect-ratio: 1; border: 1px solid var(--border); background: var(--bg); border-radius: 2px; }
+    .hm-cell.today { outline: 1.5px solid var(--accent2); outline-offset: 1px; }
+    .hm-head { font-size: 8.5px; color: var(--muted); text-align: center; font-family: var(--font-body); font-weight: 600; padding-bottom: 3px; }
+    .hm-legend { display: flex; align-items: center; gap: 5px; justify-content: flex-end; margin-top: 8px; font-size: 9px; color: var(--muted); font-family: var(--font-body); }
+    .hm-legend .hm-cell { width: 12px; height: 12px; aspect-ratio: auto; }
+
     /* -- Charts -- */
     .chart-card {
       background: var(--card);
@@ -872,6 +900,7 @@
   <!-- Today / Home view -->
   <div id="home-view" class="view">
     <div id="dash-greeting" class="dash-greeting"></div>
+    <div class="dash-strip" id="dash-strip"></div>
 
     <div class="dash-card dash-workout" id="dash-workout" onclick="switchTab('workout')">
       <div class="dash-card-label">Today's Training</div>
@@ -936,16 +965,18 @@
   </div>
 
   <!-- Progress view -->
-  <div id="stats-view" class="view">
-    <div id="sv-plateaus-wrap" style="display:none">
-      <div class="stats-title">Plateaus</div>
-      <div class="session-list" id="sv-plateaus"></div>
+  <div id="stats-view" class="view" data-seg="overview">
+    <div class="seg-ctrl">
+      <button class="seg-btn active" data-seg="overview" onclick="showSegment('overview')">Overview</button>
+      <button class="seg-btn" data-seg="strength" onclick="showSegment('strength')">Strength</button>
+      <button class="seg-btn" data-seg="body" onclick="showSegment('body')">Body</button>
     </div>
-    <div id="sv-habits-wrap" style="display:none">
+
+    <div class="seg-sec optional" data-seg="overview" id="sv-habits-wrap">
       <div class="stats-title">Daily Habits</div>
       <div class="chart-card" id="sv-habits"></div>
     </div>
-    <div>
+    <div class="seg-sec" data-seg="overview">
       <div class="stats-title">This Week's Target</div>
       <div class="chart-card ring-card">
         <svg viewBox="0 0 120 120" class="ring-svg">
@@ -964,31 +995,44 @@
         </div>
       </div>
     </div>
-    <div>
+    <div class="seg-sec" data-seg="overview">
       <div class="stats-title">Overview</div>
       <div class="stats-grid">
         <div class="big-stat"><div class="label">Total Sessions</div><div class="val accent" id="sv-sessions">—</div><div class="sub">all time</div></div>
-        <div class="big-stat"><div class="label">Current Weight</div><div class="val yellow" id="sv-weight">—</div><div class="sub">last logged</div></div>
+        <div class="big-stat"><div class="label">Current Weight</div><div class="val yellow" id="sv-weight">—</div><div class="sub" id="sv-weight-sub">last logged</div></div>
         <div class="big-stat"><div class="label">Next Workout</div><div class="val green" id="sv-next">—</div><div class="sub" id="sv-next-name">—</div></div>
         <div class="big-stat"><div class="label">Streak</div><div class="val pink" id="sv-streak">—</div><div class="sub">days in a row</div></div>
-        <div class="big-stat"><div class="label">Consistency</div><div class="val accent" id="sv-weeks">—</div><div class="sub">weeks hitting target</div></div>
+        <div class="big-stat"><div class="label">Consistency</div><div class="val accent" id="sv-weeks">—</div><div class="sub">weeks on target</div></div>
+        <div class="big-stat"><div class="label">Volume</div><div class="val" id="sv-vol" style="color:var(--accent3)">—</div><div class="sub" id="sv-vol-sub">this week</div></div>
       </div>
     </div>
-    <div id="sv-goals-wrap" style="display:none">
+    <div class="seg-sec optional" data-seg="overview" id="sv-goals-wrap">
       <div class="stats-title">Goals</div>
       <div class="chart-card" id="sv-goals"></div>
     </div>
-    <div>
-      <div class="stats-title">Weight Trend</div>
-      <div class="chart-card"><canvas id="chart-weight" height="140"></canvas>
-        <div class="chart-empty" id="chart-weight-empty">Log a few weigh-ins to see your trend.</div></div>
+    <div class="seg-sec" data-seg="overview">
+      <div class="stats-title">Recent Sessions</div>
+      <div class="session-list" id="sv-sessions-list"></div>
     </div>
-    <div>
+    <div class="seg-sec" data-seg="overview">
+      <div class="stats-title">Achievements</div>
+      <div class="badge-grid" id="sv-badges"></div>
+    </div>
+
+    <div class="seg-sec optional" data-seg="strength" id="sv-plateaus-wrap">
+      <div class="stats-title">Plateaus</div>
+      <div class="session-list" id="sv-plateaus"></div>
+    </div>
+    <div class="seg-sec" data-seg="strength">
+      <div class="stats-title">Training Calendar (5 weeks)</div>
+      <div class="chart-card" id="sv-heatmap"></div>
+    </div>
+    <div class="seg-sec" data-seg="strength">
       <div class="stats-title">Weekly Volume (kg lifted)</div>
       <div class="chart-card"><canvas id="chart-volume" height="140"></canvas>
         <div class="chart-empty" id="chart-volume-empty">Log workouts to see weekly volume.</div></div>
     </div>
-    <div>
+    <div class="seg-sec" data-seg="strength">
       <div class="stats-title">Exercise Progress</div>
       <div class="chart-card">
         <select id="ex-select" class="ex-select" onchange="drawExerciseChart()"></select>
@@ -997,11 +1041,17 @@
         <div class="chart-empty" id="chart-exercise-empty">Log an exercise at least twice to chart it.</div>
       </div>
     </div>
-    <div>
-      <div class="stats-title">Recent Sessions</div>
-      <div class="session-list" id="sv-sessions-list"></div>
+    <div class="seg-sec" data-seg="strength">
+      <div class="stats-title">Record Wall</div>
+      <div class="session-list" id="sv-records"></div>
     </div>
-    <div>
+
+    <div class="seg-sec" data-seg="body">
+      <div class="stats-title">Weight Trend</div>
+      <div class="chart-card"><canvas id="chart-weight" height="140"></canvas>
+        <div class="chart-empty" id="chart-weight-empty">Log a few weigh-ins to see your trend.</div></div>
+    </div>
+    <div class="seg-sec" data-seg="body">
       <div class="stats-title">Measurements</div>
       <div class="chart-card">
         <select id="ms-select" class="ex-select" onchange="drawMeasureChart()" style="display:none"></select>
@@ -1009,11 +1059,7 @@
         <div class="chart-empty" id="chart-measure-empty">Tell the coach a measurement ("waist is 92 cm") to start tracking.</div>
       </div>
     </div>
-    <div>
-      <div class="stats-title">Record Wall</div>
-      <div class="session-list" id="sv-records"></div>
-    </div>
-    <div>
+    <div class="seg-sec" data-seg="body">
       <div class="stats-title">Progress Photos</div>
       <div class="chart-card">
         <div class="ph-compare" id="ph-compare" style="display:none"></div>
@@ -1022,10 +1068,6 @@
         <input type="file" id="ph-file" accept="image/*" style="display:none" onchange="uploadPhoto(this)" />
         <button class="wk-save" style="margin-top:10px" onclick="document.getElementById('ph-file').click()">+ Add Photo</button>
       </div>
-    </div>
-    <div>
-      <div class="stats-title">Achievements</div>
-      <div class="badge-grid" id="sv-badges"></div>
     </div>
   </div>
 
@@ -1331,6 +1373,15 @@
     const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
     const dateStr = new Date(d.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
     document.getElementById('dash-greeting').innerHTML = `${greet}, ${esc(d.name)}!<span>${esc(dateStr)}</span>`;
+
+    // 7-day activity strip
+    const strip = document.getElementById('dash-strip');
+    strip.innerHTML = (d.week_activity || []).map(a => {
+      const cls = a.trained ? 'trained' : (a.rest ? 'rest' : '');
+      const mark = a.trained ? '✓' : (a.rest ? '·' : '');
+      return `<div class="dash-dot${a.today ? ' is-today' : ''}">
+        <div class="d-cell ${cls}">${mark}</div><div class="d-lbl">${esc(a.dow)}</div></div>`;
+    }).join('');
 
     const w = d.workout;
     document.getElementById('dash-wk-title').textContent = w.rest_day ? 'Rest day 🛌' : `Day ${w.day} — ${w.name}`;
@@ -2169,21 +2220,33 @@
       const d = await (await fetchRetry('/stats', { headers: authHeaders() })).json();
       document.getElementById('sv-sessions').textContent = d.total_sessions ?? '—';
       document.getElementById('sv-weight').textContent = d.last_weight ? d.last_weight + ' kg' : '—';
+      // Weight trend delta this week
+      const wSub = document.getElementById('sv-weight-sub');
+      if (d.weight_delta_week != null && d.weight_delta_week !== 0) {
+        const down = d.weight_delta_week < 0;
+        wSub.innerHTML = `<span style="color:${down ? 'var(--accent)' : 'var(--accent3)'}">${down ? '▼' : '▲'} ${Math.abs(d.weight_delta_week)}kg this wk</span>`;
+      } else wSub.textContent = 'last logged';
       document.getElementById('sv-next').textContent = 'Day ' + (d.next_day ?? '—');
       document.getElementById('sv-next-name').textContent = d.next_name ?? '';
       document.getElementById('sv-streak').textContent = (d.streak > 0 ? '🔥 ' : '') + (d.streak ?? 0);
       document.getElementById('sv-weeks').textContent = (d.consistent_weeks > 0 ? '⚡ ' : '') + (d.consistent_weeks ?? 0);
+      // Volume tile + week-over-week delta
+      const vol = d.volume || {};
+      document.getElementById('sv-vol').textContent = (vol.this_week || 0).toLocaleString();
+      const vSub = document.getElementById('sv-vol-sub');
+      if (vol.last_week) {
+        const diff = (vol.this_week || 0) - vol.last_week;
+        const pct = Math.round(diff / vol.last_week * 100);
+        vSub.innerHTML = `<span style="color:${diff >= 0 ? 'var(--accent)' : 'var(--accent2)'}">${diff >= 0 ? '▲' : '▼'} ${Math.abs(pct)}% vs last wk</span>`;
+      } else vSub.textContent = 'kg this week';
       drawWeeklyRing(d.sessions_this_week ?? 0, d.days_per_week ?? 6);
+      renderHeatmap(d.heatmap || []);
 
       const pWrap = document.getElementById('sv-plateaus-wrap');
       const pBox  = document.getElementById('sv-plateaus');
-      if ((d.plateaus || []).length) {
-        pWrap.style.display = 'block';
-        pBox.innerHTML = d.plateaus.map(p => `<div class="session-item" style="border-left-color:var(--accent3)">
-            <div class="session-day">📉 ${esc(p)}</div></div>`).join('');
-      } else {
-        pWrap.style.display = 'none';
-      }
+      pWrap.classList.toggle('has-content', (d.plateaus || []).length > 0);
+      pBox.innerHTML = (d.plateaus || []).map(p => `<div class="session-item" style="border-left-color:var(--accent3)">
+          <div class="session-day">📉 ${esc(p)}</div></div>`).join('');
 
       const list = document.getElementById('sv-sessions-list'); list.innerHTML = '';
       (d.recent_sessions || []).forEach(s => {
@@ -2225,8 +2288,9 @@
   function renderHabits(rows) {
     const wrap = document.getElementById('sv-habits-wrap');
     const box  = document.getElementById('sv-habits');
-    if (!rows.length) { wrap.style.display = 'none'; return; }
-    wrap.style.display = 'block'; box.innerHTML = '';
+    wrap.classList.toggle('has-content', rows.length > 0);
+    if (!rows.length) return;
+    box.innerHTML = '';
     rows.forEach(h => {
       const row = document.createElement('div'); row.className = 'habit-row';
       row.innerHTML = `<div class="habit-check${h.done_today ? ' done' : ''}">✔</div>
@@ -2324,8 +2388,9 @@
     catch { return; }
     const wrap = document.getElementById('sv-goals-wrap');
     const box  = document.getElementById('sv-goals');
-    if (!(d.goals || []).length) { wrap.style.display = 'none'; return; }
-    wrap.style.display = 'block'; box.innerHTML = '';
+    wrap.classList.toggle('has-content', (d.goals || []).length > 0);
+    if (!(d.goals || []).length) return;
+    box.innerHTML = '';
     d.goals.forEach(g => {
       const row = document.createElement('div'); row.className = 'bar-row';
       row.innerHTML = `<div class="bar-head"><span>${esc(g.label)}${g.by_date ? ' by ' + esc(g.by_date) : ''}</span>
@@ -2688,6 +2753,10 @@
     return [ctx, w, 140];
   }
 
+  function hexA(hex, a) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
   function drawLineChart(id, pts, color, pts2, color2) {
     const [ctx, W, H] = _prepCanvas(id);
     if (pts.length < 2) return false;
@@ -2697,8 +2766,17 @@
     if (yMax - yMin < 1) { yMin -= 1; yMax += 1; }
     const X = i => pad.l + (i / (pts.length - 1)) * (W - pad.l - pad.r);
     const Y = v => pad.t + (1 - (v - yMin) / (yMax - yMin)) * (H - pad.t - pad.b);
+    // Smooth path (Catmull-Rom-ish via quadratic midpoints)
+    const trace = (arr) => {
+      ctx.beginPath(); ctx.moveTo(X(0), Y(arr[0].y));
+      for (let i = 1; i < arr.length; i++) {
+        const xc = (X(i - 1) + X(i)) / 2, yc = (Y(arr[i - 1].y) + Y(arr[i].y)) / 2;
+        ctx.quadraticCurveTo(X(i - 1), Y(arr[i - 1].y), xc, yc);
+      }
+      ctx.lineTo(X(arr.length - 1), Y(arr[arr.length - 1].y));
+    };
 
-    ctx.strokeStyle = 'rgba(0,255,136,0.12)'; ctx.fillStyle = '#6b7280';
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.fillStyle = '#6b7280';
     ctx.font = '10px "JetBrains Mono", monospace'; ctx.lineWidth = 1;
     [yMin, (yMin + yMax) / 2, yMax].forEach(v => {
       ctx.beginPath(); ctx.moveTo(pad.l, Y(v)); ctx.lineTo(W - pad.r, Y(v)); ctx.stroke();
@@ -2708,15 +2786,21 @@
     const lastLbl = pts[pts.length - 1].label;
     ctx.fillText(lastLbl, W - pad.r - ctx.measureText(lastLbl).width, H - 4);
 
+    // Gradient area fill under the primary line
+    const grad = ctx.createLinearGradient(0, pad.t, 0, H - pad.b);
+    grad.addColorStop(0, hexA(color, 0.35));
+    grad.addColorStop(1, hexA(color, 0.02));
+    trace(pts);
+    ctx.lineTo(X(pts.length - 1), H - pad.b); ctx.lineTo(X(0), H - pad.b); ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+
     if (pts2 && pts2.length === pts.length) {          // overlay (e.g. est. 1RM), dashed
       ctx.strokeStyle = color2 || '#ffd245'; ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 3]); ctx.beginPath();
-      pts2.forEach((p, i) => i ? ctx.lineTo(X(i), Y(p.y)) : ctx.moveTo(X(0), Y(p.y)));
-      ctx.stroke(); ctx.setLineDash([]);
+      ctx.setLineDash([4, 3]); trace(pts2); ctx.stroke(); ctx.setLineDash([]);
     }
-    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-    pts.forEach((p, i) => i ? ctx.lineTo(X(i), Y(p.y)) : ctx.moveTo(X(0), Y(p.y)));
-    ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+    ctx.shadowColor = hexA(color, 0.6); ctx.shadowBlur = 6;
+    trace(pts); ctx.stroke(); ctx.shadowBlur = 0;
     ctx.fillStyle = color;
     pts.forEach((p, i) => { ctx.beginPath(); ctx.arc(X(i), Y(p.y), 2.5, 0, 7); ctx.fill(); });
     return true;
@@ -2730,10 +2814,12 @@
     const bw = (W - pad.l - pad.r) / pts.length;
     ctx.fillStyle = '#6b7280'; ctx.font = '10px "JetBrains Mono", monospace';
     ctx.fillText(yMax.toLocaleString(), 2, pad.t + 4);
+    const grad = ctx.createLinearGradient(0, pad.t, 0, H - pad.b);
+    grad.addColorStop(0, color); grad.addColorStop(1, hexA(color, 0.25));
     pts.forEach((p, i) => {
       const h = (p.y / yMax) * (H - pad.t - pad.b);
       const x = pad.l + i * bw;
-      ctx.fillStyle = color;
+      ctx.fillStyle = grad;
       if (ctx.roundRect) {
         ctx.beginPath();
         ctx.roundRect(x + bw * 0.15, H - pad.b - h, bw * 0.7, Math.max(h, 2), 3);
@@ -2838,17 +2924,40 @@
   // "My Progress" / "My Goals" used to ask the coach and wait on an LLM
   // reply; they now jump straight to the Progress tab's real numbers —
   // faster, exact, and immune to the coach misreading the data.
-  function goToProgress() {
-    switchTab('stats');
+  function showSegment(seg) {
+    document.getElementById('stats-view').dataset.seg = seg;
+    document.querySelectorAll('.seg-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.seg === seg));
     document.getElementById('stats-view').scrollTop = 0;
   }
+  function goToProgress() {
+    switchTab('stats'); showSegment('overview');
+  }
   function goToGoals() {
-    switchTab('stats');
+    switchTab('stats'); showSegment('overview');
     loadGoalsView().then(() => {
       const el = document.getElementById('sv-goals-wrap');
-      if (el && el.style.display !== 'none') el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      else document.getElementById('stats-view').scrollTop = 0;
+      if (el && el.classList.contains('has-content')) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
+  }
+  // Month training heatmap (5 weeks of daily volume)
+  function renderHeatmap(days) {
+    const box = document.getElementById('sv-heatmap');
+    if (!days.length) { box.innerHTML = '<div class="ws-empty" style="color:var(--muted);font-size:12px">Log workouts to fill your calendar.</div>'; return; }
+    const maxV = Math.max(1, ...days.map(x => x.volume));
+    const head = ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(h => `<div class="hm-head">${h}</div>`).join('');
+    // Pad leading blanks so the first day lands under its weekday column.
+    const pad = '<div></div>'.repeat(days[0].dow || 0);
+    const cells = pad + days.map(x => {
+      const t = x.volume / maxV;
+      const bg = x.volume > 0 ? `background:rgba(0,255,136,${(0.18 + t * 0.72).toFixed(2)});border-color:rgba(0,255,136,${(0.3 + t * 0.5).toFixed(2)})` : '';
+      const today = x.date === new Date().toISOString().slice(0, 10) ? ' today' : '';
+      return `<div class="hm-cell${today}" style="${bg}" title="${esc(x.date)}: ${x.volume.toLocaleString()} kg"></div>`;
+    }).join('');
+    box.innerHTML = `<div class="hm-grid">${head}${cells}</div>
+      <div class="hm-legend">less <span class="hm-cell"></span>
+        <span class="hm-cell" style="background:rgba(0,255,136,0.4)"></span>
+        <span class="hm-cell" style="background:rgba(0,255,136,0.9)"></span> more</div>`;
   }
   function logWeight() {
     const kg = prompt('Enter your weight in kg (e.g. 97.5):');

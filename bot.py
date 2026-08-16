@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v19';
+const CACHE = 'coachxkeshav-v20';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -252,9 +252,23 @@ def dashboard():
 
     habits = _habit_rows()
 
+    # 7-day activity strip (Mon..today's week window ending today)
+    from agent_core import is_rest_day as _is_rest
+    trained_dates = {s.get("date") for s in sessions}
+    week_activity = []
+    for i in range(6, -1, -1):
+        dd = (now - timedelta(days=i))
+        ds = dd.isoformat()
+        week_activity.append({
+            "date": ds, "dow": "MTWTFSS"[dd.weekday()],
+            "trained": ds in trained_dates, "rest": _is_rest(ds),
+            "today": ds == today_iso(),
+        })
+
     return jsonify({
         "ready":       True,
         "name":        profile.get("name", ""),
+        "week_activity": week_activity,
         "date":        today_iso(),
         "workout":     {"day": day, "name": p.get("name", ""), "focus": p.get("focus", ""),
                         "exercises": len(p.get("exercises", [])),
@@ -317,12 +331,31 @@ def stats():
         })
 
     from agent_core import get_consistent_weeks
-    from progression import detect_plateaus, weekly_volume
+    from progression import detect_plateaus, session_volume, weekly_volume
     profile = load_profile() or {}
     dpw = profile.get("days_per_week", 6)
+
+    # 5-week volume heatmap: 35 days ending today, one entry per day.
+    vol_by_date = {}
+    for s in sessions:
+        d = s.get("date", "")
+        if d:
+            vol_by_date[d] = vol_by_date.get(d, 0) + session_volume(s)
+    heatmap = []
+    for i in range(34, -1, -1):
+        dd = (today - timedelta(days=i))
+        ds = dd.isoformat()
+        heatmap.append({"date": ds, "volume": round(vol_by_date.get(ds, 0)),
+                        "dow": dd.weekday()})
+
+    # Body-weight change over the current week
+    wk_entries = [w for w in entries if w[0] >= week_start.isoformat()]
+    weight_delta = round(wk_entries[-1][1] - wk_entries[0][1], 1) if len(wk_entries) >= 2 else None
+
     return jsonify({
         "total_sessions":     len(sessions),
         "last_weight":        last_weight,
+        "weight_delta_week":  weight_delta,
         "next_day":           day,
         "next_name":          p.get("name", ""),
         "sessions_this_week": sessions_this_week,
@@ -332,6 +365,7 @@ def stats():
         "recent_sessions":    recent,
         "plateaus":           detect_plateaus(workout_log),
         "volume":             weekly_volume(workout_log),
+        "heatmap":            heatmap,
     })
 
 
