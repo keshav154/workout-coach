@@ -35,15 +35,36 @@ def get_checkin(day_str: str | None = None) -> dict | None:
 
 
 def recovery_score(day_str: str | None = None, log: dict | None = None) -> tuple[int, list[str]]:
-    """1-10 readiness from today's check-in (sleep, energy, soreness) + training streak."""
+    """1-10 readiness. Prefers wearable data (Samsung energy score / sleep /
+    resting HR) when present, and blends in the manual check-in (soreness,
+    self-rated energy) and training streak."""
     day_str = day_str or today_iso()
     log = log or load_log()
-    score, reasons = 7, []
+
+    # Wearable first: Samsung's Energy Score IS a readiness metric (0-100).
+    try:
+        from health import health_today
+        h = health_today(day_str)
+    except Exception:
+        h = {}
 
     c = get_checkin(day_str) or {}
-    sleep = c.get("sleep_hours")
-    energy = c.get("energy")
     soreness = c.get("soreness")
+
+    if h.get("energy_score") is not None:
+        score = max(1, min(10, round(h["energy_score"] / 10)))
+        reasons = [f"watch energy score {h['energy_score']}/100"]
+        # Soreness and a long streak still pull it down.
+        if soreness is not None and soreness >= 8: score -= 2; reasons.append(f"very sore ({soreness}/10)")
+        elif soreness is not None and soreness >= 6: score -= 1; reasons.append("notable soreness")
+        streak = get_consecutive_workout_days(log)
+        if streak >= 6: score -= 1; reasons.append(f"{streak} days in a row")
+        return max(1, min(10, score)), reasons
+
+    score, reasons = 7, []
+    # Sleep: watch sleep_hours takes precedence over the manual value.
+    sleep = h.get("sleep_hours") if h.get("sleep_hours") is not None else c.get("sleep_hours")
+    energy = c.get("energy")
 
     if sleep is not None:
         if sleep >= 7.5:   score += 1
@@ -69,17 +90,39 @@ def format_checkin_block(day_str: str | None = None, log: dict | None = None) ->
     day_str = day_str or today_iso()
     c = get_checkin(day_str)
     score, reasons = recovery_score(day_str, log)
+    try:
+        from health import health_today
+        h = health_today(day_str)
+    except Exception:
+        h = {}
     lines = []
-    if c:
-        bits = []
-        if c.get("sleep_hours") is not None: bits.append(f"{c['sleep_hours']}h sleep")
-        if c.get("energy")      is not None: bits.append(f"energy {c['energy']}/10")
-        if c.get("soreness")    is not None: bits.append(f"soreness {c['soreness']}/10")
-        if bits:
-            lines.append("TODAY'S CHECK-IN: " + " | ".join(bits))
+    bits = []
+    if h.get("energy_score") is not None: bits.append(f"watch energy {h['energy_score']}/100")
+    if h.get("sleep_hours")  is not None: bits.append(f"{h['sleep_hours']}h sleep (watch)")
+    elif c and c.get("sleep_hours") is not None: bits.append(f"{c['sleep_hours']}h sleep")
+    if h.get("resting_hr")   is not None: bits.append(f"resting HR {h['resting_hr']}")
+    if c and c.get("energy")   is not None: bits.append(f"energy {c['energy']}/10")
+    if c and c.get("soreness") is not None: bits.append(f"soreness {c['soreness']}/10")
+    if bits:
+        lines.append("TODAY'S CHECK-IN: " + " | ".join(bits))
     lines.append(f"RECOVERY READINESS: {score}/10" +
                  (f" ({', '.join(reasons)})" if reasons else ""))
     return "\n".join(lines)
+
+
+def recovery_summary(day_str: str | None = None, log: dict | None = None) -> dict:
+    """Structured recovery for the dashboard: score, label, reasons, source."""
+    score, reasons = recovery_score(day_str, log)
+    try:
+        from health import health_today
+        h = health_today(day_str)
+    except Exception:
+        h = {}
+    source = "watch" if h.get("energy_score") is not None else (
+        "watch+checkin" if h.get("sleep_hours") is not None else (
+            "checkin" if get_checkin(day_str) else "baseline"))
+    label = ("push hard" if score >= 8 else "train as planned" if score >= 5 else "back off / lighter")
+    return {"score": score, "label": label, "reasons": reasons, "source": source}
 
 
 def parse_checkin_command(text: str) -> dict | None:

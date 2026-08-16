@@ -129,12 +129,25 @@ WRITE_TOOLS = [
             "set_total_litres": {"type": "number", "description": "overwrite today's total, in litres"}}},
     }},
     {"type": "function", "function": {
+        "name": "log_cardio",
+        "description": "Log a cardio session (treadmill, run, walk, cycle) when the user reports one, e.g. 'ran 3km in 20 min' or 'treadmill 30 minutes incline 5'.",
+        "parameters": {"type": "object", "properties": {
+            "type": {"type": "string", "description": "e.g. Treadmill run, Walk, Cycle"},
+            "minutes": {"type": "number"},
+            "distance_km": {"type": "number"},
+            "incline": {"type": "number"},
+            "calories": {"type": "number", "description": "calories burned if known"}},
+            "required": ["minutes"]},
+    }},
+    {"type": "function", "function": {
         "name": "log_health",
-        "description": "Record wearable/watch metrics the user reports: daily steps, active calories burned, and/or resting heart rate.",
+        "description": "Record wearable/watch metrics the user reports: steps, active calories, resting heart rate, sleep hours, and/or the watch's energy/readiness score (0-100).",
         "parameters": {"type": "object", "properties": {
             "steps": {"type": "number"},
             "active_kcal": {"type": "number", "description": "active calories burned today"},
-            "resting_hr": {"type": "number", "description": "resting heart rate (bpm)"}}},
+            "resting_hr": {"type": "number", "description": "resting heart rate (bpm)"},
+            "sleep_hours": {"type": "number"},
+            "energy_score": {"type": "number", "description": "watch energy/readiness score, 0-100"}}},
     }},
     {"type": "function", "function": {
         "name": "mark_rest_day",
@@ -339,17 +352,35 @@ def make_write_tools(ctx: dict) -> dict:
         ctx.setdefault("notes", []).append("🛌 Rest day logged.")
         return f"SAVED: {d} marked as a rest day. Enjoy the recovery — your streak stays intact."
 
+    def log_cardio(minutes: float, type: str = "Other", distance_km: float | None = None,
+                   incline: float | None = None, calories: float | None = None) -> str:
+        from cardio import log_cardio as _lc
+        if not (1 <= float(minutes) <= 600):
+            return "REJECTED: minutes should be 1-600."
+        e = _lc(type, minutes, distance_km=distance_km or 0, incline=incline or 0,
+                calories=calories or 0)
+        record_audit("cardio", f"{e['type']} {e['minutes']}min", ref=e.get("id"))
+        bits = f"{e['type']} {e['minutes']}min"
+        if e["distance_km"]: bits += f", {e['distance_km']}km"
+        if e["calories"]:    bits += f", {e['calories']} kcal"
+        ctx.setdefault("notes", []).append(f"🏃 Cardio: {bits}")
+        return f"SAVED cardio: {bits}."
+
     def log_health(steps: float | None = None, active_kcal: float | None = None,
-                   resting_hr: float | None = None) -> str:
+                   resting_hr: float | None = None, sleep_hours: float | None = None,
+                   energy_score: float | None = None) -> str:
         from health import record_health
         saved = record_health({"steps": steps, "active_kcal": active_kcal,
-                               "resting_hr": resting_hr})
+                               "resting_hr": resting_hr, "sleep_hours": sleep_hours,
+                               "energy_score": energy_score})
         if not saved:
             return "REJECTED: no valid metric to save (check the numbers)."
         parts = []
-        if "steps" in saved:       parts.append(f"{saved['steps']:,} steps")
-        if "active_kcal" in saved: parts.append(f"{saved['active_kcal']:g} active kcal")
-        if "resting_hr" in saved:  parts.append(f"{saved['resting_hr']} bpm resting HR")
+        if "steps" in saved:        parts.append(f"{saved['steps']:,} steps")
+        if "active_kcal" in saved:  parts.append(f"{saved['active_kcal']:g} active kcal")
+        if "resting_hr" in saved:   parts.append(f"{saved['resting_hr']} bpm resting HR")
+        if "sleep_hours" in saved:  parts.append(f"{saved['sleep_hours']:g}h sleep")
+        if "energy_score" in saved: parts.append(f"energy score {saved['energy_score']}/100")
         ctx.setdefault("notes", []).append("⌚ " + ", ".join(parts))
         return "SAVED wearable metrics: " + ", ".join(parts) + "."
 
@@ -445,6 +476,7 @@ def make_write_tools(ctx: dict) -> dict:
         "update_training_days": update_training_days,
         "undo_last_action":     undo_last_action,
         "mark_rest_day":        mark_rest_day,
+        "log_cardio":           log_cardio,
         "log_health":           log_health,
         "log_water":            log_water,
         "add_habit":            add_habit,

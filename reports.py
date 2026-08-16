@@ -319,6 +319,10 @@ def weekly_summary_data(week_offset: int = 0) -> dict:
 
     from water import week_avg_ml
     from health import week_avg_steps
+    cardio_min = 0
+    for c in _col("cardio").find():
+        if in_week(c.get("date", "")):
+            cardio_min += int(c.get("minutes") or 0)
     days_per_week = profile.get("days_per_week", 6)
     return {
         "name": profile.get("name", ""),
@@ -326,6 +330,7 @@ def weekly_summary_data(week_offset: int = 0) -> dict:
         "week_end": week_end.isoformat(),
         "water_avg_ml": week_avg_ml(),
         "steps_avg": week_avg_steps(),
+        "cardio_minutes": cardio_min,
         "sessions": session_rows,
         "sessions_done": len(session_rows),
         "sessions_target": days_per_week,

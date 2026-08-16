@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v20';
+const CACHE = 'coachxkeshav-v21';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -231,6 +231,7 @@ def dashboard():
     from nutrition import today_totals
     from water import water_goal_ml, water_today
     from health import health_today
+    from checkin import recovery_summary
 
     profile = load_profile()
     if not profile_complete(profile):
@@ -280,6 +281,7 @@ def dashboard():
                         "meals": nt["count"]},
         "habits":      habits,
         "health":      health_today(),
+        "recovery":    recovery_summary(log=workout_log),
         "streak":      get_consecutive_workout_days(workout_log),
         "consistent_weeks": get_consistent_weeks(workout_log, dpw),
         "sessions_this_week": sum(1 for s in sessions if s.get("date", "") >= week_start.isoformat()),
@@ -799,11 +801,31 @@ def weekly_summary():
     return jsonify(weekly_summary_data(offset))
 
 
+_STRENGTH_BANDS = [(0.12, "Beginner"), (0.20, "Novice"), (0.30, "Intermediate"),
+                   (0.42, "Advanced")]
+
+
+def _strength_level(e1rm: float, bodyweight: float) -> tuple[str, float] | None:
+    """Rough level from estimated-1RM-per-dumbbell vs bodyweight (a guide, not
+    a barbell standard — dumbbell lifts are single-hand)."""
+    if not bodyweight or e1rm <= 0:
+        return None
+    ratio = e1rm / bodyweight
+    level = "Elite"
+    for thr, name in _STRENGTH_BANDS:
+        if ratio < thr:
+            level = name
+            break
+    return level, round(ratio, 2)
+
+
 @flask_app.route("/records")
 @require_auth
 def records():
-    """Record wall: best weight x reps per exercise, plus recent PR feed."""
+    """Record wall: best weight x reps per exercise, a strength level per lift,
+    plus the recent PR feed."""
     from agent_core import _num
+    from progression import epley_1rm
     best: dict[str, tuple] = {}
     for s in load_log().get("sessions", []):
         d = s.get("date", "")
@@ -814,12 +836,52 @@ def records():
                 continue
             if name not in best or (w, r) > best[name][:2]:
                 best[name] = (w, r, d)
+    profile = load_profile() or {}
+    try:
+        bw = float(profile.get("weight_kg") or 0)
+    except (TypeError, ValueError):
+        bw = 0
+    out = []
+    for n, (w, r, d) in sorted(best.items(), key=lambda x: -x[1][0]):
+        e1 = round(epley_1rm(w, r), 1)
+        lvl = _strength_level(e1, bw)
+        out.append({"name": n, "weight": w, "reps": r, "date": d, "e1rm": e1,
+                    "level": lvl[0] if lvl else None, "ratio": lvl[1] if lvl else None})
     mem = load_memory()
-    return jsonify({
-        "best": [{"name": n, "weight": w, "reps": r, "date": d}
-                 for n, (w, r, d) in sorted(best.items(), key=lambda x: -x[1][0])],
-        "recent_prs": mem.get("personal_records", [])[-10:],
-    })
+    return jsonify({"best": out, "recent_prs": mem.get("personal_records", [])[-10:]})
+
+
+@flask_app.route("/cardio", methods=["GET", "POST"])
+@require_auth
+def cardio_route():
+    from cardio import (CARDIO_TYPES, get_cardio, log_cardio, recent_cardio)
+    from trust import record_audit
+    if request.method == "POST":
+        data = request.json or {}
+        try:
+            minutes = float(data.get("minutes") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"error": "minutes must be a number"}), 400
+        if not (1 <= minutes <= 600):
+            return jsonify({"error": "enter 1-600 minutes"}), 400
+        entry = log_cardio(data.get("type", "Other"), minutes,
+                           distance_km=data.get("distance_km") or 0,
+                           incline=data.get("incline") or 0,
+                           calories=data.get("calories") or 0)
+        record_audit("cardio", f"{entry['type']} {entry['minutes']}min", ref=entry.get("id"))
+        return jsonify({"ok": True})
+    return jsonify({"types": CARDIO_TYPES, "today": get_cardio(), "recent": recent_cardio()})
+
+
+@flask_app.route("/delete_cardio", methods=["POST"])
+@require_auth
+def delete_cardio_route():
+    from cardio import delete_cardio
+    cid = ((request.json or {}).get("id") or "").strip()
+    if not cid:
+        return jsonify({"error": "missing id"}), 400
+    delete_cardio(cid)
+    return jsonify({"ok": True})
 
 
 @flask_app.route("/nutrition_data")

@@ -130,9 +130,12 @@ A web app can't read Android **Health Connect** directly, so watch metrics (step
    ```
    POST https://<your-app>.onrender.com/ingest?token=<INGEST_TOKEN>
    Content-Type: application/json
-   {"steps": 10432, "active_kcal": 620, "resting_hr": 58}
+   {"steps": 10432, "active_kcal": 620, "resting_hr": 58,
+    "sleep_hours": 7.5, "energy_score": 74}
    ```
    On Android, **Tasker** with a Health Connect / Samsung Health plugin can read the day's totals and fire an HTTP Request task — no coding. (`date` is optional; defaults to today.) The endpoint validates ranges and upserts the day.
+
+   **Sleep & recovery from the watch:** send `sleep_hours` and Samsung's `energy_score` (0–100). The app's recovery-readiness score (shown on the Today dashboard) uses the energy score directly when present, falls back to sleep + resting HR, and finally to a manual check-in — so once the automation runs each morning, recovery is automatic and you never hand-enter sleep/energy.
 
 2. **Just tell the coach.** "10k steps today, burned 620 active calories, resting HR 58" — the `log_health` tool stores it. Same store, no setup.
 
