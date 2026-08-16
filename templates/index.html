@@ -198,10 +198,41 @@
     /* -- Views + tab transition -- */
     .view { flex: 1; overflow: hidden; flex-direction: column; animation: view-in 0.18s steps(4); }
     @keyframes view-in { from { opacity: 0; } to { opacity: 1; } }
-    #chat-view  { display: flex; }
+    #chat-view  { display: none; }
     #stats-view { display: none; overflow-y: auto; padding: 16px 14px; gap: 14px; }
     #workout-view { display: none; overflow-y: auto; }
     #fuel-view, #money-view { display: none; overflow-y: auto; padding: 16px 14px; gap: 14px; }
+    #home-view { display: flex; overflow-y: auto; padding: 16px 14px; flex-direction: column; gap: 14px; }
+
+    /* -- Today dashboard -- */
+    .dash-greeting { font-family: var(--font-head); font-size: 18px; font-weight: 800; letter-spacing: 0.03em; }
+    .dash-greeting span { color: var(--muted); font-size: 12px; font-weight: 400; display: block; margin-top: 3px; font-family: var(--font-body); letter-spacing: 0; }
+    .dash-card { background: var(--card); border: 1px solid var(--border); padding: 16px; }
+    .dash-card-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.15em; font-weight: 600; font-family: var(--font-body); }
+    .dash-workout { border-left: 3px solid var(--accent); cursor: pointer; transition: border-color 0.15s; }
+    .dash-workout:active { border-color: var(--accent); }
+    .dash-workout-title { font-family: var(--font-head); font-size: 19px; font-weight: 800; margin: 7px 0 3px; }
+    .dash-workout-focus { font-size: 12px; color: var(--muted); font-family: var(--font-body); }
+    .dash-workout-cta { margin-top: 12px; color: var(--accent); font-size: 13px; font-weight: 700; font-family: var(--font-body); text-transform: uppercase; letter-spacing: 0.06em; }
+    .dash-rings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .dash-ring-card { background: var(--card); border: 1px solid var(--border); padding: 12px 4px; position: relative; display: flex; align-items: center; justify-content: center; }
+    .dash-ring { width: 92px; height: 92px; transform: rotate(-90deg); }
+    .dr-track { fill: none; stroke: var(--border); stroke-width: 7; }
+    .dr-fill { fill: none; stroke-width: 7; stroke-linecap: round; stroke-dasharray: 213.6; stroke-dashoffset: 213.6; transition: stroke-dashoffset 0.5s; }
+    .dr-water { stroke: var(--accent3); filter: drop-shadow(0 0 4px #00d4ff70); }
+    .dr-cal { stroke: var(--accent); filter: drop-shadow(0 0 4px #00ff8870); }
+    .dr-prot { stroke: var(--accent2); filter: drop-shadow(0 0 4px #ff00ff70); }
+    .dash-ring-mid { position: absolute; text-align: center; }
+    .dr-val { font-family: var(--font-head); font-size: 13px; font-weight: 800; }
+    .dr-lbl { font-size: 8.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; font-family: var(--font-body); }
+    .dash-quick { display: flex; gap: 8px; }
+    .dash-quick-btn { flex: 1; background: var(--card); border: 1px solid var(--border); color: var(--fg); padding: 12px 4px; font-size: 12px; font-weight: 600; font-family: var(--font-body); cursor: pointer; transition: all 0.15s; }
+    .dash-quick-btn:active { border-color: var(--accent); color: var(--accent); }
+    .dash-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .dash-stat { background: var(--card); border: 1px solid var(--border); padding: 13px 8px; text-align: center; }
+    .dash-stat .v { font-family: var(--font-head); font-size: 18px; font-weight: 800; }
+    .dash-stat .l { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; font-family: var(--font-body); }
+    .nav-item .nav-ico { font-size: 17px; }
 
     /* -- Workout mode -- */
     .wk-status {
@@ -803,6 +834,46 @@
     <div class="stat-card"><div class="stat-label">Last Weight</div><div class="stat-value yellow" id="stat-weight">—</div></div>
   </div>
 
+  <!-- Today / Home view -->
+  <div id="home-view" class="view">
+    <div id="dash-greeting" class="dash-greeting"></div>
+
+    <div class="dash-card dash-workout" id="dash-workout" onclick="switchTab('workout')">
+      <div class="dash-card-label">Today's Training</div>
+      <div class="dash-workout-title" id="dash-wk-title">—</div>
+      <div class="dash-workout-focus" id="dash-wk-focus"></div>
+      <div class="dash-workout-cta" id="dash-wk-cta">Start workout →</div>
+    </div>
+
+    <div class="dash-rings">
+      <div class="dash-ring-card">
+        <svg viewBox="0 0 80 80" class="dash-ring"><circle class="dr-track" cx="40" cy="40" r="34"/><circle class="dr-fill dr-water" id="dr-water" cx="40" cy="40" r="34"/></svg>
+        <div class="dash-ring-mid"><div class="dr-val" id="dash-water-val">—</div><div class="dr-lbl">Water</div></div>
+      </div>
+      <div class="dash-ring-card">
+        <svg viewBox="0 0 80 80" class="dash-ring"><circle class="dr-track" cx="40" cy="40" r="34"/><circle class="dr-fill dr-cal" id="dr-cal" cx="40" cy="40" r="34"/></svg>
+        <div class="dash-ring-mid"><div class="dr-val" id="dash-cal-val">—</div><div class="dr-lbl">Calories</div></div>
+      </div>
+      <div class="dash-ring-card">
+        <svg viewBox="0 0 80 80" class="dash-ring"><circle class="dr-track" cx="40" cy="40" r="34"/><circle class="dr-fill dr-prot" id="dr-prot" cx="40" cy="40" r="34"/></svg>
+        <div class="dash-ring-mid"><div class="dr-val" id="dash-prot-val">—</div><div class="dr-lbl">Protein</div></div>
+      </div>
+    </div>
+
+    <div class="dash-quick">
+      <button class="dash-quick-btn" onclick="event.stopPropagation(); dashAddWater()">💧 +Glass</button>
+      <button class="dash-quick-btn" onclick="switchTab('fuel')">🍽️ Log meal</button>
+      <button class="dash-quick-btn" onclick="logWeight()">⚖️ Weight</button>
+    </div>
+
+    <div class="dash-stats" id="dash-stats"></div>
+
+    <div id="dash-habits-wrap" style="display:none">
+      <div class="stats-title">Today's Habits</div>
+      <div class="chart-card" id="dash-habits"></div>
+    </div>
+  </div>
+
   <!-- Coach view -->
   <div id="chat-view" class="view">
     <div id="chat"></div>
@@ -1027,7 +1098,10 @@
 
   <!-- Bottom nav -->
   <div id="bottom-nav">
-    <button class="nav-item active" id="nav-coach" onclick="switchTab('chat')">
+    <button class="nav-item active" id="nav-home" onclick="switchTab('home')">
+      <span class="nav-ico">🏠</span>Today
+    </button>
+    <button class="nav-item" id="nav-coach" onclick="switchTab('chat')">
       <span class="nav-ico">💬</span>Coach
     </button>
     <button class="nav-item" id="nav-workout" onclick="switchTab('workout')">
@@ -1145,19 +1219,94 @@
   }
 
   // ── Tabs ──
-  const TAB_VIEWS = { chat: 'chat-view', workout: 'workout-view', fuel: 'fuel-view',
-                      money: 'money-view', stats: 'stats-view' };
-  const TAB_NAVS  = { chat: 'nav-coach', workout: 'nav-workout', fuel: 'nav-fuel',
-                      money: 'nav-money', stats: 'nav-progress' };
+  const TAB_VIEWS = { home: 'home-view', chat: 'chat-view', workout: 'workout-view',
+                      fuel: 'fuel-view', money: 'money-view', stats: 'stats-view' };
+  const TAB_NAVS  = { home: 'nav-home', chat: 'nav-coach', workout: 'nav-workout',
+                      fuel: 'nav-fuel', money: 'nav-money', stats: 'nav-progress' };
   function switchTab(tab) {
     for (const [t, id] of Object.entries(TAB_VIEWS))
       document.getElementById(id).style.display = t === tab ? 'flex' : 'none';
     for (const [t, id] of Object.entries(TAB_NAVS))
       document.getElementById(id).classList.toggle('active', t === tab);
+    if (tab === 'home')    loadDashboard();
     if (tab === 'stats')   loadStatsView();
     if (tab === 'workout') loadWorkout();
     if (tab === 'fuel')    loadFuel();
     if (tab === 'money')   loadMoney();
+  }
+
+  // ── Today dashboard ──
+  const DR_CIRC = 213.6;
+  function setRing(id, pct) {
+    document.getElementById(id).style.strokeDashoffset = DR_CIRC * (1 - Math.max(0, Math.min(1, pct)));
+  }
+  async function loadDashboard() {
+    let d;
+    try { d = await (await fetchRetry('/dashboard', { headers: authHeaders() })).json(); }
+    catch { return; }
+    if (!d.ready) {
+      document.getElementById('dash-greeting').innerHTML = 'Finish your quick setup in the Coach tab to get started.';
+      switchTab('chat'); return;
+    }
+    const hour = new Date().getHours();
+    const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    const dateStr = new Date(d.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    document.getElementById('dash-greeting').innerHTML = `${greet}, ${esc(d.name)}!<span>${esc(dateStr)}</span>`;
+
+    const w = d.workout;
+    document.getElementById('dash-wk-title').textContent = w.rest_day ? 'Rest day 🛌' : `Day ${w.day} — ${w.name}`;
+    document.getElementById('dash-wk-focus').textContent = w.rest_day ? 'Recovery keeps the gains coming.' : w.focus;
+    const cta = document.getElementById('dash-wk-cta');
+    cta.textContent = w.done_today ? '✓ Completed today — view / edit →' : (w.rest_day ? 'Changed your mind? Open Workout →' : `${w.exercises} exercises · Start workout →`);
+
+    dashWater = d.water;
+    const wl = (d.water.ml / 1000), wg = (d.water.goal / 1000);
+    setRing('dr-water', d.water.goal ? d.water.ml / d.water.goal : 0);
+    document.getElementById('dash-water-val').textContent = wl.toFixed(1) + 'L';
+
+    const cal = d.nutrition.calories, calT = d.nutrition.cal_target || 1;
+    setRing('dr-cal', cal / calT);
+    document.getElementById('dash-cal-val').textContent = Math.round(cal);
+
+    const pr = d.nutrition.protein_g, prT = d.nutrition.protein_target || 1;
+    setRing('dr-prot', pr / prT);
+    document.getElementById('dash-prot-val').textContent = Math.round(pr) + 'g';
+
+    const streakTxt = (d.streak > 0 ? '🔥 ' : '') + d.streak;
+    document.getElementById('dash-stats').innerHTML = `
+      <div class="dash-stat"><div class="v accent">${esc(d.sessions_this_week)}/${esc(d.days_per_week)}</div><div class="l">This week</div></div>
+      <div class="dash-stat"><div class="v pink">${streakTxt}</div><div class="l">Day streak</div></div>
+      <div class="dash-stat"><div class="v yellow">${d.last_weight ? esc(d.last_weight) + 'kg' : '—'}</div><div class="l">Weight</div></div>`;
+    document.querySelector('#dash-stats .v.accent').style.color = 'var(--accent)';
+    document.querySelector('#dash-stats .v.pink').style.color = 'var(--accent2)';
+    document.querySelector('#dash-stats .v.yellow').style.color = 'var(--accent3)';
+
+    const hw = document.getElementById('dash-habits-wrap');
+    const hb = document.getElementById('dash-habits');
+    if ((d.habits || []).length) {
+      hw.style.display = 'block'; hb.innerHTML = '';
+      d.habits.forEach(h => {
+        const row = document.createElement('div'); row.className = 'habit-row';
+        row.innerHTML = `<div class="habit-check${h.done_today ? ' done' : ''}">✔</div>
+          <div class="habit-name">${esc(h.name)}</div>
+          <div class="habit-streak">${h.streak > 0 ? '🔥 ' + esc(h.streak) + 'd' : ''}</div>`;
+        row.querySelector('.habit-check').onclick = async () => { await toggleHabit(h.name); loadDashboard(); };
+        hb.appendChild(row);
+      });
+    } else hw.style.display = 'none';
+  }
+  let dashWater = { ml: 0, goal: 0 };
+  async function dashAddWater() {
+    try {
+      const w = await (await fetch('/water_add', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ ml: 250 }),
+      })).json();
+      dashWater.ml = w.ml;
+      setRing('dr-water', dashWater.goal ? w.ml / dashWater.goal : 0);
+      document.getElementById('dash-water-val').textContent = (w.ml / 1000).toFixed(1) + 'L';
+      if (navigator.vibrate) navigator.vibrate(15);
+    } catch { alert('Network error — try again.'); }
   }
 
   // ── Workout mode ──
@@ -2461,21 +2610,32 @@
   }
 
   // ── Init ──
-  async function init() {
-    flushQueue();
-    await loadStatsBar();
+  async function loadChatHistory() {
     try {
       const data = await (await fetchRetry('/chat_history', { headers: authHeaders() },
         { timeoutMs: 25000, retries: 1 })).json();
-      if (data.history && data.history.length > 0) {
+      if (data.history && data.history.length > 0)
         data.history.forEach(m => { if (m.role !== 'system') addBubble(m.content, m.role === 'user' ? 'user' : 'coach'); });
-      } else {
-        const pd = await (await fetchRetry('/profile_status', { headers: authHeaders() },
-          { timeoutMs: 25000, retries: 1 })).json();
-        sendMessage(pd.complete ? "What's my workout today?" : "Hi! I'm new here, let's get started.");
-      }
+    } catch {}
+  }
+  async function init() {
+    flushQueue();
+    await loadStatsBar();
+    let complete = false;
+    try {
+      complete = (await (await fetchRetry('/profile_status', { headers: authHeaders() },
+        { timeoutMs: 25000, retries: 1 })).json()).complete;
     } catch {
+      switchTab('chat');
       addRetryBubble("Couldn't reach the server — if the app was idle it may still be waking up.", init);
+      return;
+    }
+    if (complete) {
+      loadChatHistory();        // populate the Coach tab in the background
+      switchTab('home');        // land on the Today dashboard
+    } else {
+      switchTab('chat');
+      sendMessage("Hi! I'm new here, let's get started.");
     }
   }
 

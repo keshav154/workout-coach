@@ -127,7 +127,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v13';
+const CACHE = 'coachxkeshav-v14';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -215,6 +215,60 @@ def day_info():
     day = get_next_day(workout_log)
     p   = PROGRAM.get(day, {})
     return jsonify({"day": day, "name": p.get("name", ""), "focus": p.get("focus", "")})
+
+
+@flask_app.route("/dashboard")
+@require_auth
+def dashboard():
+    """One-shot 'Today' home screen payload — aggregates everything so the
+    landing view loads in a single request (matters on a cold free dyno)."""
+    from datetime import timedelta
+    from agent_core import (compute_targets, effective_calorie_target,
+                            get_consecutive_workout_days, get_consistent_weeks,
+                            get_weight_entries, is_rest_day, today as _today,
+                            today_iso)
+    from nutrition import today_totals
+    from water import water_goal_ml, water_today
+
+    profile = load_profile()
+    if not profile_complete(profile):
+        return jsonify({"ready": False})
+
+    workout_log = load_log()
+    sessions = workout_log.get("sessions", [])
+    day = get_next_day(workout_log)
+    p = PROGRAM.get(day, {})
+    now = _today()
+    worked_out = any(s.get("date") == today_iso() for s in sessions)
+    week_start = now - timedelta(days=now.weekday())
+    dpw = profile.get("days_per_week", 6)
+
+    targets = compute_targets(profile)
+    nt = today_totals()
+    wt = water_today()
+    entries = get_weight_entries(load_memory())
+
+    habits = _habit_rows()
+
+    return jsonify({
+        "ready":       True,
+        "name":        profile.get("name", ""),
+        "date":        today_iso(),
+        "workout":     {"day": day, "name": p.get("name", ""), "focus": p.get("focus", ""),
+                        "exercises": len(p.get("exercises", [])),
+                        "done_today": worked_out, "rest_day": is_rest_day()},
+        "water":       {"ml": wt["ml"], "goal": water_goal_ml(profile)},
+        "nutrition":   {"calories": nt["calories"], "protein_g": nt["protein_g"],
+                        "cal_target": effective_calorie_target(profile, targets),
+                        "protein_target": targets["protein_target_g"],
+                        "meals": nt["count"]},
+        "habits":      habits,
+        "streak":      get_consecutive_workout_days(workout_log),
+        "consistent_weeks": get_consistent_weeks(workout_log, dpw),
+        "sessions_this_week": sum(1 for s in sessions if s.get("date", "") >= week_start.isoformat()),
+        "days_per_week": dpw,
+        "last_weight": entries[-1][1] if entries else None,
+    })
 
 
 @flask_app.route("/stats")
