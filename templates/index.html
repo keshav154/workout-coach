@@ -269,6 +269,11 @@
       transition: border-color 0.2s, box-shadow 0.2s;
     }
     .wk-set-row select { text-align: left; appearance: auto; }
+    .wk-set-row .wk-rpe { flex: 0 0 74px; }
+    .wk-ss-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 12px; width: 30px; height: 30px; cursor: pointer; flex-shrink: 0; }
+    .wk-ss-btn.active { border-color: var(--accent2); color: var(--accent2); box-shadow: 0 0 5px #ff00ff50; }
+    .wk-ss-tag { font-size: 10.5px; color: var(--accent2); margin: -4px 0 8px; }
+    .wk-ex.ss-linked { border-left-color: var(--accent2); margin-top: -4px; }
     .wk-set-row input:focus, .wk-set-row select:focus { border-color: var(--accent); box-shadow: 0 0 5px #00ff8850; }
 
     /* -- Inline forms (Money / Fuel) + quick chips -- */
@@ -463,6 +468,19 @@
     .session-item.open .session-detail { display: block; }
     .session-ex { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--accent3); padding: 3px 0; }
     .session-ex span:first-child { color: var(--fg); }
+
+    /* -- Money history -- */
+    .mo-navbar { display: flex; align-items: center; gap: 10px; }
+    .mo-nav { background: var(--card); border: 1px solid var(--border); color: var(--accent); width: 40px; height: 40px; font-size: 20px; cursor: pointer; flex-shrink: 0; }
+    .mo-nav:active { border-color: var(--accent); }
+    .mo-nav:disabled { color: var(--muted); opacity: 0.4; }
+    .mo-month-label { flex: 1; text-align: center; font-family: var(--font-head); font-size: 15px; font-weight: 800; letter-spacing: 0.05em; }
+    .mo-hero { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 18px 16px; text-align: center; }
+    .mo-hero-total { font-family: var(--font-head); font-size: 30px; font-weight: 800; color: var(--accent); text-shadow: 0 0 8px #00ff8850; }
+    .mo-hero-sub { font-size: 11.5px; color: var(--muted); margin-top: 6px; font-family: var(--font-body); }
+    .mo-txn { position: relative; }
+    .mo-txn .mo-del { background: none; border: 1px solid var(--border); color: var(--danger); width: 28px; height: 28px; font-size: 12px; cursor: pointer; flex-shrink: 0; }
+    .mo-txn .mo-del:active { border-color: var(--danger); }
 
     /* -- Water tracker -- */
     .water-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
@@ -1077,12 +1095,24 @@
 
   <!-- Money view -->
   <div id="money-view" class="view">
+    <div class="mo-navbar">
+      <button class="mo-nav" onclick="changeMoMonth(-1)">‹</button>
+      <div class="mo-month-label" id="mo-month-label">—</div>
+      <button class="mo-nav" id="mo-next" onclick="changeMoMonth(1)">›</button>
+    </div>
+    <div class="mo-hero">
+      <div class="mo-hero-total" id="mo-total">—</div>
+      <div class="mo-hero-sub"><span id="mo-avg">—</span> avg/active day · <span id="mo-txn-count">0</span> transactions</div>
+    </div>
     <div>
-      <div class="stats-title">This Month</div>
-      <div class="stats-grid">
-        <div class="big-stat"><div class="label">Total Spent</div><div class="val accent" id="mo-total">—</div><div class="sub" id="mo-month">—</div></div>
-        <div class="big-stat"><div class="label">Per Active Day</div><div class="val yellow" id="mo-avg">—</div><div class="sub">average</div></div>
-      </div>
+      <div class="stats-title">6-Month Trend</div>
+      <div class="chart-card"><canvas id="chart-money-trend" height="130"></canvas>
+        <div class="chart-empty" id="chart-money-trend-empty">Log expenses to see your trend.</div></div>
+    </div>
+    <div>
+      <div class="stats-title">Daily Spend</div>
+      <div class="chart-card"><canvas id="chart-money-daily" height="120"></canvas>
+        <div class="chart-empty" id="chart-money-daily-empty">No spending this month.</div></div>
     </div>
     <div>
       <div class="stats-title">Categories</div>
@@ -1106,7 +1136,7 @@
       </div>
     </div>
     <div>
-      <div class="stats-title">Recent Transactions</div>
+      <div class="stats-title">Transactions</div>
       <div class="session-list" id="mo-txns"></div>
     </div>
   </div>
@@ -1459,11 +1489,13 @@
               <span class="wk-set-label">${ex.scheme ? '' : 'Set ' + (s + 1)}</span>
               <select class="wk-w" data-ex="${i}">${weightOptions(preset)}</select>
               <select class="wk-r" data-ex="${i}">${repOptions()}</select>
+              <select class="wk-rpe" data-ex="${i}" title="Rate of perceived exertion">${rpeOptions()}</select>
             </div>`;
         }
         const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
         const swap = (ex.alternatives || []).length
           ? `<button class="wk-swap" title="Swap exercise" onclick="swapExercise(${i})">⇄</button>` : '';
+        const ssBtn = (i > 0) ? `<button class="wk-ss-btn" title="Superset with the exercise above" onclick="toggleSuperset(${i})">🔗</button>` : '';
         const video = `<a class="wk-video" href="${ytSearchUrl(ex.name)}" target="_blank" rel="noopener" title="Watch form">▶</a>`;
         const deloadTag = (auto.includes(ex.name)) ? `<span class="wk-ex-tag">deload</span>` : '';
         const prog = sug ? `<div class="wk-prog-line wk-prog-${esc(sug.kind)}">🎯 ${esc(sug.reason)}</div>` : '';
@@ -1478,7 +1510,8 @@
         div.dataset.name = ex.name;
         div.dataset.orig = ex.name;
         div.innerHTML = `
-          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${deloadTag}${video}${swap}</div>
+          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${deloadTag}${ssBtn}${video}${swap}</div>
+          <div class="wk-ss-tag" style="display:none">🔗 superset with the exercise above</div>
           <div class="wk-ex-meta">${esc(target)} · ${esc(last)}</div>
           ${prog}
           ${hist}
@@ -1532,6 +1565,20 @@
     let o = '<option value="">reps</option>';
     for (let r = 1; r <= 30; r++) o += `<option value="${r}">${r}</option>`;
     return o;
+  }
+  function rpeOptions() {
+    let o = '<option value="">RPE</option>';
+    for (let r = 6; r <= 10; r += 0.5) o += `<option value="${r}">RPE ${r}</option>`;
+    return o;
+  }
+  // Superset: link an exercise with the one above it (shared group on save).
+  function toggleSuperset(i) {
+    const card = document.querySelectorAll('.wk-ex')[i];
+    if (!card) return;
+    const on = card.classList.toggle('ss-linked');
+    card.querySelector('.wk-ss-tag').style.display = on ? 'block' : 'none';
+    const btn = card.querySelector('.wk-ss-btn');
+    if (btn) btn.classList.toggle('active', on);
   }
 
   // ── Week-ahead preview (tap a rotation chip) ──
@@ -1597,16 +1644,35 @@
   async function saveWorkout() {
     const saveBtn = document.getElementById('wk-save');
     const exercises = [];
-    document.querySelectorAll('.wk-ex').forEach((exEl, i) => {
+    // Build superset group ids: an exercise linked to the one above shares its
+    // group; runs of 2+ linked exercises get a letter (A, B, ...).
+    const cards = [...document.querySelectorAll('.wk-ex')];
+    const groupOf = new Array(cards.length).fill(-1);
+    let g = -1;
+    for (let idx = 0; idx < cards.length; idx++) {
+      if (idx > 0 && cards[idx].classList.contains('ss-linked')) {
+        if (groupOf[idx - 1] < 0) { g++; groupOf[idx - 1] = g; }
+        groupOf[idx] = groupOf[idx - 1];
+      }
+    }
+    const SS = 'ABCDEFGH';
+    cards.forEach((exEl, i) => {
       const sets = [];
       exEl.querySelectorAll('.wk-set-row').forEach(row => {
         const w = parseFloat(row.querySelector('.wk-w').value);
         const r = parseInt(row.querySelector('.wk-r').value, 10);
-        if (!isNaN(w) || !isNaN(r)) sets.push({ weight: isNaN(w) ? 0 : w, reps: isNaN(r) ? 0 : r });
+        const rpe = parseFloat(row.querySelector('.wk-rpe').value);
+        if (!isNaN(w) || !isNaN(r)) {
+          const set = { weight: isNaN(w) ? 0 : w, reps: isNaN(r) ? 0 : r };
+          if (!isNaN(rpe)) set.rpe = rpe;
+          sets.push(set);
+        }
       });
       const noteEl = exEl.querySelector('.wk-note');
       const note = noteEl ? noteEl.value.trim() : '';
-      if (sets.length) exercises.push({ name: exEl.dataset.name, sets, note });
+      const item = { name: exEl.dataset.name, sets, note };
+      if (groupOf[i] >= 0) item.superset = SS[groupOf[i]];
+      if (sets.length) exercises.push(item);
     });
     if (!exercises.length) { alert('Fill in at least one set.'); return; }
 
@@ -1878,13 +1944,37 @@
 
   // ── Money view ──
   const inr = n => 'Rs ' + Math.round(n).toLocaleString('en-IN');
+  let moMonth = null;        // null = current month
+  function changeMoMonth(delta) {
+    const base = moMonth || new Date().toISOString().slice(0, 7);
+    const [y, m] = base.split('-').map(Number);
+    const dt = new Date(y, m - 1 + delta, 1);
+    moMonth = dt.toISOString().slice(0, 7);
+    loadMoney();
+  }
   async function loadMoney() {
     let d;
-    try { d = await (await fetch('/money_data', { headers: authHeaders() })).json(); }
+    const q = moMonth ? ('?month=' + moMonth) : '';
+    try { d = await (await fetchRetry('/money_data' + q, { headers: authHeaders() })).json(); }
     catch { return; }
+    moMonth = d.month;
+    document.getElementById('mo-next').disabled = !!d.is_current;
+    const [y, m] = d.month.split('-').map(Number);
+    document.getElementById('mo-month-label').textContent =
+      new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     document.getElementById('mo-total').textContent = inr(d.total || 0);
-    document.getElementById('mo-month').textContent = d.month || '';
     document.getElementById('mo-avg').textContent   = inr(d.avg_per_day || 0);
+    document.getElementById('mo-txn-count').textContent = (d.recent || []).length;
+
+    // 6-month trend
+    const tPts = (d.months || []).map(x => ({ y: x.total, label: x.month.slice(5) }));
+    document.getElementById('chart-money-trend-empty').style.display =
+      (tPts.some(p => p.y > 0) && drawBarChart('chart-money-trend', tPts, '#00ff88')) ? 'none' : 'block';
+
+    // Daily spend within the month (compress labels: show ~every 5th)
+    const dPts = (d.day_series || []).map((x, i) => ({ y: x.amount, label: (i % 5 === 0) ? x.date.slice(8) : '' }));
+    document.getElementById('chart-money-daily-empty').style.display =
+      (dPts.some(p => p.y > 0) && drawBarChart('chart-money-daily', dPts, '#00d4ff')) ? 'none' : 'block';
 
     const cats = document.getElementById('mo-cats'); cats.innerHTML = '';
     (d.by_category || []).forEach(c => {
@@ -1898,18 +1988,31 @@
       cats.appendChild(row);
     });
     if (!(d.by_category || []).length)
-      cats.innerHTML = '<div style="color:var(--muted);font-size:13px">No spending this month yet.</div>';
+      cats.innerHTML = '<div style="color:var(--muted);font-size:13px">No spending this month.</div>';
 
     const list = document.getElementById('mo-txns'); list.innerHTML = '';
     (d.recent || []).forEach(t => {
-      const item = document.createElement('div'); item.className = 'session-item';
+      const item = document.createElement('div'); item.className = 'session-item mo-txn';
       item.innerHTML = `<div><div class="session-day">${esc(t.description || t.category)}</div>
         <div class="session-date">${esc(t.date)} · ${esc(t.category)}</div></div>
-        <div class="session-tag">${inr(t.amount || 0)}</div>`;
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="session-tag">${inr(t.amount || 0)}</div>
+          <button class="mo-del" title="Delete">✕</button></div>`;
+      item.querySelector('.mo-del').onclick = () => deleteExpense(t.id);
       list.appendChild(item);
     });
     if (!(d.recent || []).length)
-      list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No transactions yet.</div>';
+      list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No transactions this month.</div>';
+  }
+  async function deleteExpense(id) {
+    if (!id || !confirm('Delete this transaction?')) return;
+    try {
+      await fetch('/delete_expense', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ id }),
+      });
+      loadMoney();
+    } catch { alert('Network error — try again.'); }
   }
   async function addExpense() {
     const amt  = parseFloat(document.getElementById('mo-amt').value);
@@ -1928,6 +2031,7 @@
       else {
         document.getElementById('mo-amt').value = '';
         document.getElementById('mo-desc').value = '';
+        moMonth = null;          // jump back to the current month to show it
         loadMoney();
       }
     } catch { alert('Network error — try again.'); }
@@ -2051,10 +2155,11 @@
         const item = document.createElement('div'); item.className = 'session-item expandable';
         const detail = (s.detail || []).map(e => {
           const sets = (e.sets && e.sets.length)
-            ? e.sets.map(x => `${x.weight ?? 0}kg x ${x.reps ?? 0}`).join('  ·  ')
-            : `${e.weight ?? '?'}kg x ${e.reps ?? '?'}`;
+            ? e.sets.map(x => `${x.weight ?? 0}kg x ${x.reps ?? 0}${x.rpe ? ' @' + x.rpe : ''}`).join('  ·  ')
+            : `${e.weight ?? '?'}kg x ${e.reps ?? '?'}${e.rpe ? ' @RPE' + e.rpe : ''}`;
+          const ss = e.superset ? `<span style="color:var(--accent2)"> 🔗${esc(e.superset)}</span>` : '';
           const note = e.note ? `<div class="session-ex-note">✎ ${esc(e.note)}</div>` : '';
-          return `<div class="session-ex"><span>${esc(e.name)}</span><span>${esc(sets)}</span></div>${note}`;
+          return `<div class="session-ex"><span>${esc(e.name)}${ss}</span><span>${esc(sets)}</span></div>${note}`;
         }).join('');
         item.innerHTML = `<div class="session-row"><div><div class="session-day">Day ${esc(s.day)} — ${esc(s.name)}</div>
             <div class="session-date">${esc(s.date)}${s.weight ? ' · ' + esc(s.weight) + ' kg' : ''}${s.duration ? ' · ' + esc(s.duration) + ' min' : ''}</div></div>

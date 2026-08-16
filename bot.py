@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v15';
+const CACHE = 'coachxkeshav-v16';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -308,6 +308,8 @@ def stats():
                            "weight": e.get("weight"),
                            "reps":   e.get("reps_done"),
                            "note":   e.get("note"),
+                           "rpe":    e.get("rpe"),
+                           "superset": e.get("superset"),
                            "sets":   e.get("sets") if isinstance(e.get("sets"), list) else None}
                           for e in s.get("exercises", [])],
         })
@@ -885,10 +887,21 @@ def water_undo():
 @flask_app.route("/money_data")
 @require_auth
 def money_data():
-    """Money tab: month total, category breakdown vs budgets, recent transactions."""
-    from agent_core import today as _today
+    """Money tab: a browsable month with totals, category breakdown vs budgets,
+    a daily spend series, a 6-month trend, and recent transactions."""
+    from datetime import date as _date
+    from agent_core import _col, today as _today
     from expense_core import get_budget, get_expenses
-    month    = _today().strftime("%Y-%m")
+    import calendar as _cal
+
+    month = (request.args.get("month") or _today().strftime("%Y-%m"))[:7]
+    try:
+        y, m = int(month[:4]), int(month[5:7])
+        _date(y, m, 1)
+    except (ValueError, IndexError):
+        month = _today().strftime("%Y-%m")
+        y, m = int(month[:4]), int(month[5:7])
+
     expenses = get_expenses(month)
     budget   = get_budget()
     totals, daily = {}, {}
@@ -899,14 +912,51 @@ def money_data():
     total = sum(totals.values())
     by_category = [{"category": c, "amount": v, "budget": budget.get(c)}
                    for c, v in sorted(totals.items(), key=lambda x: -x[1])]
-    recent = sorted(expenses, key=lambda x: (x.get("date", ""), x.get("id", "")), reverse=True)[:20]
+    recent = sorted(expenses, key=lambda x: (x.get("date", ""), x.get("id", "")), reverse=True)[:30]
+
+    # Daily series across the whole month (0-filled) for a bar chart
+    days_in_month = _cal.monthrange(y, m)[1]
+    day_series = [{"date": f"{month}-{d:02d}", "amount": round(daily.get(f"{month}-{d:02d}", 0))}
+                  for d in range(1, days_in_month + 1)]
+
+    # 6-month trend (this month + previous 5), from all expenses
+    all_exp = list(_col("expenses").find())
+    months = []
+    yy, mm = y, m
+    for _ in range(6):
+        key = f"{yy:04d}-{mm:02d}"
+        tot = sum(e.get("amount", 0) or 0 for e in all_exp if (e.get("date", "") or "").startswith(key))
+        months.append({"month": key, "total": round(tot)})
+        mm -= 1
+        if mm == 0:
+            mm = 12; yy -= 1
+    months.reverse()
+
     return jsonify({
         "month":       month,
-        "total":       total,
+        "is_current":  month == _today().strftime("%Y-%m"),
+        "total":       round(total),
         "avg_per_day": total / len(daily) if daily else 0,
         "by_category": by_category,
+        "day_series":  day_series,
+        "months":      months,
         "recent":      recent,
     })
+
+
+@flask_app.route("/delete_expense", methods=["POST"])
+@require_auth
+def delete_expense():
+    from agent_core import _col
+    from bson import ObjectId
+    eid = ((request.json or {}).get("id") or "").strip()
+    if not eid:
+        return jsonify({"error": "missing id"}), 400
+    try:
+        _col("expenses").delete_one({"_id": ObjectId(eid)})
+    except Exception:
+        _col("expenses").delete_one({"_id": eid})
+    return jsonify({"ok": True})
 
 
 @flask_app.route("/log_expense", methods=["POST"])
@@ -1014,23 +1064,46 @@ def log_workout():
     if not day or not raw:
         return jsonify({"error": "Nothing to log — fill in at least one exercise."}), 400
 
-    # Normalize: keep per-set detail, and derive a summary weight/reps_done
-    # (the heaviest set) so PR detection and progression keep working.
+    def _clean_rpe(v):
+        try:
+            r = float(v)
+        except (TypeError, ValueError):
+            return None
+        return r if 1 <= r <= 10 else None
+
+    # Normalize: keep per-set detail (weight/reps/rpe), and derive a summary
+    # weight/reps_done (the heaviest set) so PR detection and progression keep
+    # working. Superset group and per-exercise RPE are preserved for display.
     exercises = []
     for e in raw:
-        sets = [s for s in (e.get("sets") or []) if s.get("weight") or s.get("reps")]
+        sets = []
+        for s in (e.get("sets") or []):
+            if not (s.get("weight") or s.get("reps")):
+                continue
+            cs = {"weight": float(s.get("weight") or 0), "reps": int(float(s.get("reps") or 0))}
+            rpe = _clean_rpe(s.get("rpe"))
+            if rpe is not None:
+                cs["rpe"] = rpe
+            sets.append(cs)
         item = {"name": e.get("name")}
         if sets:
-            top = max(sets, key=lambda s: (float(s.get("weight") or 0), float(s.get("reps") or 0)))
-            item["weight"]    = float(top.get("weight") or 0)
-            item["reps_done"] = int(float(top.get("reps") or 0))
+            top = max(sets, key=lambda s: (s["weight"], s["reps"]))
+            item["weight"]    = top["weight"]
+            item["reps_done"] = top["reps"]
             item["sets"]      = sets
+            if "rpe" in top:
+                item["rpe"] = top["rpe"]
         else:
             item["weight"]    = float(e.get("weight") or 0)
             item["reps_done"] = int(float(e.get("reps_done") or 0))
+            rpe = _clean_rpe(e.get("rpe"))
+            if rpe is not None:
+                item["rpe"] = rpe
         note = str(e.get("note") or "").strip()[:200]
         if note:
             item["note"] = note
+        if e.get("superset"):
+            item["superset"] = str(e.get("superset"))[:2]
         exercises.append(item)
 
     session = {"day": day, "date": today_iso(), "exercises": exercises}
