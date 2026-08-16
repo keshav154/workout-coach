@@ -4,7 +4,8 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 
 ## Features
 
-- **6-day Push/Pull/Legs x2 split**: every muscle trained twice a week (A: Push-chest, B: Pull-back, C: Legs-quad, D: Push-shoulders, E: Pull-width+arms, F: Legs-posterior)
+- **Today dashboard**: a glanceable home screen (default landing) with today's training, water/calorie/protein rings, quick actions, streak/week stats and habits
+- **Custom program builder**: the default is a 6-day Push/Pull/Legs x2 split (every muscle twice a week), but you can build your own — 1-7 days, any exercises/sets/rep-ranges, reorderable — from the menu. Rotation, progression, warm-ups and the coach all follow your program
 - **Agentic coach**: the LLM reads real data and writes through validated tools (log sessions, weight, meals, expenses, goals, budgets, check-ins, undo) — never just "says" it logged something
 - **Progressive overload (double progression)**: the Workout tab pre-fills each set with the suggested weight and shows a hint — add reps at the same weight until you hit the top of the range, then it bumps you to the next dumbbell and resets reps. Adding reps or sets counts as progress, not a plateau
 - **Rep/volume-aware plateau detection**: a lift is only flagged as plateaued when neither estimated 1RM (weight *or* reps) nor volume (sets) improved over the last 3 sessions — so more reps or more sets clears it. Auto-scheduled deloads for genuine plateaus

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from llm import chat
 from agent_core import (
-    PROGRAM,
+    get_program,
     days_since_last_session,
     effective_calorie_target,
     get_consecutive_workout_days,
@@ -48,7 +48,7 @@ def build_daily_nudge() -> str | None:
         return None  # deliberate rest day — don't nag to train
 
     day  = get_next_day(workout_log)
-    p    = PROGRAM.get(day, {})
+    p    = get_program().get(day, {})
     name = p.get("name", "")
     gap  = days_since_last_session(workout_log)
     streak = get_consecutive_workout_days(workout_log)
@@ -271,6 +271,7 @@ def weekly_summary_data(week_offset: int = 0) -> dict:
     def in_week(d: str) -> bool:
         return week_start.isoformat() <= (d or "") <= week_end.isoformat()
 
+    prog = get_program()
     sessions = [s for s in log_doc.get("sessions", []) if in_week(s.get("date", ""))]
     session_rows, volume, minutes = [], 0.0, 0
     for s in sorted(sessions, key=lambda x: x.get("date", "")):
@@ -279,7 +280,7 @@ def weekly_summary_data(week_offset: int = 0) -> dict:
         minutes += int(s.get("duration_min") or 0)
         session_rows.append({
             "date": s.get("date"), "day": s.get("day"),
-            "name": PROGRAM.get(s.get("day"), {}).get("name", ""),
+            "name": prog.get(s.get("day"), {}).get("name", ""),
             "exercises": len(s.get("exercises", [])),
             "volume": round(v), "duration": s.get("duration_min"),
         })

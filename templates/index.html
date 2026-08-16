@@ -756,12 +756,27 @@
     }
     .mini-btn:active { border-color: var(--accent); color: var(--accent); }
     .mini-btn.danger:active { border-color: var(--danger); color: var(--danger); }
-    #edit-overlay {
+    #edit-overlay, #prog-overlay {
       display: none; position: fixed; inset: 0; z-index: 401;
       background: var(--bg); overflow-y: auto;
       padding: calc(10px + var(--safe-top)) 16px calc(24px + var(--safe-bottom));
     }
-    #edit-overlay.open { display: block; }
+    #edit-overlay.open, #prog-overlay.open { display: block; }
+    /* Program builder */
+    .pb-day { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 12px 13px; margin-bottom: 12px; }
+    .pb-day-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .pb-day-letter { font-family: var(--font-head); font-weight: 800; color: var(--accent); font-size: 15px; flex: 0 0 22px; }
+    .pb-inp { background: var(--bg); border: 1px solid var(--border); color: var(--fg); font-family: var(--font-body); padding: 8px 10px; font-size: 12.5px; outline: none; }
+    .pb-inp:focus { border-color: var(--accent); }
+    .pb-day-name { flex: 1; font-weight: 700; }
+    .pb-x { background: none; border: 1px solid var(--border); color: var(--danger); width: 28px; height: 28px; cursor: pointer; flex-shrink: 0; }
+    .pb-focus { width: 100%; margin-bottom: 8px; }
+    .pb-ex { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .pb-ex-name { flex: 1; min-width: 0; }
+    .pb-ex-sets { flex: 0 0 46px; text-align: center; }
+    .pb-ex-reps { flex: 0 0 62px; text-align: center; }
+    .pb-move { background: none; border: 1px solid var(--border); color: var(--muted); width: 26px; height: 30px; cursor: pointer; flex-shrink: 0; font-size: 11px; }
+    .pb-add-ex { width: 100%; background: none; border: 1px dashed var(--border-lit); color: var(--accent); padding: 8px; font-family: var(--font-body); font-size: 11.5px; cursor: pointer; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
     .edit-ex { background: var(--card); border: 1px solid var(--border); border-left: 2px solid var(--accent2); padding: 12px 14px; margin-bottom: 10px; }
     .edit-ex-name { font-weight: 700; font-size: 12.5px; text-transform: uppercase; font-family: var(--font-body); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     .edit-fields { display: flex; gap: 8px; align-items: center; }
@@ -1123,6 +1138,7 @@
 <div id="sheet-backdrop" onclick="closeSheet()"></div>
 <div id="sheet">
   <div class="sheet-handle"></div>
+  <button class="sheet-btn" onclick="closeSheet(); openProgram()"><span class="ico">🏗️</span>Program builder</button>
   <button class="sheet-btn" onclick="closeSheet(); openWeekly()"><span class="ico">🗓️</span>Weekly summary</button>
   <button class="sheet-btn" onclick="closeSheet(); quickSend('Give me a summary of my month — training, weight and spending')"><span class="ico">🔎</span>Ask about my data</button>
   <button class="sheet-btn" onclick="closeSheet(); quickSend('Is everything working? Run a system status check')"><span class="ico">🩺</span>System status</button>
@@ -1154,6 +1170,22 @@
     <button class="wk-sw" style="flex:0 0 auto;margin:0;border-color:var(--danger);color:var(--danger)" onclick="closeEdit()">✕ Close</button>
   </div>
   <div id="edit-body" style="max-width:640px;margin:0 auto"></div>
+</div>
+
+<!-- Program builder overlay -->
+<div id="prog-overlay">
+  <div id="weekly-bar">
+    <div class="ws-h1" style="flex:1;font-size:15px">Program Builder</div>
+    <button class="wk-sw" style="flex:0 0 auto;margin:0" id="prog-reset" onclick="resetProgram()">↺ Default</button>
+    <button class="wk-sw" style="flex:0 0 auto;margin:0;border-color:var(--danger);color:var(--danger)" onclick="closeProgram()">✕ Close</button>
+  </div>
+  <div id="prog-body" style="max-width:640px;margin:0 auto">
+    <div id="prog-days"></div>
+    <button class="wk-sw" style="margin-top:6px" onclick="addProgDay()">＋ Add day</button>
+    <button class="wk-save" style="margin-top:10px" onclick="saveProgram()">Save program</button>
+    <div id="prog-result" style="margin-top:10px"></div>
+    <datalist id="ex-datalist"></datalist>
+  </div>
 </div>
 
 <script>
@@ -2367,6 +2399,120 @@
         body: JSON.stringify({ date: s.date, day: s.day }),
       });
       if ((await res.json()).ok) { loadStatsView(); loadStatsBar(); }
+    } catch { alert('Network error — try again.'); }
+  }
+
+  // ── Program builder ──
+  const PB_LETTERS = 'ABCDEFG';
+  async function openProgram() {
+    document.getElementById('prog-result').innerHTML = '';
+    try {
+      const [pd, lib] = await Promise.all([
+        fetchRetry('/program', { headers: authHeaders() }).then(r => r.json()),
+        fetchRetry('/exercise_library', { headers: authHeaders() }).then(r => r.json()),
+      ]);
+      document.getElementById('ex-datalist').innerHTML =
+        (lib.exercises || []).map(n => `<option value="${esc(n)}"></option>`).join('');
+      renderProgDays(pd.days || []);
+    } catch { document.getElementById('prog-days').innerHTML = '<div class="ws-empty">Could not load — try again.</div>'; }
+    document.getElementById('prog-overlay').classList.add('open');
+  }
+  function closeProgram() { document.getElementById('prog-overlay').classList.remove('open'); }
+  function renderProgDays(days) {
+    const wrap = document.getElementById('prog-days'); wrap.innerHTML = '';
+    days.forEach(d => wrap.appendChild(makeDayEl(d)));
+    relabelDays();
+  }
+  function makeDayEl(d) {
+    const el = document.createElement('div'); el.className = 'pb-day';
+    el.dataset.warmup = d.warmup || '';
+    el.innerHTML = `
+      <div class="pb-day-head">
+        <span class="pb-day-letter"></span>
+        <input class="pb-inp pb-day-name" maxlength="40" placeholder="Day name (e.g. Push)">
+        <button class="pb-x" title="Remove day" onclick="this.closest('.pb-day').remove(); relabelDays()">✕</button>
+      </div>
+      <input class="pb-inp pb-focus" maxlength="80" placeholder="Focus (e.g. chest, triceps)">
+      <div class="pb-ex-list"></div>
+      <button class="pb-add-ex" onclick="addExRow(this.closest('.pb-day'))">＋ Add exercise</button>`;
+    el.querySelector('.pb-day-name').value = d.name || '';
+    el.querySelector('.pb-focus').value = d.focus || '';
+    const list = el.querySelector('.pb-ex-list');
+    (d.exercises || [{}]).forEach(e => list.appendChild(makeExRow(e)));
+    return el;
+  }
+  function makeExRow(e) {
+    const row = document.createElement('div'); row.className = 'pb-ex';
+    row.innerHTML = `
+      <input class="pb-inp pb-ex-name" list="ex-datalist" maxlength="60" placeholder="Exercise">
+      <input class="pb-inp pb-ex-sets" type="number" min="1" max="10" placeholder="sets">
+      <input class="pb-inp pb-ex-reps" maxlength="15" placeholder="reps">
+      <button class="pb-move" title="Up" onclick="moveEx(this,-1)">▲</button>
+      <button class="pb-move" title="Down" onclick="moveEx(this,1)">▼</button>
+      <button class="pb-x" title="Remove" onclick="this.closest('.pb-ex').remove()">✕</button>`;
+    row.querySelector('.pb-ex-name').value = e.name || '';
+    row.querySelector('.pb-ex-sets').value = e.sets ?? 3;
+    row.querySelector('.pb-ex-reps').value = e.rep_range || '8-12';
+    return row;
+  }
+  function addExRow(dayEl) { dayEl.querySelector('.pb-ex-list').appendChild(makeExRow({})); }
+  function moveEx(btn, dir) {
+    const row = btn.closest('.pb-ex');
+    if (dir < 0 && row.previousElementSibling) row.parentNode.insertBefore(row, row.previousElementSibling);
+    if (dir > 0 && row.nextElementSibling) row.parentNode.insertBefore(row.nextElementSibling, row);
+  }
+  function addProgDay() {
+    if (document.querySelectorAll('#prog-days .pb-day').length >= 7) { alert('Max 7 days.'); return; }
+    document.getElementById('prog-days').appendChild(makeDayEl({ exercises: [{}] }));
+    relabelDays();
+  }
+  function relabelDays() {
+    document.querySelectorAll('#prog-days .pb-day').forEach((d, i) => {
+      d.querySelector('.pb-day-letter').textContent = PB_LETTERS[i] || '?';
+    });
+  }
+  async function saveProgram() {
+    const days = [];
+    document.querySelectorAll('#prog-days .pb-day').forEach(dEl => {
+      const exercises = [];
+      dEl.querySelectorAll('.pb-ex').forEach(r => {
+        const name = r.querySelector('.pb-ex-name').value.trim();
+        if (!name) return;
+        exercises.push({
+          name,
+          sets: parseInt(r.querySelector('.pb-ex-sets').value, 10) || 3,
+          rep_range: r.querySelector('.pb-ex-reps').value.trim() || '8-12',
+        });
+      });
+      days.push({
+        name: dEl.querySelector('.pb-day-name').value.trim(),
+        focus: dEl.querySelector('.pb-focus').value.trim(),
+        warmup: dEl.dataset.warmup,
+        exercises,
+      });
+    });
+    const out = document.getElementById('prog-result');
+    if (!days.length) { out.innerHTML = '<div class="wk-pr" style="color:var(--accent2)">Add at least one day.</div>'; return; }
+    try {
+      const res = await fetch('/program', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ days }),
+      });
+      const d = await res.json();
+      if (d.error) { out.innerHTML = `<div class="wk-pr" style="color:var(--accent2)">${esc(d.error)}</div>`; return; }
+      out.innerHTML = '<div class="wk-pr">Program saved! 💪</div>';
+      wkDay = null; loadStatsBar();
+      setTimeout(closeProgram, 700);
+    } catch { out.innerHTML = '<div class="wk-pr" style="color:var(--accent2)">Network error.</div>'; }
+  }
+  async function resetProgram() {
+    if (!confirm('Reset to the default 6-day program? Your custom program will be removed.')) return;
+    try {
+      await fetch('/program', {
+        method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ reset: true }),
+      });
+      wkDay = null; openProgram();
     } catch { alert('Network error — try again.'); }
   }
 

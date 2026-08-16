@@ -16,8 +16,9 @@ import discord
 from flask import Flask, jsonify, render_template, request
 
 from agent_core import (
-    PROGRAM,
     get_next_day,
+    get_program,
+    get_rotation,
     load_history,
     load_log,
     load_memory,
@@ -127,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v14';
+const CACHE = 'coachxkeshav-v15';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -213,7 +214,7 @@ def day_info():
         return jsonify({"day": "?", "name": "Setup", "focus": "Profile setup in progress"})
     workout_log = load_log()
     day = get_next_day(workout_log)
-    p   = PROGRAM.get(day, {})
+    p   = get_program().get(day, {})
     return jsonify({"day": day, "name": p.get("name", ""), "focus": p.get("focus", "")})
 
 
@@ -237,7 +238,7 @@ def dashboard():
     workout_log = load_log()
     sessions = workout_log.get("sessions", [])
     day = get_next_day(workout_log)
-    p = PROGRAM.get(day, {})
+    p = get_program().get(day, {})
     now = _today()
     worked_out = any(s.get("date") == today_iso() for s in sessions)
     week_start = now - timedelta(days=now.weekday())
@@ -280,7 +281,8 @@ def stats():
     mem         = load_memory()
     sessions    = workout_log.get("sessions", [])
     day         = get_next_day(workout_log)
-    p           = PROGRAM.get(day, {})
+    prog        = get_program()
+    p           = prog.get(day, {})
 
     from agent_core import get_weight_entries
     entries = get_weight_entries(mem)
@@ -297,7 +299,7 @@ def stats():
         d = s.get("day", "?")
         recent.append({
             "day":       d,
-            "name":      PROGRAM.get(d, {}).get("name", ""),
+            "name":      prog.get(d, {}).get("name", ""),
             "date":      s.get("date", ""),
             "weight":    s.get("body_weight_kg"),
             "duration":  s.get("duration_min"),
@@ -332,15 +334,17 @@ def stats():
 @flask_app.route("/today_program")
 @require_auth
 def today_program():
-    from agent_core import (DAY_ROTATION, get_last_session_for_day,
-                            should_suggest_deload, today_iso, warmup_weight_for)
+    from agent_core import (get_last_session_for_day, should_suggest_deload,
+                            today_iso, warmup_weight_for)
     from progression import alternatives_for, get_autodeload_flags, suggest_next
     profile = load_profile()
     if not profile_complete(profile):
         return jsonify({"ready": False})
     workout_log = load_log()
+    prog = get_program()
+    rotation = get_rotation()
     day  = get_next_day(workout_log)
-    p    = PROGRAM.get(day, {})
+    p    = prog.get(day, {})
     last = get_last_session_for_day(workout_log, day)
     deload_week = should_suggest_deload(workout_log)
     autoflags   = set(get_autodeload_flags())
@@ -352,7 +356,7 @@ def today_program():
         idx = max(range(len(sessions)), key=lambda i: (sessions[i].get("date", ""), i))
         s = sessions[idx]
         last_logged = {"day": s.get("day"), "date": s.get("date"),
-                       "name": PROGRAM.get(s.get("day"), {}).get("name", "")}
+                       "name": prog.get(s.get("day"), {}).get("name", "")}
     exercises = []
     for ex in p.get("exercises", []):
         prev = None
@@ -389,8 +393,8 @@ def today_program():
     # Week-ahead preview: every rotation day with its exercises + last weights,
     # so tapping a rotation chip can show what's coming.
     week = []
-    for d0 in DAY_ROTATION:
-        pd = PROGRAM[d0]
+    for d0 in rotation:
+        pd = prog.get(d0, {})
         lastd = get_last_session_for_day(workout_log, d0)
         exs = []
         for ex in pd.get("exercises", []):
@@ -399,22 +403,21 @@ def today_program():
             exs.append({"name": ex["name"],
                         "target": ex.get("scheme") or f"{ex['sets']}x{ex['rep_range']}",
                         "last_weight": prev0.get("weight") if prev0 else None})
-        week.append({"day": d0, "name": pd["name"], "focus": pd["focus"], "exercises": exs})
+        week.append({"day": d0, "name": pd.get("name", ""), "focus": pd.get("focus", ""),
+                     "exercises": exs})
 
-    from agent_core import (get_consecutive_workout_days, is_rest_day,
-                            should_suggest_deload)
-    from progression import get_autodeload_flags
+    from agent_core import get_consecutive_workout_days, is_rest_day
     consec = get_consecutive_workout_days(workout_log)
     return jsonify({"ready": True, "day": day, "name": p.get("name", ""),
                     "today": today_iso(), "last_logged": last_logged,
                     "warmup": p.get("warmup", ""),
-                    "rotation": [{"day": d0, "name": PROGRAM[d0]["name"]}
-                                 for d0 in DAY_ROTATION],
+                    "rotation": [{"day": d0, "name": prog.get(d0, {}).get("name", "")}
+                                 for d0 in rotation],
                     "week": week,
                     "deload": should_suggest_deload(workout_log),
                     "autodeload": get_autodeload_flags(),
                     "rest_day": is_rest_day(),
-                    "rest_suggested": consec >= 6,
+                    "rest_suggested": consec >= max(3, len(rotation)),
                     "consecutive_days": consec,
                     "exercises": exercises})
 
@@ -429,6 +432,39 @@ def rest_day_route():
         return jsonify({"ok": True, "rest_day": False})
     mark_rest_day()
     return jsonify({"ok": True, "rest_day": True})
+
+
+@flask_app.route("/program", methods=["GET", "POST"])
+@require_auth
+def program_route():
+    """Get or save the training program (custom or default) for the builder."""
+    from agent_core import (get_program, program_is_custom, reset_program,
+                            save_program)
+    if request.method == "POST":
+        data = request.json or {}
+        if data.get("reset"):
+            reset_program()
+            return jsonify({"ok": True, "reset": True})
+        ok, msg = save_program(data.get("days") or [])
+        if not ok:
+            return jsonify({"error": msg}), 400
+        return jsonify({"ok": True})
+    prog = get_program()
+    days = [{"id": did, "name": d.get("name", ""), "focus": d.get("focus", ""),
+             "warmup": d.get("warmup", ""),
+             "exercises": [{"name": e.get("name"),
+                            "sets": e.get("sets", 3),
+                            "rep_range": e.get("rep_range", "8-12")}
+                           for e in d.get("exercises", [])]}
+            for did, d in prog.items()]
+    return jsonify({"days": days, "is_custom": program_is_custom()})
+
+
+@flask_app.route("/exercise_library")
+@require_auth
+def exercise_library_route():
+    from agent_core import exercise_library
+    return jsonify({"exercises": exercise_library()})
 
 
 @flask_app.route("/chart_data")

@@ -190,6 +190,103 @@ PROGRAM = {
 
 DAY_ROTATION = ["A", "B", "C", "D", "E", "F"]
 
+# The hardcoded PROGRAM above is the DEFAULT; a user can replace it with a
+# custom program (stored in the 'program' collection) via the program builder.
+DEFAULT_PROGRAM = PROGRAM
+DAY_IDS = ["A", "B", "C", "D", "E", "F", "G"]     # up to a 7-day custom program
+
+
+def get_program() -> dict:
+    """The active program: the user's custom one if saved, else the default.
+    Shape matches DEFAULT_PROGRAM: {day_id: {name, focus, warmup, exercises}}."""
+    try:
+        doc = _col("program").find_one({"_id": "active"})
+    except Exception:
+        doc = None
+    days = (doc or {}).get("days")
+    if isinstance(days, list) and days:
+        prog = {}
+        for d in days:
+            did = d.get("id")
+            if did:
+                prog[did] = {"name": d.get("name", ""), "focus": d.get("focus", ""),
+                             "warmup": d.get("warmup", ""),
+                             "exercises": d.get("exercises", [])}
+        if prog:
+            return prog
+    return DEFAULT_PROGRAM
+
+
+def get_rotation() -> list[str]:
+    """Ordered day ids of the active program (its rotation)."""
+    return list(get_program().keys()) or DAY_ROTATION
+
+
+def program_is_custom() -> bool:
+    try:
+        doc = _col("program").find_one({"_id": "active"})
+    except Exception:
+        return False
+    return bool(doc and isinstance(doc.get("days"), list) and doc["days"])
+
+
+def save_program(days: list[dict]) -> tuple[bool, str]:
+    """Validate and store a custom program. `days` is an ordered list of
+    {name, focus, warmup, exercises:[{name, sets, rep_range}]}; ids are
+    assigned by position (A, B, C, ...)."""
+    if not isinstance(days, list) or not (1 <= len(days) <= 7):
+        return False, "A program needs between 1 and 7 days."
+    cleaned = []
+    for i, d in enumerate(days):
+        exs_in = d.get("exercises") or []
+        exs = []
+        for e in exs_in:
+            name = str(e.get("name") or "").strip()[:60]
+            if not name:
+                continue
+            try:
+                sets = int(e.get("sets") or 3)
+            except (TypeError, ValueError):
+                sets = 3
+            sets = max(1, min(10, sets))
+            rep_range = str(e.get("rep_range") or "8-12").strip()[:15] or "8-12"
+            exs.append({"name": name, "sets": sets, "rep_range": rep_range})
+        if not exs:
+            return False, f"Day {i + 1} needs at least one exercise."
+        if len(exs) > 12:
+            return False, f"Day {i + 1} has too many exercises (max 12)."
+        cleaned.append({
+            "id":       DAY_IDS[i],
+            "name":     str(d.get("name") or f"Day {DAY_IDS[i]}").strip()[:40],
+            "focus":    str(d.get("focus") or "").strip()[:80],
+            "warmup":   str(d.get("warmup") or "5 min light cardio, then warm-up sets").strip()[:200],
+            "exercises": exs,
+        })
+    _col("program").update_one({"_id": "active"}, {"$set": {"days": cleaned}}, upsert=True)
+    return True, "saved"
+
+
+def reset_program() -> None:
+    _col("program").delete_one({"_id": "active"})
+
+
+def exercise_library() -> list[str]:
+    """Suggested exercise names for the builder's picker — every movement in
+    the default program plus its known alternatives, de-duplicated."""
+    names = set()
+    for d in DEFAULT_PROGRAM.values():
+        for e in d.get("exercises", []):
+            names.add(e["name"])
+    try:
+        from progression import EXERCISE_ALTERNATIVES
+        for k, alts in EXERCISE_ALTERNATIVES.items():
+            names.add(k)
+            names.update(alts)
+    except Exception:
+        pass
+    return sorted(names)
+
+
 AVAILABLE_DUMBBELLS = [4.5, 8, 9, 10, 11.5, 13.5, 16, 18, 20.5, 22, 24]
 
 
@@ -281,20 +378,27 @@ def repair_workout_data() -> dict:
 
 
 def get_next_day(log: dict) -> str:
+    rotation = get_rotation()
+    if not rotation:
+        return "A"
     sessions = log.get("sessions", [])
     if not sessions:
-        return "A"
+        return rotation[0]
     # Use the day of the most recent session BY DATE (robust to out-of-order
     # inserts). Among sessions sharing the latest date, take the last logged.
     max_date = max((s.get("date", "") for s in sessions), default="")
     last_day = None
     for s in sessions:
-        if s.get("date", "") == max_date and s.get("day") in DAY_ROTATION:
+        if s.get("date", "") == max_date and s.get("day") in rotation:
             last_day = s["day"]
-    if last_day not in DAY_ROTATION:
-        last_day = sessions[-1].get("day", "A")
-    idx = DAY_ROTATION.index(last_day)
-    return DAY_ROTATION[(idx + 1) % len(DAY_ROTATION)]
+    if last_day not in rotation:
+        last_day = sessions[-1].get("day")
+    # If the last day no longer exists in the (possibly edited) program, start
+    # the cycle over rather than crash.
+    if last_day not in rotation:
+        return rotation[0]
+    idx = rotation.index(last_day)
+    return rotation[(idx + 1) % len(rotation)]
 
 
 def get_last_session_for_day(log: dict, day: str) -> dict | None:
@@ -677,7 +781,8 @@ def format_memory_block(mem: dict) -> str:
 
 
 def format_program_block(day: str, last_session: dict | None) -> str:
-    p = PROGRAM[day]
+    p = get_program().get(day) or DEFAULT_PROGRAM.get(day, {"name": "", "focus": "",
+                                                           "warmup": "", "exercises": []})
     lines = [
         f"TODAY: Day {day} - {p['name']}",
         f"Focus: {p['focus']}",
@@ -712,7 +817,7 @@ def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dic
                         extra_context: str = "") -> str:
     targets = compute_targets(profile)
     today_str = today_iso()
-    p_name = PROGRAM.get(day, {}).get("name", "")
+    p_name = get_program().get(day, {}).get("name", "")
     cal_target = effective_calorie_target(profile, targets)
     sessions = len(log.get("sessions", []))
     injuries = profile.get("injuries", "none")
@@ -722,6 +827,7 @@ def build_system_prompt(day: str, last_session: dict | None, log: dict, mem: dic
     recent_weights = profile.get("recent_weights", {})
     consecutive_days = get_consecutive_workout_days(log)
     suggest_deload = should_suggest_deload(log)
+    cycle_len = len(get_rotation()) or 6
     exercises_done = {e["name"] for s in log.get("sessions", []) for e in s.get("exercises", [])}
 
     return f"""You are a personal AI assistant for {profile['name']} — their fitness coach, nutrition coach, AND personal finance/expense tracker, all in one.
@@ -790,10 +896,10 @@ MISSED WORKOUT DETECTION (long_gap={long_gap}, gap_days={gap_days}):
 - Then tell the user to use 10-15% lighter weights than their last session for today.
 - Resume normal progressive overload from next session onward.
 
-REST DAY SUGGESTION (consecutive_days={consecutive_days}):
-- This is a 6-day Push/Pull/Legs cycle (A-F). The natural rest day is AFTER completing Legs (Posterior) / day F, i.e. after 6 sessions in a row.
-- If consecutive_days >= 6: recommend taking tomorrow as a full rest day before restarting the cycle at Push (Chest).
-- If consecutive_days is 3-5 but recovery readiness is low, gently offer an optional rest day — but don't push it; the split is designed to be run on consecutive days.
+REST DAY SUGGESTION (consecutive_days={consecutive_days}, cycle_length={cycle_len}):
+- The user's program is a {cycle_len}-day cycle. The natural rest day is AFTER completing the last day of the cycle, i.e. after {cycle_len} sessions in a row.
+- If consecutive_days >= {cycle_len}: recommend taking tomorrow as a full rest day before restarting the cycle at day 1.
+- If consecutive_days is high relative to the cycle but recovery readiness is low, gently offer an optional rest day — but don't push it.
 - Mention it briefly at the end of the workout, never as a warning.
 
 DELOAD WEEK (suggest_deload={suggest_deload}):

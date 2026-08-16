@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from llm import chat
 from agent_core import (
-    PROGRAM,
+    get_program,
     get_weight_trend,
     load_log,
     load_memory,
@@ -32,6 +32,7 @@ def query_workouts(month: str | None = None) -> str:
         d = s.get("date", "")
         if len(d) >= 7:
             by_month[d[:7]] += 1
+    prog = get_program()
     lines = [f"Sessions{' in ' + month if month else ' (all time)'}: {len(sessions)}"]
     lines.append("Per-month counts: " + ", ".join(f"{m}={c}" for m, c in sorted(by_month.items())))
     for s in sessions[-20:]:
@@ -40,7 +41,7 @@ def query_workouts(month: str | None = None) -> str:
             for e in s.get("exercises", [])[:6]
         )
         day = s.get("day", "?")
-        lines.append(f"  {s.get('date','?')} Day {day} ({PROGRAM.get(day,{}).get('name','')}): {exs}")
+        lines.append(f"  {s.get('date','?')} Day {day} ({prog.get(day,{}).get('name','')}): {exs}")
     return "\n".join(lines)
 
 
@@ -98,7 +99,7 @@ def query_today_workout() -> str:
     from agent_core import get_last_session_for_day, get_next_day, today_iso
     log  = load_log()
     day  = get_next_day(log)
-    p    = PROGRAM.get(day, {})
+    p    = get_program().get(day, {})
     last = get_last_session_for_day(log, day)
     lines = [f"AUTHORITATIVE — Today is {today_iso()}, training Day {day}: {p.get('name','')}"]
     for ex in p.get("exercises", []):
