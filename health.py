@@ -27,14 +27,15 @@ def _local_date(iso: str) -> str | None:
     except (ValueError, TypeError):
         return None
 
-FIELDS = ("steps", "active_kcal", "resting_hr", "sleep_hours",
+FIELDS = ("steps", "active_kcal", "total_kcal", "resting_hr", "sleep_hours",
           "sleep_score", "energy_score", "hrv")
 _RANGES = {
-    "steps": (0, 100000), "active_kcal": (0, 10000), "resting_hr": (25, 220),
-    "sleep_hours": (0, 24), "sleep_score": (0, 100), "energy_score": (0, 100),
-    "hrv": (5, 300),
+    "steps": (0, 100000), "active_kcal": (0, 10000), "total_kcal": (0, 12000),
+    "resting_hr": (25, 220), "sleep_hours": (0, 24), "sleep_score": (0, 100),
+    "energy_score": (0, 100), "hrv": (5, 300),
 }
-_INT_FIELDS = {"steps", "active_kcal", "resting_hr", "sleep_score", "energy_score", "hrv"}
+_INT_FIELDS = {"steps", "active_kcal", "total_kcal", "resting_hr", "sleep_score",
+               "energy_score", "hrv"}
 
 # Common field-name aliases from Samsung Health / Health Connect / automation
 # tools (Tasker, HealthSync, ...), so a push "just works" without exact keys.
@@ -43,6 +44,8 @@ _ALIASES = {
     "active_kcal": "active_kcal", "active_calories": "active_kcal", "activecalories": "active_kcal",
     "active_energy": "active_kcal", "activeenergyburned": "active_kcal", "calories": "active_kcal",
     "kcal": "active_kcal", "energy_burned": "active_kcal",
+    "total_kcal": "total_kcal", "total_calories": "total_kcal", "total_calories_burned": "total_kcal",
+    "totalcaloriesburned": "total_kcal", "total_energy": "total_kcal",
     "resting_hr": "resting_hr", "resting_heart_rate": "resting_hr", "restingheartrate": "resting_hr",
     "rhr": "resting_hr", "heart_rate": "resting_hr", "hr": "resting_hr",
     "sleep_hours": "sleep_hours", "sleep": "sleep_hours", "sleep_duration": "sleep_hours",
@@ -113,6 +116,7 @@ def parse_wearable_payload(raw: dict) -> dict:
 
     array_keys = ("steps", "sleep", "heart_rate", "heartrate", "active_calories",
                   "active_energy", "active_calories_burned", "activecaloriesburned",
+                  "total_calories_burned", "total_calories", "total_energy",
                   "calories", "distance")
     if not any(isinstance(raw.get(k), list) for k in array_keys):
         saved = record_health(raw, date_str=(raw.get("date") or None))
@@ -154,27 +158,32 @@ def parse_wearable_payload(raw: dict) -> dict:
         if v < 900:
             per_day[d]["resting_hr"] = v
 
-    # Active calories: sum per day. (Only ACTIVE energy — never total, which
-    # includes BMR and would double-count against the eaten target.)
-    cal_sum: dict[str, float] = defaultdict(float)
-    seen_cal = False
-    for key in ("active_calories", "active_energy", "active_calories_burned",
-                "activeCaloriesBurned", "calories"):
-        arr = raw.get(key)
-        if not isinstance(arr, list):
-            continue
-        seen_cal = True
-        for it in arr:
+    def _sum_cal(arr) -> dict:
+        out: dict[str, float] = defaultdict(float)
+        for it in arr or []:
             if not isinstance(it, dict):
                 continue
             v = _extract_value(it, ("value", "kcal", "count", "calories", "energy"))
             d = _local_date(it.get("start_time") or it.get("end_time"))
             if v is not None and d:
-                cal_sum[d] += v
-        if seen_cal:
-            break               # first matching calorie array wins (avoid summing dupes)
-    for d, c in cal_sum.items():
-        per_day[d]["active_kcal"] = round(c)
+                out[d] += v
+        return out
+
+    # Active energy (activity only) -> active_kcal, used directly.
+    for key in ("active_calories", "active_energy", "active_calories_burned",
+                "activeCaloriesBurned"):
+        if isinstance(raw.get(key), list):
+            for d, c in _sum_cal(raw[key]).items():
+                per_day[d]["active_kcal"] = round(c)
+            break
+    # Total energy (activity + BMR) -> total_kcal; active is derived later by
+    # subtracting resting burn, so we never double-count BMR against the target.
+    for key in ("total_calories_burned", "total_calories", "totalCaloriesBurned",
+                "total_energy", "calories"):
+        if isinstance(raw.get(key), list):
+            for d, c in _sum_cal(raw[key]).items():
+                per_day[d]["total_kcal"] = round(c)
+            break
 
     stored = []
     for d, metrics in per_day.items():
@@ -183,21 +192,44 @@ def parse_wearable_payload(raw: dict) -> dict:
     return {"days": len(stored), "dates": sorted(stored)[-10:], "today": health_today()}
 
 
+def _day_fraction(date_str: str | None = None) -> float:
+    """Fraction of the local day elapsed (1.0 for any past day)."""
+    now = datetime.now(_APP_TZ)
+    if date_str and date_str != now.date().isoformat():
+        return 1.0
+    secs = now.hour * 3600 + now.minute * 60 + now.second
+    return max(0.02, min(1.0, secs / 86400))
+
+
+def _bmr(profile: dict) -> float:
+    try:
+        w = float(profile.get("weight_kg") or 70)
+        h = float(profile.get("height_cm") or 170)
+        a = int(profile.get("age") or 30)
+    except (TypeError, ValueError):
+        w, h, a = 70, 170, 30
+    return 10 * w + 6.25 * h - 5 * a + 5      # Mifflin-St Jeor (male default)
+
+
 def active_kcal_today(profile: dict | None = None, date_str: str | None = None) -> tuple[int, str]:
-    """Active calories burned today. Uses the watch's value if it sent one;
-    otherwise estimates from steps (many exports send steps but not calories).
-    Returns (kcal, source) where source is 'watch', 'steps', or 'none'."""
+    """Active calories burned today, for adjusting the eating budget. Priority:
+    the watch's ACTIVE calories -> derived from TOTAL calories (total minus the
+    resting burn so far, so BMR isn't double-counted) -> estimated from steps.
+    Returns (kcal, source): 'watch' | 'total' | 'steps' | 'none'."""
+    from agent_core import load_profile
+    profile = profile if profile is not None else (load_profile() or {})
     h = health_today(date_str)
     if h.get("active_kcal"):
         return int(h["active_kcal"]), "watch"
+    if h.get("total_kcal"):
+        resting_so_far = _bmr(profile) * _day_fraction(date_str)
+        return max(0, round(h["total_kcal"] - resting_so_far)), "total"
     steps = h.get("steps")
     if steps:
-        from agent_core import load_profile
         try:
-            w = float((profile if profile is not None else (load_profile() or {})).get("weight_kg") or 70)
+            w = float(profile.get("weight_kg") or 70)
         except (TypeError, ValueError):
             w = 70
-        # ~0.04 kcal per step at 70 kg, scaled by bodyweight.
         return round(steps * 0.04 * (w / 70.0)), "steps"
     return 0, "none"
 

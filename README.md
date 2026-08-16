@@ -143,7 +143,7 @@ A web app can't read Android **Health Connect** directly, so watch metrics (step
    ```
    Steps land on the local day of `start_time`, sleep sessions are summed per wake-day into hours, and resting HR is taken as the day's minimum. The `/ingest` POST response returns `days_stored` and today's stored metrics so you can confirm it worked.
 
-   **Calories burned:** if the export includes an active-calorie array it's used directly; if it only sends steps (common), active calories are **estimated from steps** (~0.04 kcal/step scaled by bodyweight) so the "burned" budget still works. For accuracy, enable an active-calories/active-energy data type in your sync tool.
+   **Calories burned:** priority is (1) an ACTIVE-calorie array, used directly; (2) a TOTAL-calorie array (e.g. HealthSync "Total Calories"), from which active calories are derived by subtracting the resting/BMR burn so far — so baseline burn is never double-counted against the calorie target; (3) an estimate from steps (~0.04 kcal/step by bodyweight). Only the resulting *active* calories adjust the eating budget.
 
    **Sleep & recovery from the watch:** send `sleep_hours` and Samsung's `energy_score` (0–100). The app's recovery-readiness score (shown on the Today dashboard) uses the energy score directly when present, falls back to sleep + resting HR, and finally to a manual check-in — so once the automation runs each morning, recovery is automatic and you never hand-enter sleep/energy.
 
