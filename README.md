@@ -35,7 +35,8 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **Voice input everywhere**: mic button in the web app (plus Telegram voice notes), transcribed via Whisper and routed through the normal coach
 - **Weekly calorie auto-tuning**: the Sunday cron compares your weigh-in trend to your goal and adjusts your daily calorie target (±200/week, capped ±600), telling you what changed and why
 - **Weekly weigh-in + goal projection**: trend-based calorie adjustments and ETA projections toward weight/lift goals
-- **Indian vegetarian nutrition**: calorie/protein estimates for Indian portions, meal photo analysis (vision), voice notes (Whisper)
+- **Full macro tracking**: calories, protein, carbs and fat — targets computed from bodyweight/goal, four progress bars on the Fuel tab, and the coach estimates all four for Indian portions
+- **Indian vegetarian nutrition**: calorie/macro estimates for Indian portions, meal photo analysis (vision), voice notes (Whisper)
 - **Autonomous loops** (cron): morning nudge, evening check-in, weekly recap, smart alerts (skipped workouts, overspend, streaks), memory consolidation, data self-heal, JSON backup to Telegram
 - **Memory**: PRs, soreness, form cues, episodic daily summaries, and lessons learned from your corrections
 - **Trust layer**: every write validated + audited, universal undo, full data export, and a restore path (`python restore_backup.py <backup.json>`)

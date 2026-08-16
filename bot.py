@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v18';
+const CACHE = 'coachxkeshav-v19';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -798,8 +798,9 @@ def nutrition_data():
     if profile:
         targets = compute_targets(profile)
         cal_t, prot_t = effective_calorie_target(profile, targets), targets["protein_target_g"]
+        carb_t, fat_t = targets.get("carb_target_g", 0), targets.get("fat_target_g", 0)
     else:
-        cal_t = prot_t = 0
+        cal_t = prot_t = carb_t = fat_t = 0
     totals = today_totals()
     gap = prot_t - totals["protein_g"]
     protein_fix = None
@@ -808,7 +809,8 @@ def nutrition_data():
     return jsonify({
         "meals":       get_meals(),
         "totals":      totals,
-        "targets":     {"calories": cal_t, "protein_g": prot_t},
+        "targets":     {"calories": cal_t, "protein_g": prot_t,
+                        "carbs_g": carb_t, "fat_g": fat_t},
         "week":        week_series(),
         "protein_fix": protein_fix,
     })
@@ -1029,11 +1031,13 @@ def log_meal_route():
     try:
         cal  = float(data.get("calories") or 0)
         prot = float(data.get("protein_g") or 0)
+        carbs = float(data.get("carbs_g") or 0)
+        fat  = float(data.get("fat_g") or 0)
     except (TypeError, ValueError):
-        return jsonify({"error": "calories/protein must be numbers"}), 400
+        return jsonify({"error": "macros must be numbers"}), 400
     if cal < 0 or prot < 0 or cal > 12000:
         return jsonify({"error": "those numbers look wrong"}), 400
-    entry = log_meal(desc, cal, prot)
+    entry = log_meal(desc, cal, prot, carbs=carbs, fat=fat)
     record_audit("meal", f"{desc} ({cal:g} kcal, {prot:g}g)", ref=entry.get("id"))
     return jsonify({"ok": True, "totals": today_totals()})
 
@@ -1056,14 +1060,15 @@ def meal_quick():
         if not desc or d < cutoff:
             continue
         key = desc.lower()
+        macro = {"description": desc,
+                 "calories": float(m.get("calories") or 0),
+                 "protein_g": float(m.get("protein_g") or 0),
+                 "carbs_g": float(m.get("carbs_g") or 0),
+                 "fat_g": float(m.get("fat_g") or 0)}
         counts[key] += 1
-        info[key] = {"description": desc,
-                     "calories": float(m.get("calories") or 0),
-                     "protein_g": float(m.get("protein_g") or 0)}
+        info[key] = macro
         if d == yday:
-            yesterday.append({"description": desc,
-                              "calories": float(m.get("calories") or 0),
-                              "protein_g": float(m.get("protein_g") or 0)})
+            yesterday.append(macro)
     frequent = [dict(info[k], count=c) for k, c in counts.most_common(8) if c >= 2]
     return jsonify({"frequent": frequent, "yesterday": yesterday})
 

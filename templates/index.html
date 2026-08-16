@@ -517,6 +517,8 @@
       box-shadow: 0 0 8px #00ff8860; transition: width 0.4s;
     }
     .bar-fill.pink { background: linear-gradient(90deg, #ff00ff, #00d4ff); box-shadow: 0 0 8px #ff00ff50; }
+    .bar-fill.carb { background: linear-gradient(90deg, #ffd245, #ff9f45); box-shadow: 0 0 8px #ffd24550; }
+    .bar-fill.fat  { background: linear-gradient(90deg, #ff9f45, #ff6b6b); box-shadow: 0 0 8px #ff9f4550; }
     .bar-fill.over { background: linear-gradient(90deg, #ffd245, #ff3366); box-shadow: 0 0 8px #ff336660; }
 
     /* -- Habits -- */
@@ -1080,6 +1082,14 @@
         <div class="bar-row">
           <div class="bar-head"><span>Protein</span><span id="fu-prot-txt">—</span></div>
           <div class="bar-track"><div class="bar-fill pink" id="fu-prot-bar"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-head"><span>Carbs</span><span id="fu-carb-txt">—</span></div>
+          <div class="bar-track"><div class="bar-fill carb" id="fu-carb-bar"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-head"><span>Fat</span><span id="fu-fat-txt">—</span></div>
+          <div class="bar-track"><div class="bar-fill fat" id="fu-fat-bar"></div></div>
         </div>
         <div id="fu-protein-fix" class="wk-prog-line wk-prog-rep_up" style="display:none;margin:10px 0 0"></div>
       </div>
@@ -1894,6 +1904,12 @@
     document.getElementById('fu-cal-txt').textContent = `${cal} / ${calT} kcal`;
     document.getElementById('fu-prot-bar').style.width = (prT ? Math.min(pr / prT * 100, 100) : 0) + '%';
     document.getElementById('fu-prot-txt').textContent = `${pr} / ${prT} g`;
+    const cb = d.totals.carbs_g || 0, cbT = d.targets.carbs_g || 0;
+    const ft = d.totals.fat_g || 0,   ftT = d.targets.fat_g || 0;
+    document.getElementById('fu-carb-bar').style.width = (cbT ? Math.min(cb / cbT * 100, 100) : 0) + '%';
+    document.getElementById('fu-carb-txt').textContent = `${cb} / ${cbT} g`;
+    document.getElementById('fu-fat-bar').style.width = (ftT ? Math.min(ft / ftT * 100, 100) : 0) + '%';
+    document.getElementById('fu-fat-txt').textContent = `${ft} / ${ftT} g`;
 
     // Proactive protein-gap suggestions
     const pf = document.getElementById('fu-protein-fix');
@@ -1906,8 +1922,10 @@
     const list = document.getElementById('fu-meals'); list.innerHTML = '';
     (d.meals || []).forEach(m => {
       const item = document.createElement('div'); item.className = 'session-item';
+      const macros = `${Math.round(m.calories)} kcal · P${Math.round(m.protein_g)}` +
+        (m.carbs_g ? ` · C${Math.round(m.carbs_g)}` : '') + (m.fat_g ? ` · F${Math.round(m.fat_g)}` : '');
       item.innerHTML = `<div><div class="session-day">${esc(m.description)}</div>
-        <div class="session-date">${Math.round(m.calories)} kcal · ${Math.round(m.protein_g)}g protein</div></div>`;
+        <div class="session-date">${macros}</div></div>`;
       list.appendChild(item);
     });
     if (!(d.meals || []).length)
@@ -1943,7 +1961,7 @@
       const res = await fetch('/log_meal', {
         method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ description: m.description, calories: m.calories,
-                               protein_g: m.protein_g }),
+                               protein_g: m.protein_g, carbs_g: m.carbs_g, fat_g: m.fat_g }),
       });
       const d = await res.json();
       if (d.error) { alert(d.error); return; }

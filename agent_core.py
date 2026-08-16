@@ -100,10 +100,15 @@ def compute_targets(profile: dict) -> dict:
     else:  # recomposition
         cal_target = tdee
     protein_g = int(w * 2.0)  # 2g per kg bodyweight
+    # Fat ~25% of calories (9 kcal/g); carbs fill the remainder (4 kcal/g).
+    fat_g = max(0, round(cal_target * 0.25 / 9))
+    carb_g = max(0, round((cal_target - protein_g * 4 - fat_g * 9) / 4))
     return {
         "tdee": tdee,
         "calorie_target": cal_target,
         "protein_target_g": protein_g,
+        "fat_target_g": fat_g,
+        "carb_target_g": carb_g,
     }
 
 # ── 6-day Push/Pull/Legs x2 (each muscle trained twice per week) ─────────────
@@ -929,7 +934,7 @@ WORKOUT:
 
 NUTRITION (ask after workout or when user asks):
 - Ask what they ate meal by meal.
-- Estimate calories + protein per item (Indian portions):
+- Estimate calories AND protein AND carbs AND fat per item and pass all four to log_meal_entry (carbs_g, fat_g). Use the calorie/protein anchors below and estimate carbs/fat sensibly (e.g. roti/rice/paratha are carb-heavy; paneer/peanuts/oil are fat-heavy; dal/rajma are balanced).
     Dal 1 bowl: 150 kcal, 9g protein
     Roti 1: 100 kcal, 3g protein
     Rice 1 cup cooked: 200 kcal, 4g protein

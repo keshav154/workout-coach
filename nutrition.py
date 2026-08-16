@@ -13,12 +13,15 @@ log = logging.getLogger(__name__)
 
 
 def log_meal(description: str, calories: float = 0, protein: float = 0,
-            note: str = "", date_str: str | None = None) -> dict:
+            note: str = "", date_str: str | None = None,
+            carbs: float = 0, fat: float = 0) -> dict:
     entry = {
         "date":        date_str or today_iso(),
         "description": description,
         "calories":    float(calories or 0),
         "protein_g":   float(protein or 0),
+        "carbs_g":     float(carbs or 0),
+        "fat_g":       float(fat or 0),
         "note":        note,
     }
     result = _col("meals").insert_one(dict(entry))
@@ -39,6 +42,8 @@ def today_totals(date_str: str | None = None) -> dict:
     return {
         "calories": round(sum(m.get("calories", 0) for m in meals)),
         "protein_g": round(sum(m.get("protein_g", 0) for m in meals)),
+        "carbs_g": round(sum(m.get("carbs_g", 0) for m in meals)),
+        "fat_g": round(sum(m.get("fat_g", 0) for m in meals)),
         "count": len(meals),
     }
 
@@ -62,12 +67,17 @@ def format_nutrition_block(date_str: str | None = None) -> str:
     targets = compute_targets(profile)
     cal_t = effective_calorie_target(profile, targets)
     prot_t = targets["protein_target_g"]
+    carb_t = targets.get("carb_target_g", 0)
+    fat_t = targets.get("fat_target_g", 0)
     if totals["count"] == 0:
         return ("TODAY'S NUTRITION: nothing logged yet today. If the user mentions food, "
-                f"log it. Target: {cal_t} kcal, {prot_t}g protein.")
+                f"log it (estimate calories, protein, carbs and fat). "
+                f"Target: {cal_t} kcal, {prot_t}g protein, {carb_t}g carbs, {fat_t}g fat.")
     remaining_cal = cal_t - totals["calories"]
     remaining_p = prot_t - totals["protein_g"]
-    return (f"TODAY'S NUTRITION SO FAR: {totals['calories']} kcal, {totals['protein_g']}g protein "
-            f"logged across {totals['count']} meal(s). Target: {cal_t} kcal, {prot_t}g protein "
+    return (f"TODAY'S NUTRITION SO FAR: {totals['calories']} kcal, {totals['protein_g']}g protein, "
+            f"{totals['carbs_g']}g carbs, {totals['fat_g']}g fat "
+            f"logged across {totals['count']} meal(s). Target: {cal_t} kcal, {prot_t}g protein, "
+            f"{carb_t}g carbs, {fat_t}g fat "
             f"({'over' if remaining_cal < 0 else remaining_cal} kcal remaining, "
             f"{'over' if remaining_p < 0 else remaining_p}g protein remaining).")

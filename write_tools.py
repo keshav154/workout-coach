@@ -60,11 +60,13 @@ WRITE_TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "log_meal_entry",
-        "description": "Log something the user ate, any time of day. Estimate calories and protein from Indian portions if they didn't give numbers.",
+        "description": "Log something the user ate, any time of day. Estimate calories, protein, carbs and fat from Indian portions if they didn't give numbers.",
         "parameters": {"type": "object", "properties": {
             "description": {"type": "string"},
             "calories": {"type": "number"},
-            "protein_g": {"type": "number"}},
+            "protein_g": {"type": "number"},
+            "carbs_g": {"type": "number"},
+            "fat_g": {"type": "number"}},
             "required": ["description", "calories", "protein_g"]},
     }},
     {"type": "function", "function": {
@@ -265,16 +267,19 @@ def make_write_tools(ctx: dict) -> dict:
         ctx.setdefault("notes", []).append(f"⚖️ Weight logged: {float(kg):.1f} kg")
         return f"SAVED: body weight {float(kg):.1f} kg on {today_iso()}."
 
-    def log_meal_entry(description: str, calories: float, protein_g: float) -> str:
+    def log_meal_entry(description: str, calories: float, protein_g: float,
+                       carbs_g: float | None = None, fat_g: float | None = None) -> str:
         if calories and calories > 12000:
             return "REJECTED: calories over 12000 look wrong — confirm with the user."
-        entry = log_meal(description, calories or 0, protein_g or 0)
+        entry = log_meal(description, calories or 0, protein_g or 0,
+                         carbs=carbs_g or 0, fat=fat_g or 0)
         record_audit("meal", f"{description} ({calories or 0:g} kcal)", ref=entry.get("id"))
         ctx.setdefault("notes", []).append("🍽️ Meal logged.")
         from nutrition import today_totals
         t = today_totals()
         return (f"SAVED meal '{description}'. Today so far: {t['calories']} kcal, "
-                f"{t['protein_g']}g protein across {t['count']} meal(s).")
+                f"{t['protein_g']}g protein, {t['carbs_g']}g carbs, {t['fat_g']}g fat "
+                f"across {t['count']} meal(s).")
 
     def log_expense_entry(amount: float, description: str, category: str) -> str:
         ok, reason = validate_expense(amount)
