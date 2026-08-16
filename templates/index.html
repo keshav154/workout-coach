@@ -2069,8 +2069,9 @@
     const calBar = document.getElementById('fu-cal-bar');
     calBar.style.width = (calT ? Math.min(cal / calT * 100, 100) : 0) + '%';
     calBar.classList.toggle('over', calT > 0 && cal > calT);
+    const burnNote = burned ? (d.burn_source === 'steps' ? ' burned est.' : ' burned') : '';
     document.getElementById('fu-cal-txt').textContent =
-      burned ? `${cal} / ${calT} kcal (${baseT} +${burned} burned)` : `${cal} / ${calT} kcal`;
+      burned ? `${cal} / ${calT} kcal (${baseT} +${burned}${burnNote})` : `${cal} / ${calT} kcal`;
     document.getElementById('fu-prot-bar').style.width = (prT ? Math.min(pr / prT * 100, 100) : 0) + '%';
     document.getElementById('fu-prot-txt').textContent = `${pr} / ${prT} g`;
     const cb = d.totals.carbs_g || 0, cbT = d.targets.carbs_g || 0;

@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v25';
+const CACHE = 'coachxkeshav-v26';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -230,7 +230,7 @@ def dashboard():
                             today_iso)
     from nutrition import today_totals
     from water import water_goal_ml, water_today
-    from health import health_today
+    from health import active_kcal_today, health_today
     from cardio import cardio_today_calories
     from checkin import recovery_summary
 
@@ -238,7 +238,8 @@ def dashboard():
     if not profile_complete(profile):
         return jsonify({"ready": False})
 
-    day_burned = int((health_today().get("active_kcal") or 0)) + int(cardio_today_calories() or 0)
+    _active, _burn_src = active_kcal_today(profile)
+    day_burned = int(_active) + int(cardio_today_calories() or 0)
 
     workout_log = load_log()
     sessions = workout_log.get("sessions", [])
@@ -907,10 +908,12 @@ def nutrition_data():
     protein_fix = None
     if prot_t and gap >= 12:            # meaningfully short on protein today
         protein_fix = {"gap": round(gap), "options": _protein_options(gap)}
-    # Calories burned today (watch active + logged cardio) raise the budget.
-    from health import health_today
+    # Calories burned today (watch active — or estimated from steps — plus
+    # logged cardio) raise the day's budget.
+    from health import active_kcal_today
     from cardio import cardio_today_calories
-    burned = int(health_today().get("active_kcal") or 0) + int(cardio_today_calories() or 0)
+    active, burn_source = active_kcal_today(profile)
+    burned = int(active) + int(cardio_today_calories() or 0)
     adjusted_cal = cal_t + burned if cal_t else 0
     return jsonify({
         "meals":       get_meals(),
@@ -918,6 +921,7 @@ def nutrition_data():
         "targets":     {"calories": cal_t, "protein_g": prot_t,
                         "carbs_g": carb_t, "fat_g": fat_t},
         "burned":      burned,
+        "burn_source": burn_source,
         "adjusted_calories": adjusted_cal,
         "net_calories": totals["calories"] - burned,
         "week":        week_series(),

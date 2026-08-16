@@ -183,6 +183,25 @@ def parse_wearable_payload(raw: dict) -> dict:
     return {"days": len(stored), "dates": sorted(stored)[-10:], "today": health_today()}
 
 
+def active_kcal_today(profile: dict | None = None, date_str: str | None = None) -> tuple[int, str]:
+    """Active calories burned today. Uses the watch's value if it sent one;
+    otherwise estimates from steps (many exports send steps but not calories).
+    Returns (kcal, source) where source is 'watch', 'steps', or 'none'."""
+    h = health_today(date_str)
+    if h.get("active_kcal"):
+        return int(h["active_kcal"]), "watch"
+    steps = h.get("steps")
+    if steps:
+        from agent_core import load_profile
+        try:
+            w = float((profile if profile is not None else (load_profile() or {})).get("weight_kg") or 70)
+        except (TypeError, ValueError):
+            w = 70
+        # ~0.04 kcal per step at 70 kg, scaled by bodyweight.
+        return round(steps * 0.04 * (w / 70.0)), "steps"
+    return 0, "none"
+
+
 def health_today(date_str: str | None = None) -> dict:
     doc = _col("health").find_one({"_id": date_str or today_iso()}) or {}
     return {k: doc.get(k) for k in FIELDS}
@@ -225,9 +244,12 @@ def format_wearable_block(date_str: str | None = None) -> str:
         cc = cardio_today_calories(date_str)
     except Exception:
         cc = 0
+    active, src = active_kcal_today(date_str=date_str)
     bits = []
     if h.get("steps") is not None:       bits.append(f"{h['steps']:,} steps")
-    if h.get("active_kcal") is not None: bits.append(f"{h['active_kcal']} active kcal burned")
+    if active:
+        bits.append(f"{active} active kcal burned"
+                    + (" (estimated from steps)" if src == "steps" else ""))
     if cc:                               bits.append(f"{cc} kcal from logged cardio")
     if h.get("sleep_hours") is not None: bits.append(f"{h['sleep_hours']:g}h sleep")
     if h.get("energy_score") is not None: bits.append(f"watch energy score {h['energy_score']}/100")
@@ -236,7 +258,7 @@ def format_wearable_block(date_str: str | None = None) -> str:
     if not bits:
         return ""
     line = "TODAY'S ACTIVITY (from the user's Samsung watch / logged cardio): " + ", ".join(bits) + "."
-    burn = int(h.get("active_kcal") or 0) + int(cc or 0)
+    burn = int(active) + int(cc or 0)
     if burn:
         line += (f" They burned ~{burn} extra kcal today beyond baseline, so their effective "
                  f"calorie budget is higher — account for this when giving net-calorie or meal advice.")
