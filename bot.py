@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v27';
+const CACHE = 'coachxkeshav-v28';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -286,7 +286,7 @@ def dashboard():
                         "protein_target": targets["protein_target_g"],
                         "meals": nt["count"]},
         "habits":      habits,
-        "health":      health_today(),
+        "health":      dict(health_today(), active_burn=_active, active_source=_burn_src),
         "recovery":    recovery_summary(log=workout_log),
         "streak":      get_consecutive_workout_days(workout_log),
         "consistent_weeks": get_consistent_weeks(workout_log, dpw),

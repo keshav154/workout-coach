@@ -1471,7 +1471,14 @@
     const hh = d.health || {};
     const hcards = [];
     if (hh.steps != null)       hcards.push(`<div class="dash-stat"><div class="v" style="color:var(--accent3)">${Number(hh.steps).toLocaleString()}</div><div class="l">👟 Steps</div></div>`);
-    if (hh.active_kcal != null) hcards.push(`<div class="dash-stat"><div class="v" style="color:var(--accent)">${Math.round(hh.active_kcal)}</div><div class="l">🔥 Active kcal</div></div>`);
+    // Active burn: watch active, or derived from total calories, or step estimate.
+    if (hh.active_burn) {
+        const lbl = hh.active_source === 'steps' ? '🔥 Active (est.)'
+                  : hh.active_source === 'total' ? '🔥 Active kcal' : '🔥 Active kcal';
+        hcards.push(`<div class="dash-stat"><div class="v" style="color:var(--accent)">${Math.round(hh.active_burn)}</div><div class="l">${lbl}</div></div>`);
+    }
+    if (hh.total_kcal != null)  hcards.push(`<div class="dash-stat"><div class="v" style="color:#ff9f45">${Math.round(hh.total_kcal)}</div><div class="l">🔆 Total kcal</div></div>`);
+    if (hh.sleep_hours != null) hcards.push(`<div class="dash-stat"><div class="v" style="color:var(--accent3)">${hh.sleep_hours}h</div><div class="l">😴 Sleep</div></div>`);
     if (hh.resting_hr != null)  hcards.push(`<div class="dash-stat"><div class="v" style="color:var(--accent2)">${Math.round(hh.resting_hr)}</div><div class="l">❤️ Resting HR</div></div>`);
     const hwrap = document.getElementById('dash-health-wrap');
     if (hcards.length) { hwrap.style.display = 'block'; document.getElementById('dash-health').innerHTML = hcards.join(''); }

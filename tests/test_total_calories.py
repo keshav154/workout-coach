@@ -49,3 +49,14 @@ def test_nutrition_data_uses_total_derived_burn(client, db, profile_doc):
     d = client.get("/nutrition_data").get_json()
     assert d["burn_source"] == "total"
     assert d["adjusted_calories"] == d["targets"]["calories"] + d["burned"]
+
+
+def test_dashboard_shows_derived_active_and_total(client, db, profile_doc):
+    p = dict(profile_doc); p.update(weight_kg=97, height_cm=178, age=28)
+    db["profile"].docs["user"] = p
+    db["workout_log"].docs["log"] = {"_id": "log", "sessions": []}
+    health.record_health({"total_kcal": 2200, "steps": 5000})
+    d = client.get("/dashboard").get_json()
+    h = d["health"]
+    assert h["total_kcal"] == 2200
+    assert h["active_burn"] > 0 and h["active_source"] == "total"
