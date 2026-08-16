@@ -112,7 +112,8 @@ def parse_wearable_payload(raw: dict) -> dict:
         return {"days": 0, "today": health_today()}
 
     array_keys = ("steps", "sleep", "heart_rate", "heartrate", "active_calories",
-                  "active_energy", "calories", "distance")
+                  "active_energy", "active_calories_burned", "activecaloriesburned",
+                  "calories", "distance")
     if not any(isinstance(raw.get(k), list) for k in array_keys):
         saved = record_health(raw, date_str=(raw.get("date") or None))
         return {"days": 1 if saved else 0, "saved": saved, "today": health_today()}
@@ -153,16 +154,25 @@ def parse_wearable_payload(raw: dict) -> dict:
         if v < 900:
             per_day[d]["resting_hr"] = v
 
-    # Active calories: sum per day.
+    # Active calories: sum per day. (Only ACTIVE energy — never total, which
+    # includes BMR and would double-count against the eaten target.)
     cal_sum: dict[str, float] = defaultdict(float)
-    for key in ("active_calories", "active_energy", "calories"):
-        for it in raw.get(key) or []:
+    seen_cal = False
+    for key in ("active_calories", "active_energy", "active_calories_burned",
+                "activeCaloriesBurned", "calories"):
+        arr = raw.get(key)
+        if not isinstance(arr, list):
+            continue
+        seen_cal = True
+        for it in arr:
             if not isinstance(it, dict):
                 continue
-            v = _extract_value(it, ("value", "kcal", "count", "calories"))
+            v = _extract_value(it, ("value", "kcal", "count", "calories", "energy"))
             d = _local_date(it.get("start_time") or it.get("end_time"))
             if v is not None and d:
                 cal_sum[d] += v
+        if seen_cal:
+            break               # first matching calorie array wins (avoid summing dupes)
     for d, c in cal_sum.items():
         per_day[d]["active_kcal"] = round(c)
 

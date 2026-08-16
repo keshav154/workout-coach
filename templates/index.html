@@ -1449,7 +1449,8 @@
     setRing('dr-water', d.water.goal ? d.water.ml / d.water.goal : 0);
     document.getElementById('dash-water-val').textContent = wl.toFixed(1) + 'L';
 
-    const cal = d.nutrition.calories, calT = d.nutrition.cal_target || 1;
+    const cal = d.nutrition.calories;
+    const calT = (d.nutrition.adjusted_target || d.nutrition.cal_target || 1);
     setRing('dr-cal', cal / calT);
     document.getElementById('dash-cal-val').textContent = Math.round(cal);
 
@@ -2059,12 +2060,16 @@
     let d;
     try { d = await (await fetch('/nutrition_data', { headers: authHeaders() })).json(); }
     catch { return; }
-    const cal = d.totals.calories || 0,  calT = d.targets.calories || 0;
-    const pr  = d.totals.protein_g || 0, prT  = d.targets.protein_g || 0;
+    const cal = d.totals.calories || 0;
+    // Calories burned today (watch + cardio) raise the day's budget.
+    const burned = d.burned || 0;
+    const calT = (d.adjusted_calories || d.targets.calories || 0);
+    const baseT = d.targets.calories || 0;
     const calBar = document.getElementById('fu-cal-bar');
     calBar.style.width = (calT ? Math.min(cal / calT * 100, 100) : 0) + '%';
     calBar.classList.toggle('over', calT > 0 && cal > calT);
-    document.getElementById('fu-cal-txt').textContent = `${cal} / ${calT} kcal`;
+    document.getElementById('fu-cal-txt').textContent =
+      burned ? `${cal} / ${calT} kcal (${baseT} +${burned} burned)` : `${cal} / ${calT} kcal`;
     document.getElementById('fu-prot-bar').style.width = (prT ? Math.min(pr / prT * 100, 100) : 0) + '%';
     document.getElementById('fu-prot-txt').textContent = `${pr} / ${prT} g`;
     const cb = d.totals.carbs_g || 0, cbT = d.targets.carbs_g || 0;

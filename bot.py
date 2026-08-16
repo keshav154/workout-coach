@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v23';
+const CACHE = 'coachxkeshav-v24';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -231,11 +231,14 @@ def dashboard():
     from nutrition import today_totals
     from water import water_goal_ml, water_today
     from health import health_today
+    from cardio import cardio_today_calories
     from checkin import recovery_summary
 
     profile = load_profile()
     if not profile_complete(profile):
         return jsonify({"ready": False})
+
+    day_burned = int((health_today().get("active_kcal") or 0)) + int(cardio_today_calories() or 0)
 
     workout_log = load_log()
     sessions = workout_log.get("sessions", [])
@@ -277,6 +280,8 @@ def dashboard():
         "water":       {"ml": wt["ml"], "goal": water_goal_ml(profile)},
         "nutrition":   {"calories": nt["calories"], "protein_g": nt["protein_g"],
                         "cal_target": effective_calorie_target(profile, targets),
+                        "adjusted_target": effective_calorie_target(profile, targets) + day_burned,
+                        "burned": day_burned,
                         "protein_target": targets["protein_target_g"],
                         "meals": nt["count"]},
         "habits":      habits,
@@ -902,11 +907,19 @@ def nutrition_data():
     protein_fix = None
     if prot_t and gap >= 12:            # meaningfully short on protein today
         protein_fix = {"gap": round(gap), "options": _protein_options(gap)}
+    # Calories burned today (watch active + logged cardio) raise the budget.
+    from health import health_today
+    from cardio import cardio_today_calories
+    burned = int(health_today().get("active_kcal") or 0) + int(cardio_today_calories() or 0)
+    adjusted_cal = cal_t + burned if cal_t else 0
     return jsonify({
         "meals":       get_meals(),
         "totals":      totals,
         "targets":     {"calories": cal_t, "protein_g": prot_t,
                         "carbs_g": carb_t, "fat_g": fat_t},
+        "burned":      burned,
+        "adjusted_calories": adjusted_cal,
+        "net_calories": totals["calories"] - burned,
         "week":        week_series(),
         "protein_fix": protein_fix,
     })
