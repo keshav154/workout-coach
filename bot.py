@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v21';
+const CACHE = 'coachxkeshav-v22';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -948,20 +948,31 @@ def _protein_options(gap: float) -> list[dict]:
 INGEST_TOKEN = os.environ.get("INGEST_TOKEN", CRON_SECRET).strip()
 
 
-@flask_app.route("/ingest", methods=["POST"])
+@flask_app.route("/ingest", methods=["GET", "POST"])
 def ingest():
     """Token-authenticated webhook for a phone automation to push wearable
-    metrics (steps, active_kcal, resting_hr). Kept separate from the web
-    password so an automation can post without it. Requires INGEST_TOKEN."""
+    metrics. Accepts canonical or common aliased field names. GET returns a
+    quick status so you can confirm the last push landed. Requires INGEST_TOKEN."""
     if not INGEST_TOKEN:
         return jsonify({"error": "ingest not configured — set INGEST_TOKEN"}), 503
     token = request.args.get("token", "") or request.headers.get("X-Ingest-Token", "")
     if not hmac.compare_digest(token, INGEST_TOKEN):
         return jsonify({"error": "unauthorized"}), 401
-    from health import record_health
+    from health import health_today, normalize_metrics, record_health
+    if request.method == "GET":
+        return jsonify({"ok": True, "today": health_today(),
+                        "hint": "POST metrics as JSON; GET shows what's stored for today"})
     data = request.json or {}
+    _, unknown = normalize_metrics(data)
     saved = record_health(data, date_str=(data.get("date") or None))
-    return jsonify({"ok": True, "saved": saved})
+    resp = {"ok": True, "saved": saved, "stored_today": health_today()}
+    if not saved:
+        resp["warning"] = ("No recognized metrics in this payload. Send keys like "
+                            "steps, active_kcal, resting_hr, sleep_hours, energy_score "
+                            "(aliases accepted). Unrecognized keys: " + ", ".join(unknown[:12]))
+    elif unknown:
+        resp["ignored_keys"] = unknown[:12]
+    return jsonify(resp)
 
 
 @flask_app.route("/health")

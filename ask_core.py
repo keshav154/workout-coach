@@ -157,6 +157,34 @@ def query_measurements() -> str:
     return "\n".join(lines)
 
 
+def query_health() -> str:
+    """Wearable metrics (steps, active calories, sleep, energy score, resting
+    HR) — today, the week's trend, and recovery readiness."""
+    from health import health_today, health_week, resting_hr_trend
+    from checkin import recovery_summary
+    h = health_today()
+    if not any(v is not None for v in h.values()):
+        return ("No wearable data yet. If the user has a watch, they can push metrics to "
+                "the /ingest webhook or just tell you (steps, sleep, energy score, etc.).")
+    lines = ["Wearable — today: " + ", ".join(
+        f"{k.replace('_', ' ')}={v}" for k, v in h.items() if v is not None)]
+    week = health_week()
+    steps = [r["steps"] for r in week if r.get("steps")]
+    sleep = [r["sleep_hours"] for r in week if r.get("sleep_hours")]
+    if steps:
+        lines.append(f"7-day steps: avg {round(sum(steps)/len(steps)):,}, "
+                     f"range {min(steps):,}-{max(steps):,}")
+    if sleep:
+        lines.append(f"7-day sleep: avg {sum(sleep)/len(sleep):.1f}h")
+    tr = resting_hr_trend()
+    if tr:
+        lines.append(f"Resting HR: {tr['latest']} (baseline {tr['baseline']}"
+                     + (", ELEVATED — possible under-recovery" if tr.get("elevated") else "") + ")")
+    rec = recovery_summary()
+    lines.append(f"Recovery readiness: {rec['score']}/10 ({rec['label']}, source: {rec['source']})")
+    return "\n".join(lines)
+
+
 def query_profile() -> str:
     p   = load_profile() or {}
     mem = load_memory()
@@ -205,6 +233,11 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
+        "name": "query_health",
+        "description": "Get wearable/watch metrics: today's steps, active calories, sleep, energy score, resting HR, the 7-day trends, and recovery readiness. Use for recovery, sleep, activity or 'how's my recovery' questions.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
         "name": "query_measurements",
         "description": "Get body measurement history (waist, chest, arm, thigh, ...) with changes over time.",
         "parameters": {"type": "object", "properties": {}},
@@ -235,6 +268,7 @@ TOOL_IMPLS = {
     "query_spending":          query_spending,
     "query_weight":            query_weight,
     "query_profile":           query_profile,
+    "query_health":            query_health,
     "query_measurements":      query_measurements,
     "generate_spending_review": generate_spending_review,
     "get_system_status":        get_system_status,

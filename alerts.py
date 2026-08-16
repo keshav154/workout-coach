@@ -96,6 +96,25 @@ def run_checks() -> list[str]:
             f"You're on a {streak}-day streak — one more session hits your weekly target. "
             f"Strong week!"))
 
+    # 5) Under-recovery from the watch: low energy score or elevated resting HR,
+    #    especially while training hard, suggests easing off.
+    try:
+        from health import health_today, resting_hr_trend
+        h = health_today()
+        es = h.get("energy_score")
+        rhr = resting_hr_trend()
+        low_energy = es is not None and es <= 40
+        high_rhr = rhr.get("elevated")
+        if (low_energy or high_rhr) and streak >= 3 and not _already_sent("recovery"):
+            why = []
+            if low_energy: why.append(f"watch energy score is {es}/100")
+            if high_rhr:   why.append(f"resting HR is up ({rhr['latest']} vs {rhr['baseline']} baseline)")
+            fired.append(("recovery",
+                "Recovery flag: " + " and ".join(why) + f", and you've trained {streak} days straight. "
+                "Consider a lighter session or a rest day today — you'll come back stronger."))
+    except Exception:
+        pass
+
     out = []
     for kind, msg in fired:
         _mark(kind)

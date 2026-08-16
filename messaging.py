@@ -114,8 +114,10 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
         mem         = load_memory()
         day         = get_next_day(workout_log)
         last        = get_last_session_for_day(workout_log, day)
+        from health import format_wearable_block
         extra = "\n\n".join(filter(None, [
             format_checkin_block(log=workout_log),
+            format_wearable_block(),
             format_progression_block(workout_log),
             format_autodeload_block(),
             format_goals_block(),
