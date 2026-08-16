@@ -2061,6 +2061,7 @@
     try { d = await (await fetch('/nutrition_data', { headers: authHeaders() })).json(); }
     catch { return; }
     const cal = d.totals.calories || 0;
+    const pr  = d.totals.protein_g || 0, prT = d.targets.protein_g || 0;
     // Calories burned today (watch + cardio) raise the day's budget.
     const burned = d.burned || 0;
     const calT = (d.adjusted_calories || d.targets.calories || 0);

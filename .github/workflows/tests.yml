@@ -18,3 +18,6 @@ jobs:
       - run: pytest -q
         env:
           GROQ_API_KEY: dummy
+      # Runtime smoke test of the frontend render functions — catches
+      # undefined-variable ReferenceErrors that `node --check` can't.
+      - run: node scripts/ui_smoke.js templates/index.html
