@@ -11,7 +11,7 @@ def test_ingest_accepts_aliased_field_names(client, db, monkeypatch):
     r = client.post("/ingest?token=tok", json={
         "step_count": 10432, "active_calories": 620, "restingHeartRate": 56,
         "sleep_duration": 7.5, "readiness": 74}).get_json()
-    s = r["saved"]
+    s = r["stored_today"]
     assert s["steps"] == 10432 and s["active_kcal"] == 620
     assert s["resting_hr"] == 56 and s["sleep_hours"] == 7.5 and s["energy_score"] == 74
 
@@ -25,8 +25,7 @@ def test_ingest_warns_on_unrecognized(client, db, monkeypatch):
     import bot
     monkeypatch.setattr(bot, "INGEST_TOKEN", "tok")
     r = client.post("/ingest?token=tok", json={"weirdField": 5, "another": 9}).get_json()
-    assert r["saved"] == {} and "warning" in r
-    assert "weirdField" in r["warning"] or "another" in r["warning"]
+    assert r["days_stored"] == 0 and "warning" in r
 
 
 def test_ingest_get_status(client, db, monkeypatch):

@@ -8,11 +8,24 @@ by the user through the coach. Stored per day, keyed by date.
 """
 
 import logging
-from datetime import timedelta
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
-from agent_core import _col, today, today_iso
+from agent_core import _APP_TZ, _col, today, today_iso
 
 log = logging.getLogger(__name__)
+
+
+def _local_date(iso: str) -> str | None:
+    """Local (app-timezone) date string from a UTC/ISO timestamp."""
+    try:
+        s = str(iso).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_APP_TZ).date().isoformat()
+    except (ValueError, TypeError):
+        return None
 
 FIELDS = ("steps", "active_kcal", "resting_hr", "sleep_hours",
           "sleep_score", "energy_score", "hrv")
@@ -77,6 +90,87 @@ def record_health(metrics: dict, date_str: str | None = None) -> dict:
     if clean:
         _col("health").update_one({"_id": d}, {"$set": clean}, upsert=True)
     return clean
+
+
+def _extract_value(item: dict, keys: tuple) -> float | None:
+    for k in keys:
+        if item.get(k) is not None:
+            try:
+                return float(item[k])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def parse_wearable_payload(raw: dict) -> dict:
+    """Store metrics from either the flat format ({"steps": 9652, ...}) or the
+    HealthSync / Samsung-Health export format, where each metric is an ARRAY of
+    per-period buckets ({"steps": [{"count", "start_time", "end_time"}], ...},
+    {"sleep": [{"duration_seconds", "session_end_time"}], ...}). Records every
+    day it finds and returns a summary."""
+    if not isinstance(raw, dict):
+        return {"days": 0, "today": health_today()}
+
+    array_keys = ("steps", "sleep", "heart_rate", "heartrate", "active_calories",
+                  "active_energy", "calories", "distance")
+    if not any(isinstance(raw.get(k), list) for k in array_keys):
+        saved = record_health(raw, date_str=(raw.get("date") or None))
+        return {"days": 1 if saved else 0, "saved": saved, "today": health_today()}
+
+    per_day: dict[str, dict] = defaultdict(dict)
+
+    # Steps: bucket belongs to the local day of its start_time; keep the max.
+    for it in raw.get("steps") or []:
+        if not isinstance(it, dict):
+            continue
+        cnt = _extract_value(it, ("count", "value", "steps"))
+        d = _local_date(it.get("start_time") or it.get("end_time") or it.get("time"))
+        if cnt is not None and d:
+            per_day[d]["steps"] = max(per_day[d].get("steps", 0), cnt)
+
+    # Sleep: sum session durations per wake day (session_end_time).
+    sleep_sec: dict[str, float] = defaultdict(float)
+    for it in raw.get("sleep") or []:
+        if not isinstance(it, dict):
+            continue
+        dur = _extract_value(it, ("duration_seconds", "duration", "total_seconds"))
+        d = _local_date(it.get("session_end_time") or it.get("end_time") or it.get("start_time"))
+        if dur and d:
+            sleep_sec[d] += dur
+    for d, secs in sleep_sec.items():
+        per_day[d]["sleep_hours"] = round(secs / 3600, 1)
+
+    # Heart rate samples: resting HR ≈ the day's minimum.
+    hr_min: dict[str, float] = {}
+    for it in raw.get("heart_rate") or raw.get("heartrate") or []:
+        if not isinstance(it, dict):
+            continue
+        v = _extract_value(it, ("bpm", "value", "min", "count"))
+        d = _local_date(it.get("start_time") or it.get("time") or it.get("end_time"))
+        if v and d:
+            hr_min[d] = min(hr_min.get(d, 1e9), v)
+    for d, v in hr_min.items():
+        if v < 900:
+            per_day[d]["resting_hr"] = v
+
+    # Active calories: sum per day.
+    cal_sum: dict[str, float] = defaultdict(float)
+    for key in ("active_calories", "active_energy", "calories"):
+        for it in raw.get(key) or []:
+            if not isinstance(it, dict):
+                continue
+            v = _extract_value(it, ("value", "kcal", "count", "calories"))
+            d = _local_date(it.get("start_time") or it.get("end_time"))
+            if v is not None and d:
+                cal_sum[d] += v
+    for d, c in cal_sum.items():
+        per_day[d]["active_kcal"] = round(c)
+
+    stored = []
+    for d, metrics in per_day.items():
+        if record_health(metrics, date_str=d):
+            stored.append(d)
+    return {"days": len(stored), "dates": sorted(stored)[-10:], "today": health_today()}
 
 
 def health_today(date_str: str | None = None) -> dict:

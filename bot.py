@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v22';
+const CACHE = 'coachxkeshav-v23';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -958,20 +958,19 @@ def ingest():
     token = request.args.get("token", "") or request.headers.get("X-Ingest-Token", "")
     if not hmac.compare_digest(token, INGEST_TOKEN):
         return jsonify({"error": "unauthorized"}), 401
-    from health import health_today, normalize_metrics, record_health
+    from health import health_today, parse_wearable_payload
     if request.method == "GET":
         return jsonify({"ok": True, "today": health_today(),
                         "hint": "POST metrics as JSON; GET shows what's stored for today"})
     data = request.json or {}
-    _, unknown = normalize_metrics(data)
-    saved = record_health(data, date_str=(data.get("date") or None))
-    resp = {"ok": True, "saved": saved, "stored_today": health_today()}
-    if not saved:
-        resp["warning"] = ("No recognized metrics in this payload. Send keys like "
-                            "steps, active_kcal, resting_hr, sleep_hours, energy_score "
-                            "(aliases accepted). Unrecognized keys: " + ", ".join(unknown[:12]))
-    elif unknown:
-        resp["ignored_keys"] = unknown[:12]
+    result = parse_wearable_payload(data)
+    resp = {"ok": True, "days_stored": result.get("days", 0),
+            "dates": result.get("dates"), "stored_today": result.get("today")}
+    if not result.get("days"):
+        resp["warning"] = ("No recognized metrics found. Send flat keys (steps, "
+                           "active_kcal, resting_hr, sleep_hours, energy_score — aliases "
+                           "ok) or HealthSync-style arrays (steps:[{count,start_time}], "
+                           "sleep:[{duration_seconds,session_end_time}]).")
     return jsonify(resp)
 
 

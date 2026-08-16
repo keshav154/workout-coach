@@ -26,7 +26,7 @@ def test_ingest_requires_token(client, db, monkeypatch):
     assert client.post("/ingest", json={"steps": 5000}).status_code == 401
     assert client.post("/ingest?token=wrong", json={"steps": 5000}).status_code == 401
     r = client.post("/ingest?token=sekret", json={"steps": 5000})
-    assert r.status_code == 200 and r.get_json()["saved"]["steps"] == 5000
+    assert r.status_code == 200 and r.get_json()["stored_today"]["steps"] == 5000
 
 
 def test_ingest_not_configured(client, db, monkeypatch):
