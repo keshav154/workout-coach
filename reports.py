@@ -318,12 +318,14 @@ def weekly_summary_data(week_offset: int = 0) -> dict:
             spend_cats[e.get("category", "Other")] = spend_cats.get(e.get("category", "Other"), 0) + amt
 
     from water import week_avg_ml
+    from health import week_avg_steps
     days_per_week = profile.get("days_per_week", 6)
     return {
         "name": profile.get("name", ""),
         "week_start": week_start.isoformat(),
         "week_end": week_end.isoformat(),
         "water_avg_ml": week_avg_ml(),
+        "steps_avg": week_avg_steps(),
         "sessions": session_rows,
         "sessions_done": len(session_rows),
         "sessions_target": days_per_week,

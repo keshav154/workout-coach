@@ -901,6 +901,11 @@
 
     <div class="dash-stats" id="dash-stats"></div>
 
+    <div id="dash-health-wrap" style="display:none">
+      <div class="stats-title">From your watch</div>
+      <div class="dash-stats" id="dash-health"></div>
+    </div>
+
     <div id="dash-habits-wrap" style="display:none">
       <div class="stats-title">Today's Habits</div>
       <div class="chart-card" id="dash-habits"></div>
@@ -1342,6 +1347,16 @@
     document.querySelector('#dash-stats .v.accent').style.color = 'var(--accent)';
     document.querySelector('#dash-stats .v.pink').style.color = 'var(--accent2)';
     document.querySelector('#dash-stats .v.yellow').style.color = 'var(--accent3)';
+
+    // Watch metrics (only when present)
+    const hh = d.health || {};
+    const hcards = [];
+    if (hh.steps != null)       hcards.push(`<div class="dash-stat"><div class="v" style="color:var(--accent3)">${Number(hh.steps).toLocaleString()}</div><div class="l">👟 Steps</div></div>`);
+    if (hh.active_kcal != null) hcards.push(`<div class="dash-stat"><div class="v" style="color:var(--accent)">${Math.round(hh.active_kcal)}</div><div class="l">🔥 Active kcal</div></div>`);
+    if (hh.resting_hr != null)  hcards.push(`<div class="dash-stat"><div class="v" style="color:var(--accent2)">${Math.round(hh.resting_hr)}</div><div class="l">❤️ Resting HR</div></div>`);
+    const hwrap = document.getElementById('dash-health-wrap');
+    if (hcards.length) { hwrap.style.display = 'block'; document.getElementById('dash-health').innerHTML = hcards.join(''); }
+    else hwrap.style.display = 'none';
 
     const hw = document.getElementById('dash-habits-wrap');
     const hb = document.getElementById('dash-habits');
@@ -2413,10 +2428,11 @@
         <div class="ws-row"><span>Logged ${d.nutrition.days_logged} day(s)</span>
         <span class="muted">avg ${d.nutrition.avg_calories} kcal · ${d.nutrition.avg_protein} g protein</span></div></div>`;
     }
-    if (d.water_avg_ml) {
-      html += `<div class="ws-section"><h3>Hydration</h3>
-        <div class="ws-row"><span>Water</span>
-        <span class="muted">avg ${(d.water_avg_ml/1000).toFixed(1)} L/day</span></div></div>`;
+    if (d.water_avg_ml || d.steps_avg) {
+      html += `<div class="ws-section"><h3>Hydration & Activity</h3>`;
+      if (d.water_avg_ml) html += `<div class="ws-row"><span>Water</span><span class="muted">avg ${(d.water_avg_ml/1000).toFixed(1)} L/day</span></div>`;
+      if (d.steps_avg) html += `<div class="ws-row"><span>Steps</span><span class="muted">avg ${d.steps_avg.toLocaleString()}/day</span></div>`;
+      html += `</div>`;
     }
     if ((d.prs || []).length) {
       html += `<div class="ws-section"><h3>Recent PRs</h3>` +

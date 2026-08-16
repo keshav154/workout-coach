@@ -87,6 +87,7 @@ pip install -r requirements.txt
 | `TWILIO_*` / `ALLOWED_WHATSAPP_NUMBER` | Optional: WhatsApp transport via Twilio |
 | `DISCORD_BOT_TOKEN` / `DISCORD_USER_ID` | Optional: Discord bot (only runs via `python bot.py`, not under gunicorn) |
 | `APP_TZ_OFFSET_MIN` | Minutes offset from UTC for "today" (default 330 = IST) |
+| `INGEST_TOKEN` | Shared secret for the `/ingest` wearable-metrics webhook (defaults to `CRON_SECRET`) |
 
 ### 3. Deploy to Render
 
@@ -119,6 +120,22 @@ If a scheduled Telegram message doesn't show up, open these in a browser (append
 - **`/status`** (or ask the coach "system status") — now shows the active notification channel and the last time each cron actually executed.
 
 **The most common cause:** outbound notifications need **both** `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set in Render. The bot can reply to messages you send it using only the token (it reuses your incoming chat id), so two-way chat can work fine while scheduled nudges silently fail — the missing piece is almost always `TELEGRAM_CHAT_ID`. Get your chat id by messaging the bot and opening `https://api.telegram.org/bot<TOKEN>/getUpdates`, then set it in Render and hit `/cron/test`.
+
+## Wearable metrics (Samsung Watch / any Android watch)
+
+A web app can't read Android **Health Connect** directly, so watch metrics (steps, active calories, resting HR) get in one of two ways:
+
+1. **Automatic push (recommended).** Set `INGEST_TOKEN` in Render, then use a phone automation to POST your metrics once a day (or hourly) to:
+   ```
+   POST https://<your-app>.onrender.com/ingest?token=<INGEST_TOKEN>
+   Content-Type: application/json
+   {"steps": 10432, "active_kcal": 620, "resting_hr": 58}
+   ```
+   On Android, **Tasker** with a Health Connect / Samsung Health plugin can read the day's totals and fire an HTTP Request task — no coding. (`date` is optional; defaults to today.) The endpoint validates ranges and upserts the day.
+
+2. **Just tell the coach.** "10k steps today, burned 620 active calories, resting HR 58" — the `log_health` tool stores it. Same store, no setup.
+
+Either way, steps / active calories / resting HR show on the **Today** dashboard and the weekly summary.
 
 ## Using it
 

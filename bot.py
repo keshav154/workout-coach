@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v16';
+const CACHE = 'coachxkeshav-v17';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -230,6 +230,7 @@ def dashboard():
                             today_iso)
     from nutrition import today_totals
     from water import water_goal_ml, water_today
+    from health import health_today
 
     profile = load_profile()
     if not profile_complete(profile):
@@ -264,6 +265,7 @@ def dashboard():
                         "protein_target": targets["protein_target_g"],
                         "meals": nt["count"]},
         "habits":      habits,
+        "health":      health_today(),
         "streak":      get_consecutive_workout_days(workout_log),
         "consistent_weeks": get_consistent_weeks(workout_log, dpw),
         "sessions_this_week": sum(1 for s in sessions if s.get("date", "") >= week_start.isoformat()),
@@ -843,6 +845,41 @@ def _protein_options(gap: float) -> list[dict]:
                 break
         picks = chosen[:2]
     return [{"name": n, "calories": c, "protein_g": p} for n, c, p in picks]
+
+
+INGEST_TOKEN = os.environ.get("INGEST_TOKEN", CRON_SECRET).strip()
+
+
+@flask_app.route("/ingest", methods=["POST"])
+def ingest():
+    """Token-authenticated webhook for a phone automation to push wearable
+    metrics (steps, active_kcal, resting_hr). Kept separate from the web
+    password so an automation can post without it. Requires INGEST_TOKEN."""
+    if not INGEST_TOKEN:
+        return jsonify({"error": "ingest not configured — set INGEST_TOKEN"}), 503
+    token = request.args.get("token", "") or request.headers.get("X-Ingest-Token", "")
+    if not hmac.compare_digest(token, INGEST_TOKEN):
+        return jsonify({"error": "unauthorized"}), 401
+    from health import record_health
+    data = request.json or {}
+    saved = record_health(data, date_str=(data.get("date") or None))
+    return jsonify({"ok": True, "saved": saved})
+
+
+@flask_app.route("/health")
+@require_auth
+def health_route():
+    from health import health_today, health_week
+    return jsonify({"today": health_today(), "week": health_week()})
+
+
+@flask_app.route("/health_log", methods=["POST"])
+@require_auth
+def health_log():
+    """Manual entry of watch metrics from the app."""
+    from health import health_today, record_health
+    record_health(request.json or {})
+    return jsonify({"ok": True, "today": health_today()})
 
 
 @flask_app.route("/water")

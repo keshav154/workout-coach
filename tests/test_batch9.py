@@ -1,6 +1,5 @@
 """Money history endpoint, expense delete, and RPE + superset logging."""
 
-import agent_core
 
 
 def test_money_data_history_and_trend(client, db, profile_doc):

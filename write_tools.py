@@ -127,6 +127,14 @@ WRITE_TOOLS = [
             "set_total_litres": {"type": "number", "description": "overwrite today's total, in litres"}}},
     }},
     {"type": "function", "function": {
+        "name": "log_health",
+        "description": "Record wearable/watch metrics the user reports: daily steps, active calories burned, and/or resting heart rate.",
+        "parameters": {"type": "object", "properties": {
+            "steps": {"type": "number"},
+            "active_kcal": {"type": "number", "description": "active calories burned today"},
+            "resting_hr": {"type": "number", "description": "resting heart rate (bpm)"}}},
+    }},
+    {"type": "function", "function": {
         "name": "mark_rest_day",
         "description": "Record TODAY as a deliberate rest day when the user says they're resting / taking a rest day / not training today. Suppresses the workout nudge and keeps their streak intact.",
         "parameters": {"type": "object", "properties": {}},
@@ -326,6 +334,20 @@ def make_write_tools(ctx: dict) -> dict:
         ctx.setdefault("notes", []).append("🛌 Rest day logged.")
         return f"SAVED: {d} marked as a rest day. Enjoy the recovery — your streak stays intact."
 
+    def log_health(steps: float | None = None, active_kcal: float | None = None,
+                   resting_hr: float | None = None) -> str:
+        from health import record_health
+        saved = record_health({"steps": steps, "active_kcal": active_kcal,
+                               "resting_hr": resting_hr})
+        if not saved:
+            return "REJECTED: no valid metric to save (check the numbers)."
+        parts = []
+        if "steps" in saved:       parts.append(f"{saved['steps']:,} steps")
+        if "active_kcal" in saved: parts.append(f"{saved['active_kcal']:g} active kcal")
+        if "resting_hr" in saved:  parts.append(f"{saved['resting_hr']} bpm resting HR")
+        ctx.setdefault("notes", []).append("⌚ " + ", ".join(parts))
+        return "SAVED wearable metrics: " + ", ".join(parts) + "."
+
     def log_water(glasses: float | None = None, ml: float | None = None,
                   set_total_litres: float | None = None) -> str:
         from water import (GLASS_ML, add_water, set_water_total, water_goal_ml,
@@ -418,6 +440,7 @@ def make_write_tools(ctx: dict) -> dict:
         "update_training_days": update_training_days,
         "undo_last_action":     undo_last_action,
         "mark_rest_day":        mark_rest_day,
+        "log_health":           log_health,
         "log_water":            log_water,
         "add_habit":            add_habit,
         "log_habit_done":       log_habit_done,
