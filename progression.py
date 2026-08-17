@@ -127,10 +127,14 @@ def _is_plateau(series: list[dict], lookback: int) -> bool:
     return not (e1_improved or vol_improved)
 
 
-def detect_plateaus(log: dict | None = None, lookback: int = 3) -> list[str]:
+def detect_plateaus(log: dict | None = None, lookback: int | None = None) -> list[str]:
     """Human-readable plateau lines: exercises with no strength (weight/reps)
-    OR volume (sets) gain over the last `lookback` sessions they appeared in."""
+    OR volume (sets) gain over the last `lookback` sessions they appeared in.
+    `lookback` defaults to the learned per-user value."""
     log = log or load_log()
+    if lookback is None:
+        from learned_params import get_param
+        lookback = get_param("plateau_lookback")
     plateaus = []
     for name, series in _plateau_series(log).items():
         if _is_plateau(series, lookback):
@@ -140,9 +144,13 @@ def detect_plateaus(log: dict | None = None, lookback: int = 3) -> list[str]:
     return plateaus
 
 
-def detect_plateau_exercise_names(log: dict | None = None, lookback: int = 3) -> list[str]:
-    """Bare exercise names currently plateaued (for autonomous deload flagging)."""
+def detect_plateau_exercise_names(log: dict | None = None, lookback: int | None = None) -> list[str]:
+    """Bare exercise names currently plateaued (for autonomous deload flagging).
+    `lookback` defaults to the learned per-user value."""
     log = log or load_log()
+    if lookback is None:
+        from learned_params import get_param
+        lookback = get_param("plateau_lookback")
     return [name for name, series in _plateau_series(log).items()
             if _is_plateau(series, lookback)]
 
@@ -190,8 +198,11 @@ def suggest_next(rep_range, last_weight, last_reps, deload_factor: float | None 
         return {"weight": lw, "target_reps": top, "kind": "max",
                 "reason": "already at your heaviest dumbbell — add reps or a set"}
     if lr > 0:
-        return {"weight": lw, "target_reps": min(lr + 1, top), "kind": "rep_up",
-                "reason": f"same {lw:g}kg — aim for {int(lr) + 1}+ reps (last {lr:g})"}
+        from learned_params import get_param
+        inc = get_param("rep_increment")
+        target = min(int(lr) + inc, top)
+        return {"weight": lw, "target_reps": target, "kind": "rep_up",
+                "reason": f"same {lw:g}kg — aim for {target}+ reps (last {lr:g})"}
     return {"weight": lw, "target_reps": bottom, "kind": "same",
             "reason": f"around {lw:g}kg"}
 

@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v29';
+const CACHE = 'coachxkeshav-v30';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -383,6 +383,7 @@ def today_program():
     from agent_core import (get_last_session_for_day, should_suggest_deload,
                             today_iso, warmup_weight_for)
     from progression import alternatives_for, get_autodeload_flags, suggest_next
+    from learned_params import get_param
     profile = load_profile()
     if not profile_complete(profile):
         return jsonify({"ready": False})
@@ -394,6 +395,8 @@ def today_program():
     last = get_last_session_for_day(workout_log, day)
     deload_week = should_suggest_deload(workout_log)
     autoflags   = set(get_autodeload_flags())
+    deload_week_factor = get_param("deload_week_factor")
+    deload_flag_factor = get_param("deload_flag_factor")
 
     # Rotation status: the most recent session by date (for the status line)
     sessions = workout_log.get("sessions", [])
@@ -416,9 +419,11 @@ def today_program():
                              "reps": e.get("reps_done")})
             if len(hist) >= 5:
                 break
-        # Deload week = ~60% of normal (banner says so); a per-exercise plateau
-        # flag is a lighter ~10% touch. Week takes precedence when both apply.
-        deload_factor = 0.6 if deload_week else (0.9 if ex["name"] in autoflags else None)
+        # Deload week (learned factor, default ~60% of normal); a per-exercise
+        # plateau flag is a lighter learned touch (default ~10%). Week takes
+        # precedence when both apply.
+        deload_factor = deload_week_factor if deload_week else (
+            deload_flag_factor if ex["name"] in autoflags else None)
         suggestion = suggest_next(ex["rep_range"],
                                   prev.get("weight") if prev else None,
                                   prev.get("reps_done") if prev else None,
@@ -835,6 +840,42 @@ def _strength_level(e1rm: float, bodyweight: float) -> tuple[str, float] | None:
             level = name
             break
     return level, round(ratio, 2)
+
+
+@flask_app.route("/learned_params")
+@require_auth
+def learned_params_view():
+    """Transparency: every adaptive parameter the coach has learned, with the
+    reason and when — so the user can see (and reset) how it's tuned itself."""
+    from learned_params import all_params
+    params = all_params()
+    return jsonify({"params": params,
+                    "learned_count": sum(1 for p in params if p["learned"])})
+
+
+@flask_app.route("/reset_param", methods=["POST"])
+@require_auth
+def reset_param_view():
+    """Undo one learned parameter back to its built-in default."""
+    from learned_params import reset_param, PARAM_SPECS
+    key = (request.get_json(silent=True) or {}).get("key") or request.args.get("key")
+    if key not in PARAM_SPECS:
+        return jsonify({"error": "unknown param"}), 400
+    reset_param(key)
+    return jsonify({"ok": True, "key": key})
+
+
+@flask_app.route("/reflect_now", methods=["POST"])
+@require_auth
+def reflect_now_view():
+    """Manually run the self-tuning reflection loop (normally weekly)."""
+    from learned_params import reflect_and_tune
+    try:
+        report = reflect_and_tune()
+    except Exception as e:
+        log.error(f"reflect_now failed: {e}")
+        return jsonify({"error": "self-tuning failed"}), 500
+    return jsonify({"report": report or "No changes — current settings still fit your data."})
 
 
 @flask_app.route("/records")
@@ -1573,9 +1614,20 @@ def cron_weekly():
             log.info(consolidated)
     except Exception as e:
         log.error(f"Memory consolidation failed: {e}")
+    # Autonomous self-tuning: review recent training/recovery data and adapt the
+    # coach's own parameters (plateau patience, deload depth, fatigue tolerance).
+    tuned = None
+    try:
+        from learned_params import reflect_and_tune
+        tuned = reflect_and_tune()
+        if tuned:
+            notify(tuned)
+            log.info(tuned)
+    except Exception as e:
+        log.error(f"Self-tuning failed: {e}")
     log.info(f"Weekly cron: report={'sent' if sent else 'failed'}")
     return jsonify({"sent": sent, "message": msg, "memory": consolidated,
-                    "calorie_adjustment": adjustment})
+                    "calorie_adjustment": adjustment, "self_tuning": tuned})
 
 
 @flask_app.route("/cron/check", methods=["GET", "POST"])

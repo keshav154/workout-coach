@@ -249,6 +249,17 @@
     .dash-stat { background: var(--card); border: 1px solid var(--border); padding: 13px 8px; text-align: center; }
     .dash-stat .v { font-family: var(--font-head); font-size: 18px; font-weight: 800; }
     .dash-stat .l { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; font-family: var(--font-body); }
+    .learn-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+    .learn-row:last-of-type { border-bottom: none; }
+    .learn-body { flex: 1; min-width: 0; }
+    .learn-head { font-size: 12.5px; font-weight: 700; text-transform: capitalize; font-family: var(--font-body); }
+    .learn-val { color: var(--accent2); font-weight: 800; margin-left: 4px; }
+    .learn-def { color: var(--muted); font-size: 10px; font-weight: 500; margin-left: 4px; }
+    .learn-why { font-size: 10.5px; color: var(--muted); margin-top: 3px; font-family: var(--font-body); }
+    .learn-reset { background: none; border: 1px solid var(--border); color: var(--muted); width: 30px; height: 30px; flex-shrink: 0; cursor: pointer; font-size: 15px; }
+    .learn-reset:active { border-color: var(--accent2); color: var(--accent2); }
+    .learn-retune { width: 100%; margin-top: 12px; background: var(--card); border: 1px solid var(--accent2); color: var(--accent2); padding: 10px; font-size: 12px; font-weight: 700; font-family: var(--font-body); cursor: pointer; }
+    .learn-retune:disabled { opacity: 0.6; }
     .nav-item .nav-ico { font-size: 17px; }
 
     /* -- Workout mode -- */
@@ -965,6 +976,11 @@
       <div class="stats-title">Today's Habits</div>
       <div class="chart-card" id="dash-habits"></div>
     </div>
+
+    <div id="dash-learn-wrap" style="display:none">
+      <div class="stats-title">🧠 Coach adaptations</div>
+      <div class="chart-card" id="dash-learn"></div>
+    </div>
   </div>
 
   <!-- Coach view -->
@@ -1501,6 +1517,51 @@
         hb.appendChild(row);
       });
     } else hw.style.display = 'none';
+
+    loadCoachLearning();
+  }
+
+  async function loadCoachLearning() {
+    const wrap = document.getElementById('dash-learn-wrap');
+    const box = document.getElementById('dash-learn');
+    if (!wrap || !box) return;
+    let data;
+    try { data = await (await fetch('/learned_params', { headers: authHeaders() })).json(); }
+    catch { wrap.style.display = 'none'; return; }
+    const learned = (data.params || []).filter(p => p.learned);
+    if (!learned.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    box.innerHTML = learned.map(p => `
+      <div class="learn-row">
+        <div class="learn-body">
+          <div class="learn-head">${esc(p.key.replace(/_/g, ' '))}
+            <span class="learn-val">${esc(p.value)}</span>
+            <span class="learn-def">was ${esc(p.default)}</span></div>
+          <div class="learn-why">${esc(p.reason || 'self-tuned from your data')}</div>
+        </div>
+        <button class="learn-reset" title="Reset to default"
+          onclick="resetLearned('${esc(p.key)}')">↺</button>
+      </div>`).join('') +
+      `<button class="learn-retune" onclick="reflectNow(this)">Re-run self-tuning now</button>`;
+  }
+
+  async function resetLearned(key) {
+    try {
+      await fetch('/reset_param', { method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ key }) });
+      loadCoachLearning();
+    } catch { alert('Network error — try again.'); }
+  }
+
+  async function reflectNow(btn) {
+    btn.disabled = true; btn.textContent = 'Reviewing your data…';
+    try {
+      const r = await (await fetch('/reflect_now', { method: 'POST', headers: authHeaders() })).json();
+      alert(r.report || 'No changes.');
+      loadCoachLearning();
+    } catch { alert('Network error — try again.'); }
+    btn.disabled = false; btn.textContent = 'Re-run self-tuning now';
   }
   let dashWater = { ml: 0, goal: 0 };
   async function dashAddWater() {

@@ -41,6 +41,7 @@ from trust import record_audit, undo_last, validate_expense, validate_session
 from ask_core import TOOLS as READ_TOOLS, TOOL_IMPLS as READ_IMPLS
 from write_tools import WRITE_TOOLS, make_write_tools
 from memory_core import format_episodes_block, format_lessons_block
+from learned_params import format_learned_block
 from progression import (
     clear_autodeload_flag,
     format_autodeload_block,
@@ -124,6 +125,7 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
             format_nutrition_block(),
             format_episodes_block(),
             format_lessons_block(),
+            format_learned_block(),
             "SPENDING THIS MONTH (for any money questions):\n" + monthly_summary(),
         ]))
         system = build_system_prompt(day, last, workout_log, mem, profile, extra_context=extra)

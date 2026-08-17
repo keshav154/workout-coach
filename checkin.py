@@ -51,6 +51,9 @@ def recovery_score(day_str: str | None = None, log: dict | None = None) -> tuple
     c = get_checkin(day_str) or {}
     soreness = c.get("soreness")
 
+    from learned_params import get_param
+    fatigue_streak = get_param("recovery_fatigue_streak")   # learned per user
+
     if h.get("energy_score") is not None:
         score = max(1, min(10, round(h["energy_score"] / 10)))
         reasons = [f"watch energy score {h['energy_score']}/100"]
@@ -58,7 +61,7 @@ def recovery_score(day_str: str | None = None, log: dict | None = None) -> tuple
         if soreness is not None and soreness >= 8: score -= 2; reasons.append(f"very sore ({soreness}/10)")
         elif soreness is not None and soreness >= 6: score -= 1; reasons.append("notable soreness")
         streak = get_consecutive_workout_days(log)
-        if streak >= 6: score -= 1; reasons.append(f"{streak} days in a row")
+        if streak >= fatigue_streak: score -= 1; reasons.append(f"{streak} days in a row")
         return max(1, min(10, score)), reasons
 
     score, reasons = 7, []
@@ -80,8 +83,8 @@ def recovery_score(day_str: str | None = None, log: dict | None = None) -> tuple
         elif soreness >= 6: score -= 1; reasons.append("notable soreness")
 
     streak = get_consecutive_workout_days(log)
-    if streak >= 6:   score -= 2; reasons.append(f"{streak} days training in a row")
-    elif streak >= 4: score -= 1
+    if streak >= fatigue_streak:       score -= 2; reasons.append(f"{streak} days training in a row")
+    elif streak >= fatigue_streak - 2: score -= 1
 
     return max(1, min(10, score)), reasons
 
