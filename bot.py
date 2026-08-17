@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v28';
+const CACHE = 'coachxkeshav-v29';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -466,6 +466,18 @@ def today_program():
                     "rest_suggested": consec >= max(3, len(rotation)),
                     "consecutive_days": consec,
                     "exercises": exercises})
+
+
+@flask_app.route("/suggest_exercise")
+@require_auth
+def suggest_exercise_route():
+    """On-demand AI suggestion for one exercise, from its full history."""
+    from progression import ai_suggest_exercise
+    name = (request.args.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "missing exercise name"}), 400
+    rep_range = (request.args.get("rep_range") or "8-12").strip()
+    return jsonify(ai_suggest_exercise(name, rep_range))
 
 
 @flask_app.route("/rest_day", methods=["POST"])

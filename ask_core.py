@@ -95,21 +95,43 @@ def query_weight() -> str:
 
 
 def query_today_workout() -> str:
-    """Authoritative: today's training day and its exercises with last weights."""
+    """Authoritative: whether today's workout is already done, and today's/next
+    training day with its exercises and the user's last weights."""
     from agent_core import get_last_session_for_day, get_next_day, today_iso
-    log  = load_log()
-    day  = get_next_day(log)
-    p    = get_program().get(day, {})
-    last = get_last_session_for_day(log, day)
-    lines = [f"AUTHORITATIVE — Today is {today_iso()}, training Day {day}: {p.get('name','')}"]
-    for ex in p.get("exercises", []):
-        prev = None
-        if last:
-            prev = next((e for e in last.get("exercises", []) if e["name"] == ex["name"]), None)
-        lasttxt = f" (last: {prev.get('weight','?')}kg x {prev.get('reps_done','?')})" if prev else " (no history yet)"
-        scheme = ex.get("scheme") or f"{ex['sets']} sets x {ex['rep_range']}"
-        lines.append(f"  {ex['name']}: {scheme}{lasttxt}")
-    return "\n".join(lines)
+    log   = load_log()
+    today = today_iso()
+    prog  = get_program()
+
+    # Is a session already logged for today?
+    done = next((s for s in reversed(log.get("sessions", []))
+                 if s.get("date") == today), None)
+
+    def _scheme_lines(day):
+        p    = prog.get(day, {})
+        last = get_last_session_for_day(log, day)
+        rows = [f"Day {day}: {p.get('name','')}"]
+        for ex in p.get("exercises", []):
+            prev = next((e for e in last.get("exercises", []) if e["name"] == ex["name"]), None) if last else None
+            lasttxt = f" (last: {prev.get('weight','?')}kg x {prev.get('reps_done','?')})" if prev else " (no history yet)"
+            scheme = ex.get("scheme") or f"{ex['sets']} sets x {ex['rep_range']}"
+            rows.append(f"  {ex['name']}: {scheme}{lasttxt}")
+        return "\n".join(rows)
+
+    if done:
+        td   = done.get("day")
+        exs  = "; ".join(
+            f"{e.get('name')} {e.get('weight','?')}kg x {e.get('reps_done','?')}"
+            for e in done.get("exercises", [])) or "no exercises recorded"
+        nxt  = get_next_day(log)  # already advanced past today's logged session
+        return (
+            f"AUTHORITATIVE — Today is {today}. TODAY'S WORKOUT IS ALREADY DONE: "
+            f"Day {td} ({prog.get(td,{}).get('name','')}) was logged today — {exs}. "
+            f"Do NOT ask whether they trained or re-prescribe today's session; acknowledge it's complete.\n"
+            f"Their NEXT session (a future day, not today) is:\n{_scheme_lines(nxt)}")
+
+    day = get_next_day(log)
+    return (f"AUTHORITATIVE — Today is {today}. Today's workout is NOT logged yet. "
+            f"Today's training day is:\n{_scheme_lines(day)}")
 
 
 def generate_spending_review(month: str | None = None) -> str:
@@ -201,7 +223,7 @@ def query_profile() -> str:
 TOOLS = [
     {"type": "function", "function": {
         "name": "query_today_workout",
-        "description": "Get the authoritative training day for TODAY and its exercises with the user's last weights. Use this whenever the user asks what today's workout is.",
+        "description": "Authoritative check of TODAY's training: whether today's workout is already logged (and what was done) or still pending, plus the day's exercises with the user's last weights. Call this whenever the user asks what today's workout is, before assuming they haven't trained, or when acknowledging a completed session.",
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {

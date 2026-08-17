@@ -196,6 +196,95 @@ def suggest_next(rep_range, last_weight, last_reps, deload_factor: float | None 
             "reason": f"around {lw:g}kg"}
 
 
+# ── On-demand AI suggestion (uses full history + recovery) ────────────────────
+def _exercise_history(log: dict, name: str, n: int = 8) -> list[dict]:
+    name_l = (name or "").lower().strip()
+    rows = []
+    for s in log.get("sessions", []):
+        for e in s.get("exercises", []):
+            if name_l and name_l in (e.get("name", "").lower()):
+                w, r = _num(e.get("weight")), _num(e.get("reps_done"))
+                if w > 0 or r > 0:
+                    row = {"date": s.get("date"), "weight": w, "reps": int(r)}
+                    if e.get("rpe"):
+                        row["rpe"] = e["rpe"]
+                    if isinstance(e.get("sets"), list):
+                        row["sets"] = len(e["sets"])
+                    rows.append(row)
+    return rows[-n:]
+
+
+def ai_suggest_exercise(name: str, rep_range: str = "8-12") -> dict:
+    """LLM recommendation for the next set of `name`, grounded in the full
+    logged history + recovery. Always snaps the weight to an available dumbbell.
+    Returns {weight, target_reps, reason, kind:'ai'} or {'error': ...}."""
+    import json as _json
+
+    wlog = load_log()
+    hist = _exercise_history(wlog, name)
+    if not hist:
+        return {"error": "No history yet for this lift — log it once and I can suggest from your numbers."}
+
+    rec_line = ""
+    try:
+        from checkin import recovery_summary
+        r = recovery_summary(log=wlog)
+        rec_line = f"Recovery today: {r['score']}/10 ({r['label']})."
+    except Exception:
+        pass
+    plateaued = name in set(detect_plateau_exercise_names(wlog))
+    bottom, top = _rep_bounds(rep_range)
+    dumbbells = ", ".join(f"{x:g}" for x in AVAILABLE_DUMBBELLS)
+    hist_lines = "\n".join(
+        f"- {h['date']}: {h['weight']:g}kg x {h['reps']}"
+        + (f" @RPE{h['rpe']}" if h.get("rpe") else "")
+        + (f" ({h['sets']} sets)" if h.get("sets") else "")
+        for h in hist)
+
+    prompt = (
+        f'You are a strength coach. Recommend the working weight and rep target for the NEXT set of "{name}".\n'
+        f"Available dumbbells (kg) — you MUST choose exactly one of these: {dumbbells}\n"
+        f"Target rep range for this exercise: {bottom}-{top}.\n"
+        f"{rec_line}"
+        + (" This lift has PLATEAUED (no strength/volume gain in ~3 sessions).\n" if plateaued else "\n")
+        + "Recent history (oldest to newest):\n" + hist_lines + "\n\n"
+        "Apply double progression: add reps within the range before adding weight; when they beat "
+        "the top of the range, move up ONE dumbbell and reset toward the bottom; if plateaued or "
+        "recovery is low, hold the weight or back off ~10%. Consider RPE trend if present.\n"
+        'Reply with ONLY a JSON object, no prose:\n'
+        '{"weight": <one of the available kg numbers>, "target_reps": <int>, "reason": "<max 14 words>"}'
+    )
+    try:
+        from llm import chat
+        raw = chat([{"role": "system", "content": "You output only strict JSON, nothing else."},
+                    {"role": "user", "content": prompt}], temperature=0.3)
+    except Exception as e:
+        log.warning(f"ai_suggest_exercise LLM error: {e}")
+        return {"error": "Coach is unavailable right now — the standard suggestion still applies."}
+
+    m = re.search(r"\{.*\}", raw or "", re.DOTALL)
+    if not m:
+        return {"error": "Couldn't read the coach's suggestion — try again."}
+    try:
+        obj = _json.loads(m.group(0))
+    except Exception:
+        return {"error": "Couldn't parse the coach's suggestion — try again."}
+
+    last_w = hist[-1]["weight"]
+    try:
+        w = float(obj.get("weight"))
+    except (TypeError, ValueError):
+        w = last_w
+    weight = min(AVAILABLE_DUMBBELLS, key=lambda a: abs(a - w))   # snap to owned dumbbell
+    try:
+        tr = int(float(obj.get("target_reps") or top))
+    except (TypeError, ValueError):
+        tr = top
+    tr = max(1, min(30, tr))
+    reason = str(obj.get("reason") or "").strip()[:140]
+    return {"weight": weight, "target_reps": tr, "reason": reason, "kind": "ai"}
+
+
 # ── Autonomous plateau intervention (auto-deload flags) ───────────────────────
 def set_autodeload_flags(names: list[str]) -> list[str]:
     """Flag exercises for an automatic 10% deload on their next occurrence.

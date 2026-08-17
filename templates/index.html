@@ -626,7 +626,11 @@
     .wk-prog-weight_up { color: var(--accent); }
     .wk-prog-rep_up    { color: var(--accent3); }
     .wk-prog-deload    { color: #ffd245; }
+    .wk-prog-ai        { color: var(--accent2); }
     .wk-prog-max, .wk-prog-same { color: var(--muted); }
+    .wk-ai-btn { background: none; border: 1px solid var(--border); color: var(--accent2); font-size: 12px; width: 30px; height: 30px; cursor: pointer; flex-shrink: 0; }
+    .wk-ai-btn:active { border-color: var(--accent2); box-shadow: 0 0 5px #ff00ff50; }
+    .wk-ai-btn:disabled { opacity: 0.5; }
     .wk-deload {
       background: rgba(255,210,69,0.08); border: 1px solid #ffd245; border-left: 3px solid #ffd245;
       color: #ffd245; padding: 10px 13px; font-size: 12px; margin-bottom: 13px;
@@ -1695,8 +1699,9 @@
           ? `<button class="wk-swap" title="Swap exercise" onclick="swapExercise(${i})">⇄</button>` : '';
         const ssBtn = (i > 0) ? `<button class="wk-ss-btn" title="Superset with the exercise above" onclick="toggleSuperset(${i})">🔗</button>` : '';
         const video = `<a class="wk-video" href="${ytSearchUrl(ex.name)}" target="_blank" rel="noopener" title="Watch form">▶</a>`;
+        const aiBtn = `<button class="wk-ai-btn" title="AI suggestion from your full history" onclick="aiSuggest(${i})">✨</button>`;
         const deloadTag = (auto.includes(ex.name)) ? `<span class="wk-ex-tag">deload</span>` : '';
-        const prog = sug ? `<div class="wk-prog-line wk-prog-${esc(sug.kind)}">🎯 ${esc(sug.reason)}</div>` : '';
+        const prog = sug ? `<div class="wk-prog-line wk-prog-${esc(sug.kind)}">🎯 ${esc(sug.reason)}</div>` : '<div class="wk-prog-line" style="display:none"></div>';
         const warm = ex.warmup_weight
           ? `<div class="wk-warm-line">Warm-up first: 12-15 easy reps @ ${esc(ex.warmup_weight)}kg (don't log it)</div>` : '';
         const hist = (ex.history || []).length
@@ -1708,7 +1713,7 @@
         div.dataset.name = ex.name;
         div.dataset.orig = ex.name;
         div.innerHTML = `
-          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${deloadTag}${ssBtn}${video}${swap}</div>
+          <div class="wk-ex-head"><div class="wk-ex-name">${esc(ex.name)}${hist ? ' ▾' : ''}</div>${deloadTag}${aiBtn}${ssBtn}${video}${swap}</div>
           <div class="wk-ss-tag" style="display:none">🔗 superset with the exercise above</div>
           <div class="wk-ex-meta">${esc(target)} · ${esc(last)}</div>
           ${prog}
@@ -1794,6 +1799,44 @@
     panel.innerHTML = `<b>DAY ${esc(w.day)} — ${esc(w.name.toUpperCase())}</b>` +
       `<div class="session-date" style="margin:3px 0 7px">${esc(w.focus)}</div>` + rows;
     panel.style.display = 'block';
+  }
+
+  // On-demand AI suggestion from the exercise's full history.
+  function setProgLine(card, kind, text) {
+    let el = card.querySelector('.wk-prog-line');
+    if (!el) { el = document.createElement('div'); card.querySelector('.wk-ex-meta').after(el); }
+    el.className = 'wk-prog-line wk-prog-' + kind;
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+  function setSelectWeight(sel, w) {
+    if (!sel) return;
+    if (![...sel.options].some(o => parseFloat(o.value) === w)) {
+      const opt = document.createElement('option');
+      opt.value = w; opt.textContent = w + ' kg';
+      sel.appendChild(opt);
+    }
+    sel.value = String(w);
+  }
+  async function aiSuggest(i) {
+    const card = document.querySelectorAll('.wk-ex')[i];
+    const ex = wkExercises[i];
+    if (!card || !ex) return;
+    const name = card.dataset.name;
+    const btn = card.querySelector('.wk-ai-btn');
+    btn.disabled = true; btn.textContent = '⏳';
+    setProgLine(card, 'ai', '✨ Coach is thinking…');
+    try {
+      const r = await (await fetchRetry(
+        '/suggest_exercise?name=' + encodeURIComponent(name) + '&rep_range=' + encodeURIComponent(ex.rep_range || '8-12'),
+        { headers: authHeaders() }, { timeoutMs: 60000, retries: 1 })).json();
+      if (r.error) { setProgLine(card, 'max', '✨ ' + r.error); }
+      else {
+        setProgLine(card, 'ai', `✨ ${r.reason} → ${r.weight}kg × ${r.target_reps}`);
+        setSelectWeight(card.querySelector('.wk-w'), r.weight);   // pre-fill Set 1
+      }
+    } catch { setProgLine(card, 'max', '✨ Coach unavailable — try again.'); }
+    btn.disabled = false; btn.textContent = '✨';
   }
 
   function swapExercise(i) {
