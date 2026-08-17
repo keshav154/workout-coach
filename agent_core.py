@@ -91,7 +91,19 @@ def compute_targets(profile: dict) -> dict:
         multiplier = 1.375
     else:
         multiplier = 1.2
-    tdee = int(bmr * multiplier)
+    formula_tdee = int(bmr * multiplier)
+    # Prefer the adaptively LEARNED maintenance (measured from logged food +
+    # weight trend) when available; the formula is the fallback floor.
+    tdee = formula_tdee
+    tdee_source = "formula"
+    try:
+        from energy import get_learned_maintenance
+        learned = get_learned_maintenance()
+        if learned:
+            tdee = int(learned)
+            tdee_source = "measured"
+    except Exception:
+        pass
     goal = profile.get("goal", "recomposition").lower()
     if "lose" in goal or "fat" in goal or "cut" in goal:
         cal_target = tdee - 300
@@ -105,6 +117,8 @@ def compute_targets(profile: dict) -> dict:
     carb_g = max(0, round((cal_target - protein_g * 4 - fat_g * 9) / 4))
     return {
         "tdee": tdee,
+        "tdee_source": tdee_source,
+        "formula_tdee": formula_tdee,
         "calorie_target": cal_target,
         "protein_target_g": protein_g,
         "fat_target_g": fat_g,

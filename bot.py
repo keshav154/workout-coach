@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v30';
+const CACHE = 'coachxkeshav-v31';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -878,6 +878,46 @@ def reflect_now_view():
     return jsonify({"report": report or "No changes — current settings still fit your data."})
 
 
+@flask_app.route("/maintenance")
+@require_auth
+def maintenance_view():
+    """Adaptive TDEE status: the learned maintenance (if any) and a fresh
+    estimate preview from logged food + weight trend."""
+    from energy import maintenance_info
+    from agent_core import compute_targets
+    profile = load_profile()
+    info = maintenance_info()
+    info["formula_tdee"] = compute_targets(profile).get("formula_tdee") if profile else None
+    return jsonify(info)
+
+
+@flask_app.route("/recompute_tdee", methods=["POST"])
+@require_auth
+def recompute_tdee_view():
+    """Manually recompute adaptive maintenance now (normally weekly)."""
+    from energy import update_maintenance, estimate_maintenance
+    try:
+        report = update_maintenance()
+    except Exception as e:
+        log.error(f"recompute_tdee failed: {e}")
+        return jsonify({"error": "recompute failed"}), 500
+    if report:
+        return jsonify({"report": report})
+    est = estimate_maintenance()
+    return jsonify({"report": est.get("error")
+                    or "No meaningful change — your measured maintenance still fits."})
+
+
+@flask_app.route("/reset_tdee", methods=["POST"])
+@require_auth
+def reset_tdee_view():
+    """Drop the learned maintenance and revert calorie targets to the formula."""
+    from energy import STORE_KEY
+    from agent_core import _col
+    _col("learned_params").delete_one({"_id": STORE_KEY})
+    return jsonify({"ok": True})
+
+
 @flask_app.route("/records")
 @require_auth
 def records():
@@ -1593,6 +1633,17 @@ def cron_weekly():
     sent = notify(msg)
     if sent:
         mark_job_done("cron_weekly", week_key)
+    # Adaptive TDEE: recalibrate real maintenance from logged food + weight
+    # trend BEFORE the trend-nudge (which stands down when this is active).
+    maintenance = None
+    try:
+        from energy import update_maintenance
+        maintenance = update_maintenance()
+        if maintenance:
+            notify(maintenance)
+            log.info(maintenance)
+    except Exception as e:
+        log.error(f"Adaptive TDEE update failed: {e}")
     # Autonomous calorie tuning: adjust the daily target from the weigh-in
     # trend and tell the user what changed and why.
     adjustment = None
@@ -1627,7 +1678,8 @@ def cron_weekly():
         log.error(f"Self-tuning failed: {e}")
     log.info(f"Weekly cron: report={'sent' if sent else 'failed'}")
     return jsonify({"sent": sent, "message": msg, "memory": consolidated,
-                    "calorie_adjustment": adjustment, "self_tuning": tuned})
+                    "calorie_adjustment": adjustment, "self_tuning": tuned,
+                    "adaptive_tdee": maintenance})
 
 
 @flask_app.route("/cron/check", methods=["GET", "POST"])

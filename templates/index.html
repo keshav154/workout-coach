@@ -1525,13 +1525,30 @@
     const wrap = document.getElementById('dash-learn-wrap');
     const box = document.getElementById('dash-learn');
     if (!wrap || !box) return;
-    let data;
-    try { data = await (await fetch('/learned_params', { headers: authHeaders() })).json(); }
-    catch { wrap.style.display = 'none'; return; }
+    let data = {}, tdee = {};
+    try {
+      [data, tdee] = await Promise.all([
+        fetch('/learned_params', { headers: authHeaders() }).then(r => r.json()),
+        fetch('/maintenance', { headers: authHeaders() }).then(r => r.json()),
+      ]);
+    } catch { wrap.style.display = 'none'; return; }
     const learned = (data.params || []).filter(p => p.learned);
-    if (!learned.length) { wrap.style.display = 'none'; return; }
-    wrap.style.display = 'block';
-    box.innerHTML = learned.map(p => `
+    let rows = '';
+
+    if (tdee && tdee.active) {
+      rows += `
+        <div class="learn-row">
+          <div class="learn-body">
+            <div class="learn-head">measured maintenance
+              <span class="learn-val">${esc(tdee.active)} kcal</span>
+              ${tdee.formula_tdee ? `<span class="learn-def">formula said ${esc(tdee.formula_tdee)}</span>` : ''}</div>
+            <div class="learn-why">${esc(tdee.reason || 'measured from your food + weight trend')}</div>
+          </div>
+          <button class="learn-reset" title="Revert to formula" onclick="resetTdee()">↺</button>
+        </div>`;
+    }
+
+    rows += learned.map(p => `
       <div class="learn-row">
         <div class="learn-body">
           <div class="learn-head">${esc(p.key.replace(/_/g, ' '))}
@@ -1541,8 +1558,19 @@
         </div>
         <button class="learn-reset" title="Reset to default"
           onclick="resetLearned('${esc(p.key)}')">↺</button>
-      </div>`).join('') +
+      </div>`).join('');
+
+    if (!rows) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    box.innerHTML = rows +
       `<button class="learn-retune" onclick="reflectNow(this)">Re-run self-tuning now</button>`;
+  }
+
+  async function resetTdee() {
+    try {
+      await fetch('/reset_tdee', { method: 'POST', headers: authHeaders() });
+      loadCoachLearning();
+    } catch { alert('Network error — try again.'); }
   }
 
   async function resetLearned(key) {
@@ -1557,8 +1585,11 @@
   async function reflectNow(btn) {
     btn.disabled = true; btn.textContent = 'Reviewing your data…';
     try {
-      const r = await (await fetch('/reflect_now', { method: 'POST', headers: authHeaders() })).json();
-      alert(r.report || 'No changes.');
+      const [tune, tdee] = await Promise.all([
+        fetch('/reflect_now', { method: 'POST', headers: authHeaders() }).then(r => r.json()),
+        fetch('/recompute_tdee', { method: 'POST', headers: authHeaders() }).then(r => r.json()),
+      ]);
+      alert([tdee.report, tune.report].filter(Boolean).join('\n\n') || 'No changes.');
       loadCoachLearning();
     } catch { alert('Network error — try again.'); }
     btn.disabled = false; btn.textContent = 'Re-run self-tuning now';

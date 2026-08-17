@@ -66,18 +66,21 @@ def format_nutrition_block(date_str: str | None = None) -> str:
         return ""
     targets = compute_targets(profile)
     cal_t = effective_calorie_target(profile, targets)
+    tdee_note = ("" if targets.get("tdee_source") != "measured" else
+                 f" (target is built on your MEASURED maintenance ~{targets['tdee']} kcal, "
+                 "learned from your logged food and weight trend — not a generic formula)")
     prot_t = targets["protein_target_g"]
     carb_t = targets.get("carb_target_g", 0)
     fat_t = targets.get("fat_target_g", 0)
     if totals["count"] == 0:
         return ("TODAY'S NUTRITION: nothing logged yet today. If the user mentions food, "
                 f"log it (estimate calories, protein, carbs and fat). "
-                f"Target: {cal_t} kcal, {prot_t}g protein, {carb_t}g carbs, {fat_t}g fat.")
+                f"Target: {cal_t} kcal, {prot_t}g protein, {carb_t}g carbs, {fat_t}g fat{tdee_note}.")
     remaining_cal = cal_t - totals["calories"]
     remaining_p = prot_t - totals["protein_g"]
     return (f"TODAY'S NUTRITION SO FAR: {totals['calories']} kcal, {totals['protein_g']}g protein, "
             f"{totals['carbs_g']}g carbs, {totals['fat_g']}g fat "
             f"logged across {totals['count']} meal(s). Target: {cal_t} kcal, {prot_t}g protein, "
-            f"{carb_t}g carbs, {fat_t}g fat "
+            f"{carb_t}g carbs, {fat_t}g fat{tdee_note} "
             f"({'over' if remaining_cal < 0 else remaining_cal} kcal remaining, "
             f"{'over' if remaining_p < 0 else remaining_p}g protein remaining).")

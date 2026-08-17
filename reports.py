@@ -146,6 +146,15 @@ def auto_adjust_calories() -> str | None:
     if not profile_complete(profile):
         return None
 
+    # When adaptive TDEE is active it recalibrates the baseline directly from
+    # measured energy balance, so the trend-nudge would double-correct. Stand down.
+    try:
+        from energy import get_learned_maintenance
+        if get_learned_maintenance() is not None:
+            return None
+    except Exception:
+        pass
+
     from agent_core import get_weight_entries
     entries = []
     for d, w in get_weight_entries(load_memory()):
