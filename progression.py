@@ -34,6 +34,51 @@ def alternatives_for(name: str) -> list[str]:
     return []
 
 
+def ai_swap_alternatives(name: str, n: int = 3) -> list[str]:
+    """LLM-picked swaps for ANY exercise (including custom-program lifts the
+    static table doesn't cover), grounded in the user's actual equipment and
+    injuries. Falls back to the static table, then to [] — so a caller always
+    gets something usable and never an error."""
+    import json as _json
+    from agent_core import load_profile, load_memory
+
+    static = alternatives_for(name)
+    prof = load_profile() or {}
+    mem = load_memory() or {}
+    injuries = (prof.get("injuries") or "none")
+    soreness = "; ".join(str(x) for x in (mem.get("injuries_soreness") or [])[-5:])
+    limits = ", ".join(filter(None, [injuries if injuries.lower() != "none" else "", soreness])) or "none"
+
+    prompt = (
+        f'Suggest {n} alternative exercises for "{name}" that train the same primary muscles.\n'
+        "Use ONLY this home equipment: adjustable dumbbells, incline-decline bench, "
+        "treadmill, and bodyweight. No machines, cables, barbells or resistance bands.\n"
+        f"Injuries / current limitations to work around: {limits}.\n"
+        f'Do not repeat "{name}" itself. Return ONLY a JSON array of {n} short exercise '
+        'names, e.g. ["Push-Ups", "Dumbbell Floor Press", "Incline Push-Ups"].'
+    )
+    try:
+        from llm import chat
+        raw = chat([{"role": "system", "content": "You output only a strict JSON array of strings."},
+                    {"role": "user", "content": prompt}], temperature=0.4)
+        m = re.search(r"\[.*\]", raw or "", re.DOTALL)
+        items = _json.loads(m.group(0)) if m else []
+    except Exception as e:
+        log.warning(f"ai_swap_alternatives error: {e}")
+        return static
+
+    name_l = name.lower().strip()
+    out, seen = [], set()
+    for it in items:
+        s = str(it).strip()
+        key = s.lower()
+        if s and key != name_l and key not in seen:
+            out.append(s); seen.add(key)
+        if len(out) >= n:
+            break
+    return out or static
+
+
 def session_volume(session: dict) -> float:
     """Total tonnage for a session = sum(weight * reps) across all sets.
     Uses per-set detail when logged (workout mode); falls back to the

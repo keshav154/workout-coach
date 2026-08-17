@@ -1787,8 +1787,7 @@
             </div>`;
         }
         const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
-        const swap = (ex.alternatives || []).length
-          ? `<button class="wk-swap" title="Swap exercise" onclick="swapExercise(${i})">⇄</button>` : '';
+        const swap = `<button class="wk-swap" title="Swap exercise (equipment- & injury-aware)" onclick="swapExercise(${i})">⇄</button>`;
         const ssBtn = (i > 0) ? `<button class="wk-ss-btn" title="Superset with the exercise above" onclick="toggleSuperset(${i})">🔗</button>` : '';
         const video = `<a class="wk-video" href="${ytSearchUrl(ex.name)}" target="_blank" rel="noopener" title="Watch form">▶</a>`;
         const aiBtn = `<button class="wk-ai-btn" title="AI suggestion from your full history" onclick="aiSuggest(${i})">✨</button>`;
@@ -1931,12 +1930,37 @@
     btn.disabled = false; btn.textContent = '✨';
   }
 
-  function swapExercise(i) {
+  async function swapExercise(i) {
     // Cycle: original -> alt1 -> alt2 -> ... -> back to original. Typed sets stay.
     const card = document.querySelectorAll('.wk-ex')[i];
     const ex = wkExercises[i];
     if (!card || !ex) return;
-    const opts = [card.dataset.orig, ...(ex.alternatives || [])];
+    const btn = card.querySelector('.wk-swap');
+
+    // Lazily fetch equipment/injury-aware AI alternatives on first tap, merged
+    // with any static ones. Falls back to static (or nothing) on error.
+    if (!ex._alts) {
+      if (ex._altsLoading) return;
+      ex._altsLoading = true;
+      if (btn) btn.textContent = '…';
+      let ai = [];
+      try {
+        const r = await fetch('/swap_alternatives?name=' + encodeURIComponent(card.dataset.orig),
+          { headers: authHeaders() });
+        ai = (await r.json()).alternatives || [];
+      } catch { ai = []; }
+      const merged = [];
+      [...(ex.alternatives || []), ...ai].forEach(a => {
+        if (a && a.toLowerCase() !== card.dataset.orig.toLowerCase()
+            && !merged.some(x => x.toLowerCase() === a.toLowerCase())) merged.push(a);
+      });
+      ex._alts = merged;
+      ex._altsLoading = false;
+      if (btn) btn.textContent = '⇄';
+      if (!merged.length) { alert('No suitable alternatives found for this lift.'); return; }
+    }
+
+    const opts = [card.dataset.orig, ...ex._alts];
     const next = opts[(opts.indexOf(card.dataset.name) + 1) % opts.length];
     card.dataset.name = next;
     card.querySelector('.wk-ex-name').textContent = next;

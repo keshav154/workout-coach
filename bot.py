@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v31';
+const CACHE = 'coachxkeshav-v32';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -483,6 +483,17 @@ def suggest_exercise_route():
         return jsonify({"error": "missing exercise name"}), 400
     rep_range = (request.args.get("rep_range") or "8-12").strip()
     return jsonify(ai_suggest_exercise(name, rep_range))
+
+
+@flask_app.route("/swap_alternatives")
+@require_auth
+def swap_alternatives_route():
+    """AI-picked equipment- and injury-aware swaps for one exercise."""
+    from progression import ai_swap_alternatives
+    name = (request.args.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "missing exercise name"}), 400
+    return jsonify({"alternatives": ai_swap_alternatives(name)})
 
 
 @flask_app.route("/rest_day", methods=["POST"])
