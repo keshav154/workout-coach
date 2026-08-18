@@ -58,6 +58,85 @@ def week_series(days: int = 7) -> list[dict]:
     return out
 
 
+def plan_remaining_meals(date_str: str | None = None) -> dict:
+    """Proactive nutrition: given what's left in today's calorie/macro budget,
+    propose concrete meal options that close the gap. Grounded in the user's
+    diet + food preferences, and shaped to hit remaining protein first.
+    Returns {remaining, options:[{title, items, calories, protein_g, ...}]}
+    or {message: ...} when there's nothing meaningful left to plan."""
+    import json as _json
+    import re as _re
+
+    profile = load_profile()
+    if not profile:
+        return {"message": "Set up your profile first."}
+    targets = compute_targets(profile)
+    cal_t = effective_calorie_target(profile, targets)
+    totals = today_totals(date_str)
+
+    rem_cal = cal_t - totals["calories"]
+    rem_p = targets["protein_target_g"] - totals["protein_g"]
+    rem_c = targets.get("carb_target_g", 0) - totals["carbs_g"]
+    rem_f = targets.get("fat_target_g", 0) - totals["fat_g"]
+    remaining = {"calories": rem_cal, "protein_g": rem_p, "carbs_g": rem_c, "fat_g": rem_f}
+
+    if rem_cal < 150 and rem_p < 15:
+        return {"message": "You're essentially at your target for today — no need to plan more.",
+                "remaining": remaining}
+
+    from agent_core import load_memory
+    mem = load_memory() or {}
+    prefs = "; ".join(str(x) for x in (mem.get("preferences") or [])[-6:]) or "none noted"
+    diet = profile.get("diet", "vegetarian Indian")
+    eaten = ", ".join(m.get("description", "") for m in get_meals(date_str)) or "nothing yet"
+
+    prompt = (
+        "You are a nutrition coach. Propose 2 meal options that fit the user's "
+        "REMAINING budget for the rest of today. Prioritise hitting the remaining "
+        "protein without going over the remaining calories.\n"
+        f"Diet: {diet} (respect it strictly).\n"
+        f"Food preferences/likes: {prefs}.\n"
+        f"Already eaten today: {eaten}.\n"
+        f"REMAINING today — calories: {rem_cal}, protein: {rem_p}g, carbs: {rem_c}g, fat: {rem_f}g.\n"
+        "Each option should be a realistic single meal (or meal + snack) with common "
+        "home portions. Return ONLY a JSON array of exactly 2 objects:\n"
+        '[{"title":"<short name>","items":"<what to eat, plain>","calories":<int>,'
+        '"protein_g":<int>,"carbs_g":<int>,"fat_g":<int>}]'
+    )
+    try:
+        from llm import chat
+        raw = chat([{"role": "system", "content": "You output only a strict JSON array."},
+                    {"role": "user", "content": prompt}], temperature=0.5)
+        m = _re.search(r"\[.*\]", raw or "", _re.DOTALL)
+        items = _json.loads(m.group(0)) if m else []
+    except Exception as e:
+        log.warning(f"plan_remaining_meals error: {e}")
+        return {"message": "Couldn't plan meals right now — try again in a moment.",
+                "remaining": remaining}
+
+    options = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        try:
+            options.append({
+                "title": str(it.get("title") or "Option")[:60],
+                "items": str(it.get("items") or "")[:200],
+                "calories": int(float(it.get("calories") or 0)),
+                "protein_g": int(float(it.get("protein_g") or 0)),
+                "carbs_g": int(float(it.get("carbs_g") or 0)),
+                "fat_g": int(float(it.get("fat_g") or 0)),
+            })
+        except (TypeError, ValueError):
+            continue
+        if len(options) >= 2:
+            break
+    if not options:
+        return {"message": "Couldn't plan meals right now — try again in a moment.",
+                "remaining": remaining}
+    return {"remaining": remaining, "options": options}
+
+
 def format_nutrition_block(date_str: str | None = None) -> str:
     """Today's logged nutrition vs target, for the coach's system prompt."""
     totals = today_totals(date_str)

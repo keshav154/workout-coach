@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v33';
+const CACHE = 'coachxkeshav-v34';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -1307,6 +1307,14 @@ def meal_quick():
             yesterday.append(macro)
     frequent = [dict(info[k], count=c) for k, c in counts.most_common(8) if c >= 2]
     return jsonify({"frequent": frequent, "yesterday": yesterday})
+
+
+@flask_app.route("/meal_plan")
+@require_auth
+def meal_plan_route():
+    """Proactive meal options that close today's remaining calorie/macro gap."""
+    from nutrition import plan_remaining_meals
+    return jsonify(plan_remaining_meals())
 
 
 @flask_app.route("/voice", methods=["POST"])

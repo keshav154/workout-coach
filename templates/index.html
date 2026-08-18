@@ -260,6 +260,12 @@
     .learn-reset:active { border-color: var(--accent2); color: var(--accent2); }
     .learn-retune { width: 100%; margin-top: 12px; background: var(--card); border: 1px solid var(--accent2); color: var(--accent2); padding: 10px; font-size: 12px; font-weight: 700; font-family: var(--font-body); cursor: pointer; }
     .learn-retune:disabled { opacity: 0.6; }
+    .plan-note { font-size: 12px; color: var(--muted); font-family: var(--font-body); margin-bottom: 8px; }
+    .plan-note b { color: var(--accent2); }
+    .plan-opt { border: 1px solid var(--border); border-left: 3px solid var(--accent2); padding: 10px 12px; margin-bottom: 8px; }
+    .plan-opt-head { font-family: var(--font-head); font-size: 14px; font-weight: 800; }
+    .plan-opt-items { font-size: 12.5px; margin: 4px 0; font-family: var(--font-body); }
+    .plan-opt-macros { font-size: 10.5px; color: var(--muted); font-family: var(--font-body); margin-bottom: 8px; }
     .nav-item .nav-ico { font-size: 17px; }
 
     /* -- Workout mode -- */
@@ -1195,6 +1201,8 @@
           <div class="bar-track"><div class="bar-fill fat" id="fu-fat-bar"></div></div>
         </div>
         <div id="fu-protein-fix" class="wk-prog-line wk-prog-rep_up" style="display:none;margin:10px 0 0"></div>
+        <button id="fu-plan-btn" class="wk-save" style="margin-top:12px" onclick="planMeals(this)">🍽️ Plan my remaining meals</button>
+        <div id="fu-plan" style="display:none;margin-top:10px"></div>
       </div>
     </div>
     <div>
@@ -2313,6 +2321,39 @@
   async function repeatYesterday() {
     for (const m of fuYesterday) await quickMeal(m, false);
     loadFuel();
+  }
+
+  async function planMeals(btn) {
+    const box = document.getElementById('fu-plan');
+    btn.disabled = true; btn.textContent = 'Planning from your remaining budget…';
+    let d;
+    try { d = await (await fetch('/meal_plan', { headers: authHeaders() })).json(); }
+    catch { btn.disabled = false; btn.textContent = '🍽️ Plan my remaining meals'; alert('Network error — try again.'); return; }
+    btn.disabled = false; btn.textContent = '🍽️ Plan my remaining meals';
+
+    if (!d.options) {
+      box.style.display = 'block';
+      box.innerHTML = `<div class="plan-note">${esc(d.message || 'Nothing to plan right now.')}</div>`;
+      return;
+    }
+    const r = d.remaining || {};
+    box.style.display = 'block';
+    box.innerHTML =
+      `<div class="plan-note">Remaining today: <b>${esc(r.calories)}</b> kcal · <b>${esc(r.protein_g)}</b>g protein</div>` +
+      d.options.map((o, i) => `
+        <div class="plan-opt">
+          <div class="plan-opt-head">${esc(o.title)}</div>
+          <div class="plan-opt-items">${esc(o.items)}</div>
+          <div class="plan-opt-macros">${esc(o.calories)} kcal · ${esc(o.protein_g)}g P · ${esc(o.carbs_g)}g C · ${esc(o.fat_g)}g F</div>
+          <button class="mini-btn" onclick='logPlanned(${JSON.stringify(o).replace(/'/g, "&#39;")}, this)'>+ Log this</button>
+        </div>`).join('');
+  }
+
+  async function logPlanned(o, btn) {
+    btn.disabled = true; btn.textContent = 'Logging…';
+    await quickMeal({ description: o.items || o.title, calories: o.calories,
+                      protein_g: o.protein_g, carbs_g: o.carbs_g, fat_g: o.fat_g }, true);
+    document.getElementById('fu-plan').style.display = 'none';
   }
   function logMealPrompt() {
     const t = prompt('What did you eat? (e.g. "2 rotis, dal and paneer bhurji")');
