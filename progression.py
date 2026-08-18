@@ -403,6 +403,71 @@ def format_autodeload_block() -> str:
             "progressive overload.")
 
 
+def _program_rep_ranges() -> dict[str, str]:
+    from agent_core import get_program
+    out = {}
+    for day in get_program().values():
+        for ex in day.get("exercises", []):
+            if ex.get("name"):
+                out[ex["name"].lower()] = ex.get("rep_range", "8-12")
+    return out
+
+
+def pr_predictions(log: dict | None = None, n_recent: int = 6) -> list[dict]:
+    """Project each lift's next strength milestone from its estimated-1RM trend.
+    Milestone = doing the next dumbbell up for the bottom of the rep range.
+    Returns [{name, current, milestone, sessions_away, trend}] for lifts with a
+    positive trend, soonest first. Stalled/declining lifts are reported with
+    sessions_away=None so the UI can say 'no recent progress'."""
+    log = log or load_log()
+    ranges = _program_rep_ranges()
+    out = []
+    for name, series in _plateau_series(log).items():
+        if len(series) < 3:
+            continue
+        window = series[-n_recent:]
+        if len(window) < 3:
+            continue
+        e1s = [p["e1rm"] for p in window]
+        slope = (e1s[-1] - e1s[0]) / (len(e1s) - 1)      # e1RM gained per session
+        cur = window[-1]
+        cur_e1 = cur["e1rm"]
+        bottom, _top = _rep_bounds(ranges.get(name.lower(), "8-12"))
+
+        # Next milestone: the next dumbbell up, for the bottom of the range —
+        # advance until it's actually harder than what they can do now.
+        target_w = cur["weight"]
+        target_e1 = 0.0
+        for _ in range(len(AVAILABLE_DUMBBELLS)):
+            nxt = next_dumbbell_up(target_w)
+            if nxt is None:
+                target_w = None
+                break
+            target_w = nxt
+            target_e1 = epley_1rm(nxt, bottom)
+            if target_e1 > cur_e1:
+                break
+        if target_w is None:
+            continue                                     # already at the heaviest bell
+
+        trend = "improving" if slope > 0.05 else ("stalled" if slope > -0.05 else "declining")
+        sessions_away = None
+        if slope > 1e-6:
+            import math
+            sessions_away = max(1, math.ceil((target_e1 - cur_e1) / slope))
+        out.append({
+            "name": name,
+            "current": f"{cur['weight']:g}kg x {cur['reps']:g}",
+            "milestone": f"{target_w:g}kg x {bottom}",
+            "sessions_away": sessions_away,
+            "trend": trend,
+        })
+
+    # Soonest achievable first; stalled (None) sink to the bottom.
+    out.sort(key=lambda r: (r["sessions_away"] is None, r["sessions_away"] or 0))
+    return out
+
+
 def format_progression_block(log: dict | None = None) -> str:
     log = log or load_log()
     vol = weekly_volume(log)

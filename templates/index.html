@@ -280,6 +280,14 @@
     .mv-range { position: absolute; right: 5px; top: 0; font-size: 9px; color: var(--muted); line-height: 16px; font-family: var(--font-body); }
     .mv-val { width: 58px; text-align: right; font-size: 12px; font-weight: 700; font-family: var(--font-body); flex-shrink: 0; }
     .mv-val small { font-size: 9px; }
+    .pr-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .pr-row:last-child { border-bottom: none; }
+    .pr-body { flex: 1; min-width: 0; }
+    .pr-name { font-size: 12.5px; font-weight: 700; font-family: var(--font-body); }
+    .pr-detail { font-size: 11px; color: var(--muted); font-family: var(--font-body); margin-top: 2px; }
+    .pr-detail b { color: var(--accent); }
+    .pr-eta { font-size: 11px; font-weight: 700; color: var(--accent); font-family: var(--font-body); flex-shrink: 0; }
+    .pr-eta.stalled { color: var(--muted); font-weight: 500; }
     .nav-item .nav-ico { font-size: 17px; }
 
     /* -- Workout mode -- */
@@ -1113,6 +1121,10 @@
         <canvas id="chart-exercise" height="140"></canvas>
         <div class="chart-empty" id="chart-exercise-empty">Log an exercise at least twice to chart it.</div>
       </div>
+    </div>
+    <div class="seg-sec optional" data-seg="strength" id="sv-pr-wrap">
+      <div class="stats-title">Next Milestones</div>
+      <div class="chart-card" id="sv-pr"></div>
     </div>
     <div class="seg-sec" data-seg="strength">
       <div class="stats-title">Record Wall</div>
@@ -2629,6 +2641,7 @@
           <div class="session-day">📉 ${esc(p)}</div></div>`).join('');
 
       loadMuscleVolume();
+      loadPrPredictions();
 
       const list = document.getElementById('sv-sessions-list'); list.innerHTML = '';
       (d.recent_sessions || []).forEach(s => {
@@ -2686,6 +2699,29 @@
         <div class="mv-bar-wrap"><div class="mv-bar" style="width:${pct}%;background:${colour(r.status)}"></div>
           <div class="mv-range">${esc(r.low)}–${esc(r.high)}</div></div>
         <div class="mv-val" style="color:${colour(r.status)}">${esc(r.sets)} <small>${tag(r.status)}</small></div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Next milestones (PR prediction) ──
+  async function loadPrPredictions() {
+    const wrap = document.getElementById('sv-pr-wrap');
+    const box  = document.getElementById('sv-pr');
+    if (!wrap || !box) return;
+    let rows = [];
+    try { rows = (await (await fetch('/pr_predictions', { headers: authHeaders() })).json()).predictions || []; }
+    catch { wrap.classList.remove('has-content'); return; }
+    wrap.classList.toggle('has-content', rows.length > 0);
+    if (!rows.length) return;
+    box.innerHTML = rows.slice(0, 8).map(r => {
+      const eta = r.sessions_away != null
+        ? `<span class="pr-eta">~${esc(r.sessions_away)} session${r.sessions_away === 1 ? '' : 's'}</span>`
+        : `<span class="pr-eta stalled">no recent progress</span>`;
+      return `<div class="pr-row">
+        <div class="pr-body">
+          <div class="pr-name">${esc(r.name)}</div>
+          <div class="pr-detail">now ${esc(r.current)} → <b>${esc(r.milestone)}</b></div>
+        </div>${eta}
       </div>`;
     }).join('');
   }
