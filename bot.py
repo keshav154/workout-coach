@@ -1666,6 +1666,16 @@ def _cron_force() -> bool:
     return request.args.get("force", "") in ("1", "true", "yes")
 
 
+def _cron_json(minimal: dict, verbose: dict | None = None):
+    """Tiny response for schedulers by default; full detail only with ?debug=1.
+    Some cron providers (e.g. cron-job.org) mark a run FAILED when the response
+    body is too large, even though the job actually ran — so the scheduled
+    endpoints must not echo the full nudge text / weekly report by default."""
+    if verbose and request.args.get("debug", "") in ("1", "true", "yes"):
+        return jsonify({**minimal, **verbose})
+    return jsonify(minimal)
+
+
 @flask_app.route("/cron/test", methods=["GET", "POST"])
 def cron_test():
     """Diagnostic: unconditionally send a fixed test message and report whether
@@ -1712,12 +1722,12 @@ def cron_daily():
         mark_job_done("cron_daily")
         clear_notify_failure()
         log.info("Daily cron: nudge sent")
-        return jsonify({"sent": True, "message": msg})
+        return _cron_json({"sent": True}, {"message": msg})
     from notifier import notify_config
     record_notify_failure("cron_daily", notify_config().get("hint", "send failed"))
     log.warning("Daily cron: notify FAILED — channel not configured or send error")
-    return jsonify({"sent": False, "reason": "notify failed — check notification config",
-                    "notify_config": notify_config(), "message": msg})
+    return _cron_json({"sent": False, "reason": "notify failed — check notification config",
+                       "notify_config": notify_config()}, {"message": msg})
 
 
 @flask_app.route("/cron/weekly", methods=["GET", "POST"])
@@ -1789,9 +1799,13 @@ def cron_weekly():
     except Exception as e:
         log.error(f"Self-tuning failed: {e}")
     log.info(f"Weekly cron: report={'sent' if sent else 'failed'}")
-    return jsonify({"sent": sent, "message": msg, "memory": consolidated,
-                    "calorie_adjustment": adjustment, "self_tuning": tuned,
-                    "adaptive_tdee": maintenance, "interventions_graded": graded})
+    return _cron_json(
+        {"sent": sent, "tuned": bool(tuned), "adjusted": bool(adjustment),
+         "maintenance_updated": bool(maintenance), "graded": bool(graded),
+         "memory_consolidated": bool(consolidated)},
+        {"message": msg, "self_tuning": tuned, "calorie_adjustment": adjustment,
+         "adaptive_tdee": maintenance, "interventions_graded": graded,
+         "memory": consolidated})
 
 
 @flask_app.route("/cron/check", methods=["GET", "POST"])
@@ -1808,7 +1822,7 @@ def cron_check():
     for m in msgs:
         notify(m)
     log.info(f"Smart-check cron: {len(msgs)} alert(s) sent")
-    return jsonify({"sent": len(msgs), "alerts": msgs})
+    return _cron_json({"sent": len(msgs)}, {"alerts": msgs})
 
 
 @flask_app.route("/cron/backup", methods=["GET", "POST"])

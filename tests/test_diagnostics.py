@@ -41,6 +41,20 @@ def test_notify_config_telegram_ready(monkeypatch):
     assert cfg["channel"] == "telegram" and cfg["hint"] == ""
 
 
+def test_cron_daily_response_is_small_by_default(client, db, profile_doc, monkeypatch):
+    # Cron providers fail a run whose response body is too large, so the default
+    # response must NOT echo the full nudge text — only ?debug=1 includes it.
+    import bot
+    db["profile"].docs["user"] = dict(profile_doc)
+    db["workout_log"].docs["log"] = {"_id": "log", "sessions": []}
+    monkeypatch.setattr(bot, "notify", lambda m: True)
+    r = client.get("/cron/daily").get_json()
+    assert r["sent"] is True and "message" not in r
+    monkeypatch.setattr(bot, "notify", lambda m: True)
+    r_dbg = client.get("/cron/daily?force=1&debug=1").get_json()
+    assert "message" in r_dbg          # full detail still available on demand
+
+
 def test_cron_daily_force_bypasses_dedup(client, db, profile_doc, monkeypatch):
     import bot
     db["profile"].docs["user"] = dict(profile_doc)
