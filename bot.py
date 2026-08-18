@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v32';
+const CACHE = 'coachxkeshav-v33';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -382,8 +382,9 @@ def stats():
 def today_program():
     from agent_core import (get_last_session_for_day, should_suggest_deload,
                             today_iso, warmup_weight_for)
-    from progression import alternatives_for, get_autodeload_flags, suggest_next
+    from progression import alternatives_for, autoregulate, get_autodeload_flags, suggest_next
     from learned_params import get_param
+    from checkin import recovery_score
     profile = load_profile()
     if not profile_complete(profile):
         return jsonify({"ready": False})
@@ -397,6 +398,7 @@ def today_program():
     autoflags   = set(get_autodeload_flags())
     deload_week_factor = get_param("deload_week_factor")
     deload_flag_factor = get_param("deload_flag_factor")
+    readiness, _rec_reasons = recovery_score(log=workout_log)
 
     # Rotation status: the most recent session by date (for the status line)
     sessions = workout_log.get("sessions", [])
@@ -428,6 +430,10 @@ def today_program():
                                   prev.get("weight") if prev else None,
                                   prev.get("reps_done") if prev else None,
                                   deload_factor=deload_factor)
+        # Daily autoregulation: ease today's target to recovery readiness
+        # (only backs off; skipped during a scheduled deload).
+        if not deload_week:
+            suggestion = autoregulate(suggestion, readiness)
         exercises.append({
             "name":          ex["name"],
             "sets":          ex["sets"],
@@ -466,6 +472,9 @@ def today_program():
                                  for d0 in rotation],
                     "week": week,
                     "deload": should_suggest_deload(workout_log),
+                    "readiness": readiness,
+                    "autoregulated": (not deload_week and readiness is not None
+                                      and readiness <= get_param("autoreg_threshold")),
                     "autodeload": get_autodeload_flags(),
                     "rest_day": is_rest_day(),
                     "rest_suggested": consec >= max(3, len(rotation)),

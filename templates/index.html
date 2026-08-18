@@ -637,6 +637,7 @@
     .wk-prog-weight_up { color: var(--accent); }
     .wk-prog-rep_up    { color: var(--accent3); }
     .wk-prog-deload    { color: #ffd245; }
+    .wk-prog-autoreg   { color: #ffd245; }
     .wk-prog-ai        { color: var(--accent2); }
     .wk-prog-max, .wk-prog-same { color: var(--muted); }
     .wk-ai-btn { background: none; border: 1px solid var(--border); color: var(--accent2); font-size: 12px; width: 30px; height: 30px; cursor: pointer; flex-shrink: 0; }
@@ -1731,11 +1732,16 @@
       // Deload week banner + per-exercise auto-deload flags (dismissable)
       const dl = document.getElementById('wk-deload');
       const auto = d.autodeload || [];
-      if (d.deload || auto.length) {
+      if (d.deload || auto.length || d.autoregulated) {
         dl.innerHTML = '';
         if (d.deload) {
           const div = document.createElement('div');
           div.innerHTML = '🔄 <b>Deload week</b> — use ~60% of your normal weights, same sets/reps. Helps you recover and come back stronger.';
+          dl.appendChild(div);
+        }
+        if (d.autoregulated && !d.deload) {
+          const div = document.createElement('div');
+          div.innerHTML = `🧭 <b>Autoregulated today</b> — recovery readiness is ${esc(d.readiness)}/10, so today's working weights are eased a little. Back off now, push again when you're recovered.`;
           dl.appendChild(div);
         }
         auto.forEach(name => {

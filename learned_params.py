@@ -56,6 +56,18 @@ PARAM_SPECS: dict[str, dict] = {
                 "clearly needs more rest; higher for a proven high-frequency "
                 "trainer.",
     },
+    "autoreg_threshold": {
+        "default": 4, "min": 3, "max": 6, "type": "int",
+        "desc": "Recovery readiness (1-10) at or below which today's working "
+                "weights are automatically eased. Raise it for a user who "
+                "clearly performs badly on mediocre-recovery days.",
+    },
+    "autoreg_max_trim": {
+        "default": 0.1, "min": 0.05, "max": 0.2, "type": "float",
+        "desc": "Largest fraction to ease the working weight on a very-low-"
+                "readiness day (0.1 = up to 10% lighter). Autoregulation only "
+                "ever backs off, never adds load.",
+    },
 }
 
 

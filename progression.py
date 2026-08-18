@@ -252,6 +252,36 @@ def suggest_next(rep_range, last_weight, last_reps, deload_factor: float | None 
             "reason": f"around {lw:g}kg"}
 
 
+def autoregulate(suggestion: dict | None, readiness: int | None,
+                 threshold: int | None = None, max_trim: float | None = None) -> dict | None:
+    """Ease today's working weight to recovery readiness. Only ever backs OFF
+    (never adds load), and never stacks on top of a scheduled deload — a normal
+    or fresh day is returned exactly as double progression decided. When it does
+    trim, returns a copy with kind 'autoreg' and an explanatory reason."""
+    if not suggestion or readiness is None:
+        return suggestion
+    if suggestion.get("kind") == "deload":        # a deload is already a back-off
+        return suggestion
+    from learned_params import get_param
+    threshold = threshold if threshold is not None else get_param("autoreg_threshold")
+    max_trim = max_trim if max_trim is not None else get_param("autoreg_max_trim")
+    if readiness > threshold:
+        return suggestion
+    trim = max_trim if readiness <= 2 else max_trim * 0.6
+    w = _num(suggestion.get("weight"))
+    if w <= 0:
+        return suggestion
+    target = w * (1 - trim)
+    lighter = [a for a in AVAILABLE_DUMBBELLS if a <= target]
+    new_w = lighter[-1] if lighter else None
+    if new_w is None or new_w >= w:               # nothing lighter to drop to
+        return suggestion
+    pct = round((1 - new_w / w) * 100)
+    return {**suggestion, "weight": new_w, "kind": "autoreg",
+            "reason": f"readiness {readiness}/10 — eased ~{pct}% to {new_w:g}kg "
+                      f"(back off today, push when you recover)"}
+
+
 # ── On-demand AI suggestion (uses full history + recovery) ────────────────────
 def _exercise_history(log: dict, name: str, n: int = 8) -> list[dict]:
     name_l = (name or "").lower().strip()
