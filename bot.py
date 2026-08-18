@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v35';
+const CACHE = 'coachxkeshav-v36';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -896,6 +896,19 @@ def reflect_now_view():
         log.error(f"reflect_now failed: {e}")
         return jsonify({"error": "self-tuning failed"}), 500
     return jsonify({"report": report or "No changes — current settings still fit your data."})
+
+
+@flask_app.route("/muscle_volume")
+@require_auth
+def muscle_volume_view():
+    """Weekly direct sets per muscle group vs evidence-based landmarks."""
+    from muscles import weekly_muscle_volume
+    offset = 0
+    try:
+        offset = max(0, int(request.args.get("week", 0)))
+    except (TypeError, ValueError):
+        pass
+    return jsonify({"muscles": weekly_muscle_volume(week_offset=offset)})
 
 
 @flask_app.route("/briefing")

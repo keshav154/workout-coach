@@ -273,6 +273,13 @@
     .plan-opt-head { font-family: var(--font-head); font-size: 14px; font-weight: 800; }
     .plan-opt-items { font-size: 12.5px; margin: 4px 0; font-family: var(--font-body); }
     .plan-opt-macros { font-size: 10.5px; color: var(--muted); font-family: var(--font-body); margin-bottom: 8px; }
+    .mv-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+    .mv-name { width: 74px; font-size: 12px; font-weight: 600; font-family: var(--font-body); flex-shrink: 0; }
+    .mv-bar-wrap { flex: 1; position: relative; height: 16px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .mv-bar { height: 100%; border-radius: 3px; transition: width 0.4s; }
+    .mv-range { position: absolute; right: 5px; top: 0; font-size: 9px; color: var(--muted); line-height: 16px; font-family: var(--font-body); }
+    .mv-val { width: 58px; text-align: right; font-size: 12px; font-weight: 700; font-family: var(--font-body); flex-shrink: 0; }
+    .mv-val small { font-size: 9px; }
     .nav-item .nav-ico { font-size: 17px; }
 
     /* -- Workout mode -- */
@@ -1081,6 +1088,10 @@
       <div class="badge-grid" id="sv-badges"></div>
     </div>
 
+    <div class="seg-sec optional" data-seg="strength" id="sv-muscle-wrap">
+      <div class="stats-title">This Week's Volume (sets / muscle)</div>
+      <div class="chart-card" id="sv-muscle"></div>
+    </div>
     <div class="seg-sec optional" data-seg="strength" id="sv-plateaus-wrap">
       <div class="stats-title">Plateaus</div>
       <div class="session-list" id="sv-plateaus"></div>
@@ -2617,6 +2628,8 @@
       pBox.innerHTML = (d.plateaus || []).map(p => `<div class="session-item" style="border-left-color:var(--accent3)">
           <div class="session-day">📉 ${esc(p)}</div></div>`).join('');
 
+      loadMuscleVolume();
+
       const list = document.getElementById('sv-sessions-list'); list.innerHTML = '';
       (d.recent_sessions || []).forEach(s => {
         const item = document.createElement('div'); item.className = 'session-item expandable';
@@ -2651,6 +2664,30 @@
     loadMeasurements();
     loadPhotos();
     loadCharts();
+  }
+
+  // ── Weekly muscle volume ──
+  async function loadMuscleVolume() {
+    const wrap = document.getElementById('sv-muscle-wrap');
+    const box  = document.getElementById('sv-muscle');
+    if (!wrap || !box) return;
+    let rows = [];
+    try { rows = (await (await fetch('/muscle_volume', { headers: authHeaders() })).json()).muscles || []; }
+    catch { wrap.classList.remove('has-content'); return; }
+    const total = rows.reduce((a, r) => a + (r.sets || 0), 0);
+    wrap.classList.toggle('has-content', total > 0);
+    if (!total) return;
+    const colour = s => s === 'low' ? 'var(--accent3)' : s === 'high' ? 'var(--accent2)' : 'var(--accent)';
+    const tag = s => s === 'low' ? '▲ low' : s === 'high' ? '⚠ high' : '✓';
+    box.innerHTML = rows.map(r => {
+      const pct = Math.max(4, Math.min(100, Math.round(r.sets / r.high * 100)));
+      return `<div class="mv-row">
+        <div class="mv-name">${esc(r.muscle)}</div>
+        <div class="mv-bar-wrap"><div class="mv-bar" style="width:${pct}%;background:${colour(r.status)}"></div>
+          <div class="mv-range">${esc(r.low)}–${esc(r.high)}</div></div>
+        <div class="mv-val" style="color:${colour(r.status)}">${esc(r.sets)} <small>${tag(r.status)}</small></div>
+      </div>`;
+    }).join('');
   }
 
   // ── Habits ──
