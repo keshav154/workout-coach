@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v38';
+const CACHE = 'coachxkeshav-v39';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -888,14 +888,37 @@ def reset_param_view():
 @flask_app.route("/reflect_now", methods=["POST"])
 @require_auth
 def reflect_now_view():
-    """Manually run the self-tuning reflection loop (normally weekly)."""
+    """Manually run the self-tuning reflection loop (normally weekly). Grades
+    any due past decisions first so the tuner sees fresh outcomes."""
     from learned_params import reflect_and_tune
+    try:
+        from feedback import evaluate_interventions
+        evaluate_interventions()
+    except Exception as e:
+        log.error(f"reflect_now grading failed: {e}")
     try:
         report = reflect_and_tune()
     except Exception as e:
         log.error(f"reflect_now failed: {e}")
         return jsonify({"error": "self-tuning failed"}), 500
     return jsonify({"report": report or "No changes — current settings still fit your data."})
+
+
+@flask_app.route("/interventions")
+@require_auth
+def interventions_view():
+    """Transparency: how the coach's own past decisions actually turned out."""
+    from feedback import intervention_summary
+    from agent_core import _col
+    graded = [d for d in _col("interventions").find({"evaluated": True})
+              if d.get("outcome") in ("improved", "worse")]
+    graded.sort(key=lambda d: d.get("evaluated_date", ""), reverse=True)
+    rows = [{"kind": d["kind"], "key": d.get("key"), "outcome": d["outcome"],
+             "date": d.get("date"), "evaluated_date": d.get("evaluated_date")}
+            for d in graded[:20]]
+    pending = _col("interventions").find({"evaluated": False})
+    return jsonify({"summary": intervention_summary(),
+                    "graded": rows, "pending": len(list(pending))})
 
 
 @flask_app.route("/money_insights")
@@ -1743,6 +1766,17 @@ def cron_weekly():
             log.info(consolidated)
     except Exception as e:
         log.error(f"Memory consolidation failed: {e}")
+    # Outcome feedback: grade the coach's OWN past decisions (did the deload
+    # clear the plateau? did the calorie change move weight toward goal?) and
+    # distil the pattern — read next by the self-tuner below.
+    graded = None
+    try:
+        from feedback import evaluate_interventions
+        graded = evaluate_interventions()
+        if graded:
+            log.info(graded)
+    except Exception as e:
+        log.error(f"Intervention evaluation failed: {e}")
     # Autonomous self-tuning: review recent training/recovery data and adapt the
     # coach's own parameters (plateau patience, deload depth, fatigue tolerance).
     tuned = None
@@ -1757,7 +1791,7 @@ def cron_weekly():
     log.info(f"Weekly cron: report={'sent' if sent else 'failed'}")
     return jsonify({"sent": sent, "message": msg, "memory": consolidated,
                     "calorie_adjustment": adjustment, "self_tuning": tuned,
-                    "adaptive_tdee": maintenance})
+                    "adaptive_tdee": maintenance, "interventions_graded": graded})
 
 
 @flask_app.route("/cron/check", methods=["GET", "POST"])

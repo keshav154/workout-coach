@@ -267,6 +267,7 @@
     .learn-reset:active { border-color: var(--accent2); color: var(--accent2); }
     .learn-retune { width: 100%; margin-top: 12px; background: var(--card); border: 1px solid var(--accent2); color: var(--accent2); padding: 10px; font-size: 12px; font-weight: 700; font-family: var(--font-body); cursor: pointer; }
     .learn-retune:disabled { opacity: 0.6; }
+    .learn-outcome { font-size: 11.5px; color: var(--accent); font-family: var(--font-body); padding: 4px 0 8px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
     .plan-note { font-size: 12px; color: var(--muted); font-family: var(--font-body); margin-bottom: 8px; }
     .plan-note b { color: var(--accent2); }
     .plan-opt { border: 1px solid var(--border); border-left: 3px solid var(--accent2); padding: 10px 12px; margin-bottom: 8px; }
@@ -1607,15 +1608,20 @@
     const wrap = document.getElementById('dash-learn-wrap');
     const box = document.getElementById('dash-learn');
     if (!wrap || !box) return;
-    let data = {}, tdee = {};
+    let data = {}, tdee = {}, iv = {};
     try {
-      [data, tdee] = await Promise.all([
+      [data, tdee, iv] = await Promise.all([
         fetch('/learned_params', { headers: authHeaders() }).then(r => r.json()),
         fetch('/maintenance', { headers: authHeaders() }).then(r => r.json()),
+        fetch('/interventions', { headers: authHeaders() }).then(r => r.json()),
       ]);
     } catch { wrap.style.display = 'none'; return; }
     const learned = (data.params || []).filter(p => p.learned);
     let rows = '';
+
+    if (iv && iv.summary) {
+      rows += `<div class="learn-outcome">📊 ${esc(iv.summary)}</div>`;
+    }
 
     if (tdee && tdee.active) {
       rows += `

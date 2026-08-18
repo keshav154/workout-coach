@@ -172,6 +172,16 @@ def update_maintenance() -> str | None:
         record_audit("maintenance_kcal", f"{prev} -> {smoothed} kcal ({reason})")
     except Exception:
         pass
+    # Grade this later: did the recalibrated baseline move weight toward goal?
+    try:
+        from feedback import record_intervention
+        entries = get_weight_entries(load_memory())
+        if entries:
+            record_intervention("calorie", "maintenance_kcal",
+                                {"weight": entries[-1][1], "goal": profile.get("goal", "")},
+                                meta={"maintenance": smoothed})
+    except Exception as e:
+        log.warning(f"record_intervention (maintenance) failed: {e}")
 
     return (f"🔬 Adaptive TDEE: from your logged food and weight trend, your real "
             f"maintenance is about {smoothed} kcal/day (was using {prev}). Your "

@@ -76,6 +76,8 @@ class FakeCol:
     def update_one(self, q, u, upsert=False):
         _id = q.get("_id")
         doc = self.docs.get(_id)
+        if doc is None:                    # also update insert_one'd rows by _id
+            doc = next((r for r in self.rows if r.get("_id") == _id), None)
         inserted = False
         if doc is None and upsert:
             doc = {"_id": _id}

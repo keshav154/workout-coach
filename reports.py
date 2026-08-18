@@ -195,6 +195,14 @@ def auto_adjust_calories() -> str | None:
     save_profile(profile)
     from trust import record_audit
     record_audit("cal_adjust", f"{old:+d} -> {new:+d} kcal (trend {rate:+.2f} kg/week)")
+    # Grade this later: did nudging calories move weight toward the goal?
+    try:
+        from feedback import record_intervention
+        record_intervention("calorie", "cal_adjust",
+                            {"weight": recent[-1][1], "goal": profile.get("goal", "")},
+                            meta={"step": step})
+    except Exception as e:
+        log.warning(f"record_intervention (calorie) failed: {e}")
 
     target = effective_calorie_target(profile)
     direction = "down" if step < 0 else "up"

@@ -196,13 +196,21 @@ def _reflection_context() -> str:
     eps = get_recent_episodes(3)
     ep_line = "; ".join(e["summary"][:120] for e in eps) if eps else "none"
 
+    outcomes = ""
+    try:
+        from feedback import intervention_summary
+        outcomes = intervention_summary()
+    except Exception:
+        pass
+
     return (
         f"Adherence: {adherence}\n"
         f"Recovery: {rec_line}\n"
         f"Weekly volume: this week {vol['this_week']:,}kg, last week {vol['last_week']:,}kg\n"
         f"Weight trend: {get_weight_trend(load_memory())}\n"
         f"Current plateaus: {'; '.join(plateaus)}\n"
-        f"Recent days: {ep_line}"
+        + (f"{outcomes}\n" if outcomes else "")
+        + f"Recent days: {ep_line}"
     )
 
 

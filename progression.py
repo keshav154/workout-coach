@@ -376,11 +376,22 @@ def set_autodeload_flags(names: list[str]) -> list[str]:
     """Flag exercises for an automatic 10% deload on their next occurrence.
     Returns the names newly flagged (skips ones already pending)."""
     newly = []
+    wlog = load_log()
+    series_by_ex = _plateau_series(wlog)
     for name in names:
         existing = _col("auto_flags").find_one({"_id": name})
         if not existing:
             _col("auto_flags").insert_one({"_id": name, "kind": "deload"})
             newly.append(name)
+            # Record the pre-deload strength so the feedback loop can later
+            # judge whether the deload actually cleared this plateau.
+            try:
+                from feedback import record_intervention
+                series = series_by_ex.get(name)
+                if series:
+                    record_intervention("deload", name, series[-1]["e1rm"])
+            except Exception as e:
+                log.warning(f"record_intervention (deload) failed: {e}")
     return newly
 
 
