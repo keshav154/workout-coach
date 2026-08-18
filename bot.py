@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v37';
+const CACHE = 'coachxkeshav-v38';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -896,6 +896,19 @@ def reflect_now_view():
         log.error(f"reflect_now failed: {e}")
         return jsonify({"error": "self-tuning failed"}), 500
     return jsonify({"report": report or "No changes — current settings still fit your data."})
+
+
+@flask_app.route("/money_insights")
+@require_auth
+def money_insights_view():
+    """Month-end spend forecast + detected recurring charges."""
+    from expense_core import spending_forecast, detect_recurring
+    recurring = detect_recurring()
+    return jsonify({
+        "forecast": spending_forecast(),
+        "recurring": recurring,
+        "recurring_monthly_total": round(sum(r["monthly"] for r in recurring)),
+    })
 
 
 @flask_app.route("/pr_predictions")

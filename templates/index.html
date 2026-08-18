@@ -538,6 +538,15 @@
     .mo-txn { position: relative; }
     .mo-txn .mo-del { background: none; border: 1px solid var(--border); color: var(--danger); width: 28px; height: 28px; font-size: 12px; cursor: pointer; flex-shrink: 0; }
     .mo-txn .mo-del:active { border-color: var(--danger); }
+    .mi-forecast { border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 10px; }
+    .mi-f-main { font-family: var(--font-head); font-size: 16px; font-weight: 800; }
+    .mi-f-main b { color: var(--accent); }
+    .mi-f-sub { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-body); }
+    .mi-rec-head { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; font-family: var(--font-body); }
+    .mi-rec { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; font-size: 12.5px; font-family: var(--font-body); }
+    .mi-rec-name { color: var(--fg); }
+    .mi-rec-amt { font-weight: 700; color: var(--accent); }
+    .mi-rec-amt small { color: var(--muted); font-weight: 400; font-size: 10px; }
 
     /* -- Water tracker -- */
     .water-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
@@ -1267,6 +1276,10 @@
     <div class="mo-hero">
       <div class="mo-hero-total" id="mo-total">—</div>
       <div class="mo-hero-sub"><span id="mo-avg">—</span> avg/active day · <span id="mo-txn-count">0</span> transactions</div>
+    </div>
+    <div id="mo-insights-wrap" style="display:none">
+      <div class="stats-title">Forecast & Recurring</div>
+      <div class="chart-card" id="mo-insights"></div>
     </div>
     <div>
       <div class="stats-title">6-Month Trend</div>
@@ -2443,6 +2456,7 @@
     document.getElementById('mo-total').textContent = inr(d.total || 0);
     document.getElementById('mo-avg').textContent   = inr(d.avg_per_day || 0);
     document.getElementById('mo-txn-count').textContent = (d.recent || []).length;
+    loadMoneyInsights(d.is_current);
 
     // 6-month trend
     const tPts = (d.months || []).map(x => ({ y: x.total, label: x.month.slice(5) }));
@@ -2482,6 +2496,41 @@
     if (!(d.recent || []).length)
       list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No transactions this month.</div>';
   }
+
+  async function loadMoneyInsights(isCurrent) {
+    const wrap = document.getElementById('mo-insights-wrap');
+    const box  = document.getElementById('mo-insights');
+    if (!wrap || !box) return;
+    if (!isCurrent) { wrap.style.display = 'none'; return; }   // forecast only makes sense for the live month
+    let d;
+    try { d = await (await fetch('/money_insights', { headers: authHeaders() })).json(); }
+    catch { wrap.style.display = 'none'; return; }
+    const f = d.forecast || {};
+    const rec = d.recurring || [];
+    if (!f.spent && !rec.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+
+    let html = '';
+    if (f.projected != null) {
+      const over = (f.delta_vs_last || 0) > 0;
+      const cmp = f.last_month
+        ? `<span style="color:${over ? 'var(--accent2)' : 'var(--accent)'}">${over ? '▲' : '▼'} ${inr(Math.abs(f.delta_vs_last))} vs last month</span>`
+        : '';
+      html += `<div class="mi-forecast">
+        <div class="mi-f-main">On pace for <b>${inr(f.projected)}</b></div>
+        <div class="mi-f-sub">${inr(f.spent)} spent · ${esc(f.days_left)} days left ${cmp ? '· ' + cmp : ''}</div>
+      </div>`;
+    }
+    if (rec.length) {
+      html += `<div class="mi-rec-head">🔁 Recurring · ~${inr(d.recurring_monthly_total)}/mo</div>` +
+        rec.slice(0, 6).map(r => `<div class="mi-rec">
+          <span class="mi-rec-name">${esc(r.description)}</span>
+          <span class="mi-rec-amt">${inr(r.monthly)}<small> ·${esc(r.months)}mo</small></span>
+        </div>`).join('');
+    }
+    box.innerHTML = html;
+  }
+
   async function deleteExpense(id) {
     if (!id || !confirm('Delete this transaction?')) return;
     try {

@@ -83,6 +83,91 @@ def monthly_summary(month: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 
+def _all_expenses() -> list:
+    docs = list(_col("expenses").find())
+    for d in docs:
+        d.pop("_id", None)
+    return docs
+
+
+def spending_forecast(month: Optional[str] = None) -> dict:
+    """Project month-end spend from the pace so far, vs last month. For the
+    current month, extrapolates from days elapsed; for a past month, the total
+    is final. Returns {} when there's nothing to project."""
+    import calendar
+
+    now = today()
+    if not month:
+        month = now.strftime("%Y-%m")
+    try:
+        y, m = (int(x) for x in month.split("-"))
+    except (ValueError, AttributeError):
+        return {}
+
+    spent = round(sum(e["amount"] for e in get_expenses(month)))
+    days_in_month = calendar.monthrange(y, m)[1]
+    is_current = (y, m) == (now.year, now.month)
+    days_elapsed = now.day if is_current else days_in_month
+    projected = (round(spent / days_elapsed * days_in_month)
+                 if is_current and days_elapsed > 0 else spent)
+
+    # Previous month total for comparison.
+    pm_y, pm_m = (y - 1, 12) if m == 1 else (y, m - 1)
+    last_month = round(sum(e["amount"] for e in get_expenses(f"{pm_y:04d}-{pm_m:02d}")))
+
+    if not spent and not last_month:
+        return {}
+    return {
+        "month": month, "spent": spent, "projected": projected,
+        "days_elapsed": days_elapsed, "days_in_month": days_in_month,
+        "is_current": is_current, "last_month": last_month,
+        "delta_vs_last": projected - last_month,
+        "days_left": max(0, days_in_month - days_elapsed) if is_current else 0,
+    }
+
+
+def detect_recurring(min_months: int = 2, lookback_months: int = 4) -> list[dict]:
+    """Spot repeating charges (subscriptions, rent, gym) — a description that
+    recurs across multiple months at a similar amount. Returns
+    [{description, category, monthly, occurrences, months}] sorted by cost."""
+    from statistics import median
+
+    now = today()
+    cutoff_y, cutoff_m = now.year, now.month - (lookback_months - 1)
+    while cutoff_m <= 0:
+        cutoff_m += 12
+        cutoff_y -= 1
+    cutoff = f"{cutoff_y:04d}-{cutoff_m:02d}"
+
+    groups: dict[str, dict] = {}
+    for e in _all_expenses():
+        date_s = e.get("date", "")
+        if date_s[:7] < cutoff:
+            continue
+        desc = " ".join((e.get("description") or "").lower().split())
+        if not desc:
+            continue
+        g = groups.setdefault(desc, {"amounts": [], "months": set(),
+                                     "category": e.get("category", "Other"),
+                                     "label": (e.get("description") or "").strip()})
+        g["amounts"].append(float(e.get("amount") or 0))
+        g["months"].add(date_s[:7])
+
+    out = []
+    for desc, g in groups.items():
+        if len(g["months"]) < min_months:
+            continue
+        out.append({
+            "description": g["label"] or desc,
+            "category": g["category"],
+            "monthly": round(median(g["amounts"])),
+            "occurrences": len(g["amounts"]),
+            "months": len(g["months"]),
+        })
+    out.sort(key=lambda r: -r["monthly"])
+    return out
+
+
 def try_parse_expense(text: str) -> Optional[dict]:
     match = re.search(r"<LOG_EXPENSE>\s*(\{.*?\})\s*</LOG_EXPENSE>", text, re.DOTALL)
     if match:
