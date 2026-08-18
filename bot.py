@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v34';
+const CACHE = 'coachxkeshav-v35';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -898,6 +898,15 @@ def reflect_now_view():
     return jsonify({"report": report or "No changes — current settings still fit your data."})
 
 
+@flask_app.route("/briefing")
+@require_auth
+def briefing_view():
+    """Daily cross-domain briefing (cached per day; ?refresh=1 regenerates)."""
+    from insights import generate_briefing
+    force = request.args.get("refresh") in ("1", "true", "yes")
+    return jsonify(generate_briefing(force=force))
+
+
 @flask_app.route("/maintenance")
 @require_auth
 def maintenance_view():
@@ -1624,6 +1633,13 @@ def cron_daily():
     if not _cron_authorized():
         return "forbidden", 403
     record_event("cron_daily")
+    # Pre-generate today's cross-domain briefing so it's ready when the app
+    # opens (cached per day — only the first call does LLM work).
+    try:
+        from insights import generate_briefing
+        generate_briefing()
+    except Exception as e:
+        log.error(f"Daily briefing pre-gen failed: {e}")
     # Multiple scheduled attempts per day are expected (first ping wakes the
     # sleeping dyno) — only the first successful one sends.
     if not _cron_force() and job_done("cron_daily"):

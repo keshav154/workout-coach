@@ -219,6 +219,13 @@
     .dash-dot.is-today .d-cell { outline: 2px solid var(--accent2); outline-offset: 1px; }
     .dash-card { background: var(--card); border: 1px solid var(--border); padding: 16px; }
     .dash-card-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.15em; font-weight: 600; font-family: var(--font-body); }
+    .dash-brief { border-left: 3px solid var(--accent2); }
+    .dash-brief-head { display: flex; align-items: center; justify-content: space-between; }
+    .dash-brief-refresh { background: none; border: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 0 2px; }
+    .dash-brief-refresh:active { color: var(--accent2); }
+    .dash-brief-refresh.spin { animation: briefspin 0.8s linear infinite; }
+    @keyframes briefspin { to { transform: rotate(360deg); } }
+    .dash-brief-text { font-size: 13.5px; line-height: 1.5; margin-top: 8px; font-family: var(--font-body); white-space: pre-line; }
     .dash-workout { border-left: 3px solid var(--accent); cursor: pointer; transition: border-color 0.15s; }
     .dash-workout:active { border-color: var(--accent); }
     .dash-workout-title { font-family: var(--font-head); font-size: 19px; font-weight: 800; margin: 7px 0 3px; }
@@ -932,6 +939,14 @@
     <div id="dash-greeting" class="dash-greeting"></div>
     <div class="dash-strip" id="dash-strip"></div>
 
+    <div class="dash-card dash-brief" id="dash-brief" style="display:none">
+      <div class="dash-brief-head">
+        <span class="dash-card-label">🧭 Today's read</span>
+        <button class="dash-brief-refresh" id="dash-brief-refresh" title="Regenerate" onclick="refreshBriefing(this)">↻</button>
+      </div>
+      <div class="dash-brief-text" id="dash-brief-text"></div>
+    </div>
+
     <div class="dash-card dash-workout" id="dash-workout" onclick="switchTab('workout')">
       <div class="dash-card-label">Today's Training</div>
       <div class="dash-workout-title" id="dash-wk-title">—</div>
@@ -1527,7 +1542,29 @@
       });
     } else hw.style.display = 'none';
 
+    loadBriefing();
     loadCoachLearning();
+  }
+
+  async function loadBriefing(force) {
+    const wrap = document.getElementById('dash-brief');
+    const txt = document.getElementById('dash-brief-text');
+    if (!wrap || !txt) return;
+    if (force) txt.textContent = 'Reading your week…';
+    let d;
+    try {
+      d = await (await fetch('/briefing' + (force ? '?refresh=1' : ''),
+        { headers: authHeaders() })).json();
+    } catch { if (!force) wrap.style.display = 'none'; return; }
+    if (!d || !d.text) { if (!force) wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    txt.textContent = d.text;
+  }
+
+  async function refreshBriefing(btn) {
+    btn.disabled = true; btn.classList.add('spin');
+    await loadBriefing(true);
+    btn.disabled = false; btn.classList.remove('spin');
   }
 
   async function loadCoachLearning() {
