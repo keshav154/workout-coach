@@ -549,6 +549,15 @@
     .mi-rec-amt { font-weight: 700; color: var(--accent); }
     .mi-rec-amt small { color: var(--muted); font-weight: 400; font-size: 10px; }
     .mi-micro-note { font-size: 10px; color: var(--muted); margin-top: 8px; font-family: var(--font-body); }
+    #fu-lib-search { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 10px; font-size: 13px; font-family: var(--font-body); margin-bottom: 8px; }
+    #fu-lib-search:focus { outline: none; border-color: var(--accent); }
+    .meal-lib { max-height: 280px; overflow-y: auto; }
+    .meal-lib-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .meal-lib-row:active { background: rgba(0,255,136,0.08); }
+    .meal-lib-row:last-child { border-bottom: none; }
+    .meal-lib-name { font-size: 13px; font-family: var(--font-body); flex: 1; min-width: 0; }
+    .meal-lib-macros { font-size: 10.5px; color: var(--muted); font-family: var(--font-body); flex-shrink: 0; }
+    .meal-lib-empty { font-size: 12px; color: var(--muted); padding: 8px 4px; font-family: var(--font-body); }
 
     /* -- Water tracker -- */
     .water-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
@@ -1291,6 +1300,15 @@
       <div class="chips" id="fu-quick" style="display:none"></div>
       <button id="fu-yday" class="wk-sw" style="display:none;margin:10px 0 0" onclick="repeatYesterday()">↻ Repeat yesterday's meals</button>
       <button class="wk-save" style="margin-top:10px" onclick="logMealPrompt()">+ New meal (coach estimates)</button>
+    </div>
+    <div>
+      <div class="stats-title">Reuse a Past Meal</div>
+      <div class="chart-card">
+        <input id="fu-lib-search" type="text" placeholder="Search all your logged foods…"
+          oninput="filterMealLibrary(this.value)" autocomplete="off" />
+        <div class="meal-lib" id="fu-lib"></div>
+        <div class="meal-lib-empty" id="fu-lib-empty" style="display:none">No matching foods yet.</div>
+      </div>
     </div>
   </div>
 
@@ -2433,6 +2451,38 @@
       (hasData && drawBarChart('chart-fuel', pts, '#00d4ff')) ? 'none' : 'block';
     loadMealQuick();
     loadMicros();
+    loadMealLibrary();
+  }
+
+  // ── Reuse any past meal (full searchable library) ──
+  let mealLib = [];
+  async function loadMealLibrary() {
+    try { mealLib = (await (await fetch('/meal_library', { headers: authHeaders() })).json()).meals || []; }
+    catch { mealLib = []; }
+    renderMealLibrary(mealLib);
+  }
+  function renderMealLibrary(list) {
+    const box = document.getElementById('fu-lib');
+    const empty = document.getElementById('fu-lib-empty');
+    if (!box) return;
+    empty.style.display = list.length ? 'none' : 'block';
+    box.innerHTML = list.slice(0, 60).map((m, i) => `
+      <div class="meal-lib-row" onclick="logFromLibrary(${i})">
+        <div class="meal-lib-name">${esc(m.description)}</div>
+        <div class="meal-lib-macros">${Math.round(m.calories)} kcal · ${Math.round(m.protein_g)}g P${m.count > 1 ? ' · ×' + esc(m.count) : ''}</div>
+      </div>`).join('');
+    box._list = list;   // keep the currently-shown list for index mapping
+  }
+  function filterMealLibrary(q) {
+    q = (q || '').trim().toLowerCase();
+    renderMealLibrary(q ? mealLib.filter(m => m.description.toLowerCase().includes(q)) : mealLib);
+  }
+  async function logFromLibrary(i) {
+    const list = document.getElementById('fu-lib')._list || mealLib;
+    const m = list[i];
+    if (!m) return;
+    await quickMeal({ description: m.description, calories: m.calories,
+                      protein_g: m.protein_g, carbs_g: m.carbs_g, fat_g: m.fat_g }, true);
   }
 
   async function loadMicros() {

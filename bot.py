@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v42';
+const CACHE = 'coachxkeshav-v43';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -1393,6 +1393,41 @@ def meal_quick():
             yesterday.append(macro)
     frequent = [dict(info[k], count=c) for k, c in counts.most_common(8) if c >= 2]
     return jsonify({"frequent": frequent, "yesterday": yesterday})
+
+
+@flask_app.route("/meal_library")
+@require_auth
+def meal_library():
+    """Every distinct meal ever logged, for reuse — deduped by description with
+    its most-recent macros, ordered by how often it's logged then recency.
+    Optional ?q= filters by substring so a big history stays browsable."""
+    from collections import Counter
+    from agent_core import _col
+    q = (request.args.get("q") or "").strip().lower()
+    counts: Counter = Counter()
+    info: dict[str, dict] = {}
+    last_date: dict[str, str] = {}
+    for m in _col("meals").find():
+        desc = (m.get("description") or "").strip()
+        if not desc:
+            continue
+        key = desc.lower()
+        if q and q not in key:
+            continue
+        counts[key] += 1
+        d = m.get("date", "")
+        # Keep the most recent version's macros for this description.
+        if key not in last_date or d >= last_date[key]:
+            last_date[key] = d
+            info[key] = {"description": desc,
+                         "calories": float(m.get("calories") or 0),
+                         "protein_g": float(m.get("protein_g") or 0),
+                         "carbs_g": float(m.get("carbs_g") or 0),
+                         "fat_g": float(m.get("fat_g") or 0)}
+    items = [dict(info[k], count=counts[k], last_date=last_date[k]) for k in info]
+    # Most-logged first, then most-recent — so favourites surface at the top.
+    items.sort(key=lambda x: (x["count"], x["last_date"]), reverse=True)
+    return jsonify({"meals": items[:300], "total": len(items)})
 
 
 @flask_app.route("/meal_plan")

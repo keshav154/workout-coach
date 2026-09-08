@@ -44,7 +44,7 @@ A personal trainer, nutrition coach, and expense tracker AI that runs as a web a
 - **Daily habits**: "track a habit: stretch every morning" — tap-to-toggle checklist with streaks on the Progress tab, pending habits nudged in the evening check-in
 - **Offline gym mode**: the Workout tab falls back to the last cached program with no signal, and saved workouts queue on-device and sync automatically when back online
 - **Dropdown set logging**: weights come from your actual dumbbell set and reps from a list — no typing mid-set
-- **Quick logging without chat**: inline expense form on the Money tab; one-tap frequent-meal chips and "repeat yesterday's meals" on the Fuel tab
+- **Quick logging without chat**: inline expense form on the Money tab; one-tap frequent-meal chips and "repeat yesterday's meals" on the Fuel tab, plus a searchable "Reuse a Past Meal" library of EVERY food you've ever logged (deduped, most-logged first) so any meal is one tap away without retyping
 - **Estimated 1RM overlay** on the per-exercise progress chart (Epley), plus a weekly-consistency stat that doesn't punish rest days
 - **Spend forecast & recurring detection**: the Money tab projects month-end spend from the pace so far (vs last month) and auto-detects recurring charges — descriptions that repeat across months at a similar amount (subscriptions, rent, gym) — with their combined monthly cost
 - **Fuel & Money tabs**: today's calories/protein vs target with a 7-day chart and meal list; monthly spending with category budget bars and recent transactions
