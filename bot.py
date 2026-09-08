@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v40';
+const CACHE = 'coachxkeshav-v41';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -940,6 +940,18 @@ def pr_predictions_view():
     """Projected next strength milestone per lift, from its e1RM trend."""
     from progression import pr_predictions
     return jsonify({"predictions": pr_predictions()})
+
+
+@flask_app.route("/freshness")
+@require_auth
+def freshness_view():
+    """Per-muscle recovery today + which program day is freshest to train."""
+    from freshness import recommend_day
+    r = recommend_day()
+    fresh = [{"muscle": m, **d} for m, d in r["freshness"].items()]
+    return jsonify({"recommended": r["recommended"], "scheduled": r["scheduled"],
+                    "agrees": r["agrees"], "reason": r["reason"],
+                    "freshness": fresh, "day_scores": r["day_scores"]})
 
 
 @flask_app.route("/muscle_volume")

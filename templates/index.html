@@ -692,6 +692,15 @@
       color: var(--accent3); padding: 10px 13px; font-size: 12px; margin-bottom: 13px;
       font-family: var(--font-body); line-height: 1.5;
     }
+    .wk-fresh {
+      background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--accent2);
+      padding: 10px 13px; font-size: 12px; margin-bottom: 13px;
+      font-family: var(--font-body); line-height: 1.5;
+    }
+    .wk-fresh .fresh-head { color: var(--fg); }
+    .wk-fresh .fresh-head b { color: var(--accent2); }
+    .fresh-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .fresh-chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px; }
     .wk-ex-tag {
       font-size: 9.5px; padding: 2px 7px; border: 1px solid #ffd245; color: #ffd245;
       text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0;
@@ -1175,6 +1184,7 @@
       <div id="wk-preview" class="wk-warmup" style="display:none"></div>
       <div id="wk-status" class="wk-status"></div>
       <div id="wk-deload" class="wk-deload" style="display:none"></div>
+      <div id="wk-fresh" class="wk-fresh" style="display:none"></div>
       <div id="wk-rest-banner" class="wk-rest-banner" style="display:none"></div>
       <button id="wk-rest-btn" class="wk-sw" onclick="toggleRestDay()">🛌 Mark today a rest day</button>
       <div id="wk-warmup" class="wk-warmup" style="display:none"></div>
@@ -1913,7 +1923,28 @@
         if (hist) div.querySelector('.wk-ex-name').onclick = () => div.classList.toggle('hist-open');
         wrap.appendChild(div);
       });
+      if (!offline) loadFreshness();
     } catch { title.textContent = 'Could not load today\'s workout.'; }
+  }
+
+  async function loadFreshness() {
+    const box = document.getElementById('wk-fresh');
+    if (!box) return;
+    let d;
+    try { d = await (await fetch('/freshness', { headers: authHeaders() })).json(); }
+    catch { box.style.display = 'none'; return; }
+    const fresh = d.freshness || [];
+    const fatigued = fresh.filter(m => m.state === 'fatigued');
+    if (d.agrees && !fatigued.length) { box.style.display = 'none'; return; }
+    const chips = fresh.map(m => {
+      const col = m.state === 'fresh' ? 'var(--accent)' : m.state === 'moderate' ? 'var(--accent3)' : 'var(--accent2)';
+      return `<span class="fresh-chip" style="border-color:${col};color:${col}">${esc(m.muscle)} ${esc(m.score)}</span>`;
+    }).join('');
+    let head = '';
+    if (!d.agrees) head = `🧠 Freshest today is <b>Day ${esc(d.recommended)}</b> (scheduled: Day ${esc(d.scheduled)}). ${esc(d.reason)}`;
+    else if (fatigued.length) head = `Still recovering: <b>${fatigued.map(m => esc(m.muscle)).join(', ')}</b> — train these lighter or focus elsewhere.`;
+    box.innerHTML = `<div class="fresh-head">${head}</div><div class="fresh-chips">${chips}</div>`;
+    box.style.display = 'block';
   }
 
   async function cancelAutodeload(name) {
