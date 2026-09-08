@@ -286,6 +286,15 @@ def make_write_tools(ctx: dict) -> dict:
             return "REJECTED: calories over 12000 look wrong — confirm with the user."
         entry = log_meal(description, calories or 0, protein_g or 0,
                          carbs=carbs_g or 0, fat=fat_g or 0)
+        # Cache a single-item meal so future logs of it stay consistent + token-free.
+        try:
+            from foods import remember_food, lookup_foods
+            desc = (description or "").strip()
+            if desc and calories and lookup_foods(desc)["coverage"] < 1.0 \
+                    and len(desc.split()) <= 4:
+                remember_food(desc, calories or 0, protein_g or 0, carbs_g or 0, fat_g or 0)
+        except Exception as e:
+            log.warning(f"remember_food failed: {e}")
         record_audit("meal", f"{description} ({calories or 0:g} kcal)", ref=entry.get("id"))
         ctx.setdefault("notes", []).append("🍽️ Meal logged.")
         from nutrition import today_totals

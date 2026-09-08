@@ -179,6 +179,26 @@ def query_measurements() -> str:
     return "\n".join(lines)
 
 
+def lookup_food_macros(description: str) -> str:
+    """Verified macros for common Indian foods — call BEFORE estimating a meal
+    so known foods use consistent database values, not a fresh guess."""
+    from foods import lookup_foods
+    r = lookup_foods(description)
+    if not r["matched"]:
+        return ("No verified entries for that — estimate the macros yourself from "
+                "typical Indian portions.")
+    lines = ["Verified DB matches (use these numbers):"]
+    for m in r["matched"]:
+        lines.append(f"  {m['qty']:g} x {m['item']} ({m['unit']}): {m['calories']} kcal, "
+                     f"{m['protein_g']}g P, {m['carbs_g']}g C, {m['fat_g']}g F")
+    t = r["totals"]
+    lines.append(f"DB subtotal: {t['calories']} kcal, {t['protein_g']}g P, "
+                 f"{t['carbs_g']}g C, {t['fat_g']}g F")
+    if r["unmatched"]:
+        lines.append("NOT in DB (estimate these and add on): " + ", ".join(r["unmatched"]))
+    return "\n".join(lines)
+
+
 def query_health() -> str:
     """Wearable metrics (steps, active calories, sleep, energy score, resting
     HR) — today, the week's trend, and recovery readiness."""
@@ -255,6 +275,13 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
+        "name": "lookup_food_macros",
+        "description": "Get VERIFIED macros for common Indian foods from the food database. ALWAYS call this before logging a meal — use the returned numbers for any matched foods, and only estimate the parts it says aren't in the DB.",
+        "parameters": {"type": "object", "properties": {
+            "description": {"type": "string", "description": "the meal, e.g. '2 roti, dal and paneer'"}},
+            "required": ["description"]},
+    }},
+    {"type": "function", "function": {
         "name": "query_health",
         "description": "Get wearable/watch metrics: today's steps, active calories, sleep, energy score, resting HR, the 7-day trends, and recovery readiness. Use for recovery, sleep, activity or 'how's my recovery' questions.",
         "parameters": {"type": "object", "properties": {}},
@@ -285,6 +312,7 @@ TOOLS = [
 
 TOOL_IMPLS = {
     "query_today_workout":     query_today_workout,
+    "lookup_food_macros":      lookup_food_macros,
     "query_workouts":          query_workouts,
     "query_exercise":          query_exercise,
     "query_spending":          query_spending,
