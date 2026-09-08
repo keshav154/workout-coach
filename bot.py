@@ -238,6 +238,10 @@ def dashboard():
     if not profile_complete(profile):
         return jsonify({"ready": False})
 
+    # Cron-free learning: opening the app triggers the weekly pass if it's due
+    # (background, once per week) — so self-tuning happens without a scheduler.
+    maybe_run_weekly_lazily()
+
     _active, _burn_src = active_kcal_today(profile)
     day_burned = int(_active) + int(cardio_today_calories() or 0)
 
@@ -1744,6 +1748,36 @@ def _cron_json(minimal: dict, verbose: dict | None = None):
     return jsonify(minimal)
 
 
+_weekly_running = False
+
+
+def maybe_run_weekly_lazily() -> None:
+    """Cron-free trigger: when the user opens the app, run the weekly learning
+    pass in the background if it hasn't run this week. Opening the app is a more
+    reliable heartbeat than the free-tier scheduler, so learning keeps happening
+    even with no cron. Non-blocking, idempotent, and best-effort."""
+    global _weekly_running
+    if not os.environ.get("MONGODB_URI"):
+        return                              # no real DB (e.g. tests) — don't spawn
+    from agent_core import today as _today
+    week_key = "{}-W{:02d}".format(*_today().isocalendar()[:2])
+    if _weekly_running or job_done("cron_weekly", week_key):
+        return
+    _weekly_running = True
+
+    def _worker():
+        global _weekly_running
+        try:
+            _run_weekly_jobs(send_report=True)
+        except Exception as e:
+            log.error(f"Lazy weekly run failed: {e}")
+        finally:
+            _weekly_running = False
+
+    import threading
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 @flask_app.route("/cron/test", methods=["GET", "POST"])
 def cron_test():
     """Diagnostic: unconditionally send a fixed test message and report whether
@@ -1798,6 +1832,59 @@ def cron_daily():
                        "notify_config": notify_config()}, {"message": msg})
 
 
+def _run_weekly_jobs(send_report: bool = True) -> dict:
+    """The weekly learning pass — adaptive TDEE, calorie tune, memory hygiene,
+    outcome grading, self-tuning, and the recap. Shared by the external cron and
+    the cron-free on-app-open trigger, so learning happens even if no scheduler
+    ever fires. Idempotent per week (caller gates on job_done). `send_report`
+    controls whether the Telegram recap goes out."""
+    from agent_core import today as _today
+    week_key = "{}-W{:02d}".format(*_today().isocalendar()[:2])
+    mark_job_done("cron_weekly", week_key)      # claim the slot up front (no double-run)
+
+    result = {}
+    msg = build_weekly_report()
+    result["sent"] = notify(msg) if send_report else False
+    # Adaptive TDEE: recalibrate real maintenance BEFORE the trend-nudge.
+    try:
+        from energy import update_maintenance
+        m = update_maintenance()
+        result["maintenance_updated"] = bool(m)
+        if m and send_report:
+            notify(m)
+    except Exception as e:
+        log.error(f"Adaptive TDEE update failed: {e}")
+    try:
+        from reports import auto_adjust_calories
+        adj = auto_adjust_calories()
+        result["adjusted"] = bool(adj)
+        if adj and send_report:
+            notify(adj)
+    except Exception as e:
+        log.error(f"Calorie auto-adjust failed: {e}")
+    try:
+        from memory_core import consolidate_memory
+        result["memory_consolidated"] = bool(consolidate_memory())
+    except Exception as e:
+        log.error(f"Memory consolidation failed: {e}")
+    # Grade the coach's own past decisions before self-tuning reads the outcomes.
+    try:
+        from feedback import evaluate_interventions
+        result["graded"] = bool(evaluate_interventions())
+    except Exception as e:
+        log.error(f"Intervention evaluation failed: {e}")
+    try:
+        from learned_params import reflect_and_tune
+        t = reflect_and_tune()
+        result["tuned"] = bool(t)
+        if t and send_report:
+            notify(t)
+    except Exception as e:
+        log.error(f"Self-tuning failed: {e}")
+    log.info(f"Weekly jobs ran (report_sent={result.get('sent')})")
+    return result
+
+
 @flask_app.route("/cron/weekly", methods=["GET", "POST"])
 def cron_weekly():
     if not _cron_authorized():
@@ -1808,72 +1895,8 @@ def cron_weekly():
     if not _cron_force() and job_done("cron_weekly", week_key):
         return jsonify({"skipped": "already ran this week",
                         "hint": "add ?force=1 to re-send for testing"})
-    msg  = build_weekly_report()
-    sent = notify(msg)
-    if sent:
-        mark_job_done("cron_weekly", week_key)
-    # Adaptive TDEE: recalibrate real maintenance from logged food + weight
-    # trend BEFORE the trend-nudge (which stands down when this is active).
-    maintenance = None
-    try:
-        from energy import update_maintenance
-        maintenance = update_maintenance()
-        if maintenance:
-            notify(maintenance)
-            log.info(maintenance)
-    except Exception as e:
-        log.error(f"Adaptive TDEE update failed: {e}")
-    # Autonomous calorie tuning: adjust the daily target from the weigh-in
-    # trend and tell the user what changed and why.
-    adjustment = None
-    try:
-        from reports import auto_adjust_calories
-        adjustment = auto_adjust_calories()
-        if adjustment:
-            notify(adjustment)
-            log.info(adjustment)
-    except Exception as e:
-        log.error(f"Calorie auto-adjust failed: {e}")
-    # Autonomous memory hygiene: merge duplicates, drop stale notes, distill
-    # the week's episodes into durable observations.
-    consolidated = None
-    try:
-        from memory_core import consolidate_memory
-        consolidated = consolidate_memory()
-        if consolidated:
-            log.info(consolidated)
-    except Exception as e:
-        log.error(f"Memory consolidation failed: {e}")
-    # Outcome feedback: grade the coach's OWN past decisions (did the deload
-    # clear the plateau? did the calorie change move weight toward goal?) and
-    # distil the pattern — read next by the self-tuner below.
-    graded = None
-    try:
-        from feedback import evaluate_interventions
-        graded = evaluate_interventions()
-        if graded:
-            log.info(graded)
-    except Exception as e:
-        log.error(f"Intervention evaluation failed: {e}")
-    # Autonomous self-tuning: review recent training/recovery data and adapt the
-    # coach's own parameters (plateau patience, deload depth, fatigue tolerance).
-    tuned = None
-    try:
-        from learned_params import reflect_and_tune
-        tuned = reflect_and_tune()
-        if tuned:
-            notify(tuned)
-            log.info(tuned)
-    except Exception as e:
-        log.error(f"Self-tuning failed: {e}")
-    log.info(f"Weekly cron: report={'sent' if sent else 'failed'}")
-    return _cron_json(
-        {"sent": sent, "tuned": bool(tuned), "adjusted": bool(adjustment),
-         "maintenance_updated": bool(maintenance), "graded": bool(graded),
-         "memory_consolidated": bool(consolidated)},
-        {"message": msg, "self_tuning": tuned, "calorie_adjustment": adjustment,
-         "adaptive_tdee": maintenance, "interventions_graded": graded,
-         "memory": consolidated})
+    result = _run_weekly_jobs(send_report=True)
+    return _cron_json(result)
 
 
 @flask_app.route("/cron/check", methods=["GET", "POST"])
