@@ -2,6 +2,10 @@
 
 A personal trainer, nutrition coach, and expense tracker AI that runs as a web app (installable PWA) with Telegram, WhatsApp, and Discord transports. Tracks workouts, progressive overload, weigh-ins, Indian vegetarian nutrition, and spending — all persisted in MongoDB, all driven by natural language (no command syntax).
 
+## Design
+
+Refined-dark premium UI: a cool near-black ground with a single emerald-mint accent (state colours — amber/red/indigo — kept separate from the accent), native system sans-serif with large tabular numerals, rounded cards with soft depth, and sentence-case labels. The workout **weight suggestion is the visual hero** — a prominent "Coach suggests 20.5 kg × 8" block with a phase pill (↑ move up / add reps / ↓ eased / deload) and the plain-language reason, styled per progression state.
+
 ## Features
 
 - **Today dashboard**: a glanceable home screen (default landing) with today's training, water/calorie/protein rings, quick actions, streak/week stats and habits
