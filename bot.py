@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v41';
+const CACHE = 'coachxkeshav-v42';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -940,6 +940,14 @@ def pr_predictions_view():
     """Projected next strength milestone per lift, from its e1RM trend."""
     from progression import pr_predictions
     return jsonify({"predictions": pr_predictions()})
+
+
+@flask_app.route("/mesocycle")
+@require_auth
+def mesocycle_view():
+    """Where the user is in their current training block (periodization)."""
+    from mesocycle import mesocycle_status
+    return jsonify(mesocycle_status())
 
 
 @flask_app.route("/freshness")

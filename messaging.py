@@ -51,6 +51,7 @@ from progression import (
 from nutrition import format_nutrition_block, format_micro_block, log_meal
 from muscles import format_muscle_volume_block
 from freshness import format_freshness_block
+from mesocycle import format_mesocycle_block
 from checkin import format_checkin_block, save_checkin
 from goals import clear_goals, format_goals_block, set_goal
 
@@ -122,6 +123,7 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
             format_checkin_block(log=workout_log),
             format_wearable_block(),
             format_progression_block(workout_log),
+            format_mesocycle_block(workout_log),
             format_muscle_volume_block(workout_log),
             format_freshness_block(workout_log),
             format_autodeload_block(),

@@ -68,6 +68,13 @@ PARAM_SPECS: dict[str, dict] = {
                 "readiness day (0.1 = up to 10% lighter). Autoregulation only "
                 "ever backs off, never adds load.",
     },
+    "mesocycle_weeks": {
+        "default": 5, "min": 4, "max": 8, "type": "int",
+        "desc": "Length of a training block in weeks (accumulation weeks + one "
+                "deload week at the end). Longer suits a user who keeps "
+                "progressing without stalling; shorter for someone who needs "
+                "more frequent deloads.",
+    },
 }
 
 

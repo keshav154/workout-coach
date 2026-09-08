@@ -701,6 +701,17 @@
     .wk-fresh .fresh-head b { color: var(--accent2); }
     .fresh-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .fresh-chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px; }
+    .wk-meso {
+      background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+      padding: 10px 13px; font-size: 12px; margin-bottom: 13px; font-family: var(--font-body); line-height: 1.5;
+    }
+    .wk-meso .meso-head b { color: var(--accent); text-transform: capitalize; }
+    .meso-pips { display: flex; gap: 5px; margin: 8px 0; }
+    .meso-pip { flex: 1; text-align: center; font-size: 10px; font-weight: 700; padding: 3px 0; border: 1px solid var(--border); color: var(--muted); border-radius: 3px; }
+    .meso-pip.cur { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .meso-pip.deload { border-color: #ffd245; color: #ffd245; }
+    .meso-pip.deload.cur { background: #ffd245; color: var(--bg); }
+    .meso-focus { color: var(--muted); font-size: 11px; }
     .wk-ex-tag {
       font-size: 9.5px; padding: 2px 7px; border: 1px solid #ffd245; color: #ffd245;
       text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0;
@@ -1183,6 +1194,7 @@
       <div id="wk-rotation" class="wk-rotation"></div>
       <div id="wk-preview" class="wk-warmup" style="display:none"></div>
       <div id="wk-status" class="wk-status"></div>
+      <div id="wk-meso" class="wk-meso" style="display:none"></div>
       <div id="wk-deload" class="wk-deload" style="display:none"></div>
       <div id="wk-fresh" class="wk-fresh" style="display:none"></div>
       <div id="wk-rest-banner" class="wk-rest-banner" style="display:none"></div>
@@ -1923,8 +1935,27 @@
         if (hist) div.querySelector('.wk-ex-name').onclick = () => div.classList.toggle('hist-open');
         wrap.appendChild(div);
       });
-      if (!offline) loadFreshness();
+      if (!offline) { loadFreshness(); loadMesocycle(); }
     } catch { title.textContent = 'Could not load today\'s workout.'; }
+  }
+
+  async function loadMesocycle() {
+    const box = document.getElementById('wk-meso');
+    if (!box) return;
+    let m;
+    try { m = await (await fetch('/mesocycle', { headers: authHeaders() })).json(); }
+    catch { box.style.display = 'none'; return; }
+    if (!m || !m.total_weeks) { box.style.display = 'none'; return; }
+    const pips = Array.from({ length: m.total_weeks }, (_, i) => {
+      const wk = i + 1;
+      const cls = wk === m.week ? ' cur' : (wk === m.total_weeks ? ' deload' : '');
+      return `<span class="meso-pip${cls}">${wk === m.total_weeks ? 'D' : wk}</span>`;
+    }).join('');
+    box.innerHTML =
+      `<div class="meso-head">🗓️ Block: <b>week ${esc(m.week)}/${esc(m.total_weeks)}</b> · ${esc(m.phase)}</div>
+       <div class="meso-pips">${pips}</div>
+       <div class="meso-focus">${esc(m.focus)}</div>`;
+    box.style.display = 'block';
   }
 
   async function loadFreshness() {
