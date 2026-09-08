@@ -128,7 +128,7 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v39';
+const CACHE = 'coachxkeshav-v40';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -1381,6 +1381,19 @@ def meal_plan_route():
     """Proactive meal options that close today's remaining calorie/macro gap."""
     from nutrition import plan_remaining_meals
     return jsonify(plan_remaining_meals())
+
+
+@flask_app.route("/micros")
+@require_auth
+def micros_route():
+    """Today's approximate micronutrients (fiber/iron/calcium/B12) vs targets."""
+    from nutrition import micro_totals, MICRO_LABELS, MICRO_UNITS
+    data = micro_totals()
+    rows = [{"key": k, "label": MICRO_LABELS[k], "unit": MICRO_UNITS[k],
+             "value": data["micros"][k], "target": data["targets"][k],
+             "low": k in data["flags"]}
+            for k in data["targets"]]
+    return jsonify({"micros": rows})
 
 
 @flask_app.route("/voice", methods=["POST"])

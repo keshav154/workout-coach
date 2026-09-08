@@ -58,6 +58,42 @@ def week_series(days: int = 7) -> list[dict]:
     return out
 
 
+# Daily micronutrient targets (adult; higher iron/B12/calcium guidance that
+# matters most on a vegetarian diet). Used to flag shortfalls, not as gospel.
+MICRO_TARGETS = {"fiber_g": 38, "iron_mg": 17, "calcium_mg": 1000, "b12_ug": 2.4}
+MICRO_LABELS = {"fiber_g": "Fiber", "iron_mg": "Iron",
+                "calcium_mg": "Calcium", "b12_ug": "B12"}
+MICRO_UNITS = {"fiber_g": "g", "iron_mg": "mg", "calcium_mg": "mg", "b12_ug": "µg"}
+
+
+def micro_totals(date_str: str | None = None) -> dict:
+    """Approximate micronutrients consumed today, re-derived from logged meal
+    descriptions via the verified food DB. Returns {micros, targets, flags}
+    where flags lists nutrients under ~70% of target."""
+    from foods import lookup_foods
+    tot = {k: 0.0 for k in MICRO_TARGETS}
+    for m in get_meals(date_str):
+        r = lookup_foods(m.get("description", ""))
+        for k in tot:
+            tot[k] += r["micros"].get(k, 0)
+    tot = {k: round(v, 1) for k, v in tot.items()}
+    flags = [k for k, v in tot.items() if v < 0.7 * MICRO_TARGETS[k]]
+    return {"micros": tot, "targets": MICRO_TARGETS, "flags": flags}
+
+
+def format_micro_block(date_str: str | None = None) -> str:
+    """Prompt block flagging low micros, so the coach can suggest veg-friendly
+    fixes (only when something's actually low and food's been logged)."""
+    data = micro_totals(date_str)
+    if not data["flags"] or not get_meals(date_str):
+        return ""
+    parts = []
+    for k in data["flags"]:
+        parts.append(f"{MICRO_LABELS[k]} {data['micros'][k]}/{data['targets'][k]}{MICRO_UNITS[k]}")
+    return ("MICRONUTRIENTS RUNNING LOW today (from logged foods; suggest veg-"
+            "friendly sources if relevant): " + ", ".join(parts))
+
+
 def plan_remaining_meals(date_str: str | None = None) -> dict:
     """Proactive nutrition: given what's left in today's calorie/macro budget,
     propose concrete meal options that close the gap. Grounded in the user's

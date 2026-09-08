@@ -548,6 +548,7 @@
     .mi-rec-name { color: var(--fg); }
     .mi-rec-amt { font-weight: 700; color: var(--accent); }
     .mi-rec-amt small { color: var(--muted); font-weight: 400; font-size: 10px; }
+    .mi-micro-note { font-size: 10px; color: var(--muted); margin-top: 8px; font-family: var(--font-body); }
 
     /* -- Water tracker -- */
     .water-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
@@ -1252,6 +1253,10 @@
         <button id="fu-plan-btn" class="wk-save" style="margin-top:12px" onclick="planMeals(this)">🍽️ Plan my remaining meals</button>
         <div id="fu-plan" style="display:none;margin-top:10px"></div>
       </div>
+    </div>
+    <div id="fu-micros-wrap" style="display:none">
+      <div class="stats-title">Micronutrients (approx.)</div>
+      <div class="chart-card" id="fu-micros"></div>
     </div>
     <div>
       <div class="stats-title">Last 7 Days (kcal)</div>
@@ -2365,6 +2370,29 @@
     document.getElementById('chart-fuel-empty').style.display =
       (hasData && drawBarChart('chart-fuel', pts, '#00d4ff')) ? 'none' : 'block';
     loadMealQuick();
+    loadMicros();
+  }
+
+  async function loadMicros() {
+    const wrap = document.getElementById('fu-micros-wrap');
+    const box  = document.getElementById('fu-micros');
+    if (!wrap || !box) return;
+    let rows = [];
+    try { rows = (await (await fetch('/micros', { headers: authHeaders() })).json()).micros || []; }
+    catch { wrap.style.display = 'none'; return; }
+    const any = rows.some(r => r.value > 0);
+    if (!any) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    box.innerHTML = rows.map(r => {
+      const pct = Math.max(3, Math.min(100, Math.round(r.value / r.target * 100)));
+      const col = r.low ? 'var(--accent3)' : 'var(--accent)';
+      return `<div class="bar-row">
+        <div class="bar-head"><span>${esc(r.label)}${r.low ? ' ⚠' : ''}</span>
+          <span>${esc(r.value)}/${esc(r.target)}${esc(r.unit)}</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${col}"></div></div>
+      </div>`;
+    }).join('') +
+      `<div class="mi-micro-note">Approximate, from foods matched in the database.</div>`;
   }
 
   // ── One-tap meal logging (frequent meals + repeat yesterday) ──

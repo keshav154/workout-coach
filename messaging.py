@@ -48,7 +48,7 @@ from progression import (
     format_progression_block,
     get_autodeload_flags,
 )
-from nutrition import format_nutrition_block, log_meal
+from nutrition import format_nutrition_block, format_micro_block, log_meal
 from muscles import format_muscle_volume_block
 from checkin import format_checkin_block, save_checkin
 from goals import clear_goals, format_goals_block, set_goal
@@ -125,6 +125,7 @@ def ask_agent(history: list, source: str = "web") -> tuple[str, dict | None, dic
             format_autodeload_block(),
             format_goals_block(),
             format_nutrition_block(),
+            format_micro_block(),
             format_episodes_block(),
             format_lessons_block(),
             format_learned_block(),

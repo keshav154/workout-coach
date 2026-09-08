@@ -18,6 +18,39 @@ from agent_core import _col
 
 log = logging.getLogger(__name__)
 
+# Micronutrients per portion, for the foods where they matter most on a veg
+# diet: (fiber_g, iron_mg, calcium_mg, b12_ug). Optional — a food absent here
+# just contributes 0 to the micro tally. Keyed by the canonical FOODS name.
+MICROS: dict[str, tuple] = {
+    "roti":          (2.7, 1.2, 15, 0),
+    "wheat paratha": (3.0, 1.4, 18, 0),
+    "aloo paratha":  (3.5, 1.6, 22, 0),
+    "rice":          (0.6, 0.8, 10, 0),
+    "poha":          (1.5, 2.7, 15, 0),
+    "dal":           (6.0, 2.5, 35, 0),
+    "rajma":         (9.0, 3.5, 60, 0),
+    "chole":         (9.5, 3.2, 70, 0),
+    "sambar":        (4.0, 1.8, 40, 0),
+    "paneer":        (0.0, 0.2, 480, 0.9),
+    "paneer bhurji": (1.0, 0.6, 450, 0.8),
+    "palak paneer":  (3.5, 3.5, 400, 0.8),
+    "dal makhani":   (7.0, 3.0, 90, 0),
+    "curd":          (0.0, 0.1, 220, 0.6),
+    "milk":          (0.0, 0.1, 300, 1.2),
+    "whey":          (0.0, 0.3, 120, 1.5),
+    "egg":           (0.0, 0.9, 28, 0.6),
+    "soya chunks":   (6.0, 3.5, 60, 0),
+    "tofu":          (1.0, 2.7, 350, 0),
+    "mixed veg":     (5.0, 1.5, 45, 0),
+    "bhindi":        (3.2, 0.6, 80, 0),
+    "banana":        (3.1, 0.3, 6, 0),
+    "apple":         (4.4, 0.2, 11, 0),
+    "peanuts":       (2.4, 1.3, 26, 0),
+    "almonds":       (1.7, 0.5, 37, 0),
+    "spinach":       (2.2, 2.7, 99, 0),
+    "palak":         (2.2, 2.7, 99, 0),
+}
+
 # name -> (unit, kcal, protein_g, carbs_g, fat_g). Keys are lowercase; aliases
 # share a canonical entry via _ALIASES.
 FOODS: dict[str, tuple] = {
@@ -153,6 +186,7 @@ def lookup_foods(description: str) -> dict:
      caller should estimate the unmatched parts."""
     matched, unmatched = [], []
     tot = {"calories": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0}
+    micros = {"fiber_g": 0.0, "iron_mg": 0.0, "calcium_mg": 0.0, "b12_ug": 0.0}
     for qty, phrase in _parse_items(description):
         entry = _cached(phrase)
         canon = None
@@ -170,8 +204,16 @@ def lookup_foods(description: str) -> dict:
         for k, v in (("calories", row["calories"]), ("protein_g", row["protein_g"]),
                      ("carbs_g", row["carbs_g"]), ("fat_g", row["fat_g"])):
             tot[k] += v
+        mic = MICROS.get(canon)
+        if mic:
+            fib, iron, cal, b12 = mic
+            micros["fiber_g"] += fib * qty
+            micros["iron_mg"] += iron * qty
+            micros["calcium_mg"] += cal * qty
+            micros["b12_ug"] += b12 * qty
     n_parts = len(matched) + len(unmatched)
     coverage = (len(matched) / n_parts) if n_parts else 0.0
     return {"matched": matched, "unmatched": unmatched,
             "totals": {k: round(v, 1) for k, v in tot.items()},
+            "micros": {k: round(v, 1) for k, v in micros.items()},
             "coverage": round(coverage, 2)}
