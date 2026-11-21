@@ -262,7 +262,7 @@ def reflect_and_tune() -> str | None:
     )
     try:
         raw = chat([{"role": "system", "content": "You output only strict JSON."},
-                    {"role": "user", "content": prompt}], temperature=0.2)
+                    {"role": "user", "content": prompt}], temperature=0.2, think=True)
     except Exception as e:
         log.error(f"reflect_and_tune LLM error: {e}")
         return None

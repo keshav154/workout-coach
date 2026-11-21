@@ -343,7 +343,7 @@ def ai_suggest_exercise(name: str, rep_range: str = "8-12") -> dict:
     try:
         from llm import chat
         raw = chat([{"role": "system", "content": "You output only strict JSON, nothing else."},
-                    {"role": "user", "content": prompt}], temperature=0.3)
+                    {"role": "user", "content": prompt}], temperature=0.3, think=True)
     except Exception as e:
         log.warning(f"ai_suggest_exercise LLM error: {e}")
         return {"error": "Coach is unavailable right now — the standard suggestion still applies."}

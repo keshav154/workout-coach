@@ -131,6 +131,15 @@ def get_status() -> str:
         except Exception as e:
             lines.append(f"DB read error: {e}")
 
+    try:
+        import llm
+        lines.append(f"AI model: {llm.MODEL} @ {llm.LLM_BASE_URL} (vision: {llm.VISION_MODEL})"
+                     + f", thinking: {llm.LLM_THINKING} (deep for weight/rep decisions)")
+        if llm.last_error:
+            lines.append(f"  ⚠️ Last AI error: {llm.last_error[:300]}")
+    except Exception as e:
+        lines.append(f"AI model: unavailable ({e})")
+
     stats = tool_usage_stats()
     if stats["count"]:
         lines.append(f"Tool-call usage (last {stats['count']} data-driven turns): "

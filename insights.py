@@ -107,7 +107,7 @@ def generate_briefing(force: bool = False) -> dict:
     )
     try:
         from llm import chat
-        text = (chat([{"role": "user", "content": prompt}], temperature=0.5) or "").strip()
+        text = (chat([{"role": "user", "content": prompt}], temperature=0.5, think=True) or "").strip()
     except Exception as e:
         log.error(f"generate_briefing error: {e}")
         return {"date": date, "text": "", "cached": False}
