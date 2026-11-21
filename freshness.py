@@ -26,6 +26,7 @@ RECOVERY_DAYS = {
     "Chest": 2.5, "Back": 3.0, "Legs": 3.5, "Shoulders": 2.0,
     "Biceps": 2.0, "Triceps": 2.0, "Core": 1.5,
 }
+DETRAINED_DAYS = 8             # untrained this long -> flagged as detraining
 _FATIGUE_PER_SET = 12.0        # freshness points a muscle loses per hard set
 
 
@@ -60,12 +61,30 @@ def muscle_freshness(log: dict | None = None) -> dict[str, dict]:
                 if cur is None or s.get("date", "") > cur:
                     last_trained[m] = s.get("date", "")
 
+    # Most recent time EVER trained (not just the 6-day window) — a muscle
+    # untouched for DETRAINED_DAYS+ is flagged so it doesn't silently lag.
+    ever: dict[str, str] = {}
+    for s in log.get("sessions", []):
+        d = s.get("date", "")
+        for ex in s.get("exercises", []):
+            for m in muscle_groups(ex.get("name", "")):
+                if d > ever.get(m, ""):
+                    ever[m] = d
+
     out = {}
     for m in LANDMARKS:
         score = max(0, min(100, round(100 - fatigue[m])))
         state = "fresh" if score >= 70 else "moderate" if score >= 40 else "fatigued"
+        days_since = None
+        if ever.get(m):
+            try:
+                days_since = (now - datetime.strptime(ever[m], "%Y-%m-%d").date()).days
+            except ValueError:
+                pass
         out[m] = {"score": score, "state": state,
-                  "last_trained": last_trained.get(m)}
+                  "last_trained": last_trained.get(m),
+                  "days_since": days_since,
+                  "detrained": days_since is None or days_since >= DETRAINED_DAYS}
     return out
 
 

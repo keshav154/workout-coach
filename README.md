@@ -28,6 +28,13 @@ Refined-dark premium UI: a cool near-black ground with a single emerald-mint acc
 - **AI exercise suggestions (✨)**: an on-demand button on each Workout-tab exercise asks the LLM for the next weight/reps using your full history for that lift, recovery readiness and plateau status — snapped to a dumbbell you actually own; the deterministic double-progression hint stays the default
 - **Coach knows today's status**: the chat coach checks whether today's session is already logged (via the `query_today_workout` tool) before asking "did you train?" or prescribing — it acknowledges a completed workout instead of re-prescribing it
 - **Rep/volume-aware plateau detection**: a lift is only flagged as plateaued when neither estimated 1RM (weight *or* reps) nor volume (sets) improved over the last 3 sessions — so more reps or more sets clears it. Auto-scheduled deloads for genuine plateaus
+- **Rest-timer push alerts**: the 60/90/120s rest timer now sends a Web Push notification when rest is over, so it buzzes even with the phone locked or the app in the background (iPhone: install to the home screen first, iOS 16.4+). VAPID keys are generated on first use and stored in Mongo — no setup
+- **Exercise demos**: the ▶ button on each exercise opens a form demo — alternating start/end photos, step-by-step instructions and target muscles from the public-domain free-exercise-db (~870 exercises), matched to your lift name (pick a closer match once and it's remembered), with a YouTube fallback
+- **Remembered supersets**: link an exercise to the one above (🔗) and the pairing is saved for that program day, pre-linked next time
+- **Do a different day today (plan unchanged)**: tap a rotation chip or the freshness card's "Train Day X today" to swap in another day — it's logged out of order, so the rotation still picks up where it left off
+- **Muscle map**: a front/back body diagram on the Workout tab coloured by per-muscle freshness (fresh / recovering / fatigued) with muscles untrained for 8+ days flagged as detraining
+- **Full-history training calendar**: a GitHub-style calendar of every training day since your first session, with training-day count, % of days trained, best streak and total tonnage
+- **Passkey unlock**: set up Face ID / fingerprint from the menu, then unlock with "Unlock with passkey" instead of typing the access code (WebAuthn; tokens last 7 days, revoked if the passkey is deleted)
 - **Workout mode**: per-set logging UI with last-session weights pre-filled, PR detection and confetti, a rest timer (60/90/120s with vibration + beep), the day's warm-up routine plus computed warm-up sets (~55% of working weight), one-tap exercise swaps to equipment-appropriate alternatives, a session stopwatch that logs workout duration, and an A–F rotation strip
 - **Record wall**: best weight x reps per exercise on the Progress tab
 - **Instant Progress/Goals**: the Coach tab's "My Progress" and "My Goals" quick actions jump straight to the Progress tab's real numbers (streaks, plateaus, goal % bars) instead of asking the LLM and waiting on a reply
@@ -69,7 +76,7 @@ Refined-dark premium UI: a cool near-black ground with a single emerald-mint acc
 ## Stack
 
 - **Backend**: Python, Flask, Gunicorn
-- **AI**: any OpenAI-compatible provider (default Groq `llama-3.3-70b-versatile`); Groq Whisper for voice, Llama 4 Scout for vision
+- **AI**: any OpenAI-compatible provider (default Groq `openai/gpt-oss-120b`; recommended NVIDIA NIM `nvidia/nemotron-3.5-super-vl-120b-a12b`, which also handles meal photos), with per-call reasoning depth and `LLM_FALLBACK_MODELS` if a model is retired; Groq Whisper for voice; vision uses the brain when it's a VL model, else Groq `qwen/qwen3.8-27b` (`GROQ_VISION_MODEL`)
 - **Database**: MongoDB Atlas (free M0 cluster)
 - **Hosting**: Render (free tier) + external cron pings
 
@@ -105,6 +112,9 @@ pip install -r requirements.txt
 | `TELEGRAM_CHAT_ID` | Your chat ID — bot only responds to you |
 | `TELEGRAM_WEBHOOK_SECRET` | Secret passed to `setWebhook`, verified on each update |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Optional: point the reasoning brain at another OpenAI-compatible provider (Moonshot/Kimi, NVIDIA NIM, ...) |
+| `LLM_FALLBACK_MODELS` | Optional, comma-separated: models tried in order if the primary is retired/unavailable (default `openai/gpt-oss-20b`) |
+| `LLM_THINKING` | `auto` (default: deep reasoning only for weight/rep suggestions, the weekly self-tuner and the daily read; fast for chat), `always` or `never` |
+| `LLM_TIMEOUT` / `LLM_THINK_TIMEOUT` | Per-call timeouts in seconds for fast / thinking calls (default 60 / 105) |
 | `TWILIO_*` / `ALLOWED_WHATSAPP_NUMBER` | Optional: WhatsApp transport via Twilio |
 | `DISCORD_BOT_TOKEN` / `DISCORD_USER_ID` | Optional: Discord bot (only runs via `python bot.py`, not under gunicorn) |
 | `APP_TZ_OFFSET_MIN` | Minutes offset from UTC for "today" (default 330 = IST) |

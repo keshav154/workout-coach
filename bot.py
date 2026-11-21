@@ -14,6 +14,7 @@ from collections import deque
 
 import discord
 from flask import Flask, jsonify, render_template, request
+from flask import session as flask_session
 
 from agent_core import (
     get_next_day,
@@ -69,6 +70,15 @@ def _client_ip() -> str:
             or request.remote_addr or "?")
 
 
+def _passkey_token_ok(tok: str) -> bool:
+    try:
+        from passkeys import token_valid
+        return token_valid(FLASK_SECRET, tok)
+    except Exception as e:
+        log.warning(f"passkey token check failed: {e}")
+        return False
+
+
 def require_auth(f):
     """Check X-Password header sent by the JS frontend on every API call."""
     @functools.wraps(f)
@@ -84,7 +94,8 @@ def require_auth(f):
             _AUTH_FAILS[ip] = fails
             return jsonify({"error": "too many attempts — wait a few minutes"}), 429
         pwd = request.headers.get("X-Password", "")
-        if hmac.compare_digest(pwd, WEB_PASSWORD):
+        tok = request.headers.get("X-Auth-Token", "")
+        if hmac.compare_digest(pwd, WEB_PASSWORD) or (tok and _passkey_token_ok(tok)):
             _AUTH_FAILS.pop(ip, None)
             return f(*args, **kwargs)
         fails.append(now)
@@ -128,7 +139,28 @@ def manifest():
 @flask_app.route("/sw.js")
 def service_worker():
     js = """
-const CACHE = 'coachxkeshav-v44';
+const CACHE = 'coachxkeshav-v45';
+// Rest-timer alerts (Web Push) — fire even with the screen locked. Skipped if
+// the app is open and visible, since the page already beeps/vibrates itself.
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch {}
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+    if (cs.some(c => c.visibilityState === 'visible')) return;
+    return self.registration.showNotification(d.title || 'Rest over — GO!', {
+      body: d.body || 'Time for your next set.', tag: d.tag || 'rest-timer',
+      renotify: true, requireInteraction: false, vibrate: [300, 120, 300, 120, 300],
+      icon: '/icon.svg', badge: '/icon.svg',
+    });
+  }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+    const c = cs.find(x => 'focus' in x);
+    return c ? c.focus() : self.clients.openWindow('/');
+  }));
+});
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')));
@@ -347,18 +379,43 @@ def stats():
     profile = load_profile() or {}
     dpw = profile.get("days_per_week", 6)
 
-    # 5-week volume heatmap: 35 days ending today, one entry per day.
+    # Training calendar (GitHub-style): every day from the Monday of the week
+    # of your first session (min 5 weeks, max ~1 year) to today.
     vol_by_date = {}
     for s in sessions:
         d = s.get("date", "")
         if d:
             vol_by_date[d] = vol_by_date.get(d, 0) + session_volume(s)
+    from datetime import date as _date
+    first = min((d for d in vol_by_date), default=None)
+    try:
+        start = _date.fromisoformat(first) if first else today - timedelta(days=34)
+    except ValueError:
+        start = today - timedelta(days=34)
+    start = max(min(start, today - timedelta(days=34)), today - timedelta(days=370))
+    start -= timedelta(days=start.weekday())            # align to Monday
     heatmap = []
-    for i in range(34, -1, -1):
-        dd = (today - timedelta(days=i))
+    dd = start
+    while dd <= today:
         ds = dd.isoformat()
         heatmap.append({"date": ds, "volume": round(vol_by_date.get(ds, 0)),
                         "dow": dd.weekday()})
+        dd += timedelta(days=1)
+    trained = sorted(d for d, v in vol_by_date.items() if d <= today.isoformat())
+    best_run = run = 0
+    prev = None
+    for ds in trained:
+        cur = _date.fromisoformat(ds)
+        run = run + 1 if prev and (cur - prev).days == 1 else 1
+        best_run = max(best_run, run)
+        prev = cur
+    heatmap_meta = {
+        "training_days": len(trained),
+        "first_date": trained[0] if trained else None,
+        "span_days": ((today - _date.fromisoformat(trained[0])).days + 1) if trained else 0,
+        "best_streak": best_run,
+        "total_kg": round(sum(vol_by_date.values())),
+    }
 
     # Body-weight change over the current week
     wk_entries = [w for w in entries if w[0] >= week_start.isoformat()]
@@ -378,6 +435,7 @@ def stats():
         "plateaus":           detect_plateaus(workout_log),
         "volume":             weekly_volume(workout_log),
         "heatmap":            heatmap,
+        "heatmap_meta":       heatmap_meta,
     })
 
 
@@ -395,9 +453,14 @@ def today_program():
     workout_log = load_log()
     prog = get_program()
     rotation = get_rotation()
-    day  = get_next_day(workout_log)
+    scheduled = get_next_day(workout_log)
+    # ?day=X: train a different program day today WITHOUT shifting the plan
+    # (the session is logged out_of_order and the rotation stays put).
+    want = (request.args.get("day") or "").strip()
+    day  = want if want in rotation else scheduled
     p    = prog.get(day, {})
     last = get_last_session_for_day(workout_log, day)
+    linked = set(((profile or {}).get("supersets") or {}).get(day, []))
     deload_week = should_suggest_deload(workout_log)
     autoflags   = set(get_autodeload_flags())
     deload_week_factor = get_param("deload_week_factor")
@@ -450,6 +513,7 @@ def today_program():
             "alternatives":  alternatives_for(ex["name"]),
             "suggestion":    suggestion,
             "history":       hist,
+            "superset_linked": ex["name"] in linked,
         })
     # Week-ahead preview: every rotation day with its exercises + last weights,
     # so tapping a rotation chip can show what's coming.
@@ -470,6 +534,7 @@ def today_program():
     from agent_core import get_consecutive_workout_days, is_rest_day
     consec = get_consecutive_workout_days(workout_log)
     return jsonify({"ready": True, "day": day, "name": p.get("name", ""),
+                    "scheduled_day": scheduled, "override": day != scheduled,
                     "today": today_iso(), "last_logged": last_logged,
                     "warmup": p.get("warmup", ""),
                     "rotation": [{"day": d0, "name": prog.get(d0, {}).get("name", "")}
@@ -952,6 +1017,154 @@ def mesocycle_view():
     """Where the user is in their current training block (periodization)."""
     from mesocycle import mesocycle_status
     return jsonify(mesocycle_status())
+
+
+# ── Rest-timer push notifications (Web Push) ─────────────────────────────────
+def _origin() -> str:
+    return request.headers.get("Origin") or request.host_url.rstrip("/")
+
+
+@flask_app.route("/push/key")
+@require_auth
+def push_key():
+    from push import public_key
+    try:
+        return jsonify({"key": public_key()})
+    except Exception as e:
+        log.error(f"VAPID key error: {e}")
+        return jsonify({"error": "push unavailable"}), 503
+
+
+@flask_app.route("/push/subscribe", methods=["POST"])
+@require_auth
+def push_subscribe():
+    from push import save_subscription
+    ok = save_subscription((request.json or {}).get("subscription") or {}, _origin())
+    return jsonify({"ok": ok}), (200 if ok else 400)
+
+
+@flask_app.route("/push/rest", methods=["POST"])
+@require_auth
+def push_rest():
+    """Start (or restart) the server-side rest alert for this device."""
+    from push import schedule_rest
+    data = request.json or {}
+    try:
+        secs = float(data.get("seconds") or 0)
+    except (TypeError, ValueError):
+        secs = 0
+    if secs <= 0:
+        return jsonify({"error": "seconds required"}), 400
+    ok = schedule_rest(data.get("subscription") or {}, _origin(), secs)
+    return jsonify({"ok": ok}), (200 if ok else 400)
+
+
+@flask_app.route("/push/cancel", methods=["POST"])
+@require_auth
+def push_cancel():
+    from push import cancel_rest
+    sub = (request.json or {}).get("subscription") or {}
+    if sub:
+        cancel_rest(sub)
+    return jsonify({"ok": True})
+
+
+# ── Exercise demos (public-domain free-exercise-db) ──────────────────────────
+@flask_app.route("/exercise_demo")
+@require_auth
+def exercise_demo():
+    from exercise_db import demo_by_exact, find_demo
+    name = (request.args.get("name") or "").strip()[:80]
+    if not name:
+        return jsonify({"error": "missing name"}), 400
+    exact = (request.args.get("exact") or "").strip()[:80]
+    try:
+        r = demo_by_exact(exact) if exact else find_demo(name)
+    except Exception as e:
+        log.warning(f"exercise demo failed: {e}")
+        r = {"error": "Exercise library is unreachable right now."}
+    return jsonify(r)
+
+
+# ── Passkeys (WebAuthn) ──────────────────────────────────────────────────────
+@flask_app.route("/passkey/status")
+def passkey_status():
+    """Open (no auth): the lock screen needs to know whether to offer a passkey."""
+    from passkeys import count
+    try:
+        n = count()
+    except Exception:
+        n = 0
+    return jsonify({"enabled": bool(WEB_PASSWORD), "registered": n})
+
+
+@flask_app.route("/passkey/register/options", methods=["POST"])
+@require_auth
+def passkey_register_options():
+    from passkeys import registration_options
+    try:
+        return registration_options(request, flask_session), 200, {"Content-Type": "application/json"}
+    except Exception as e:
+        log.warning(f"passkey register options failed: {e}")
+        return jsonify({"error": str(e)}), 400
+
+
+@flask_app.route("/passkey/register/verify", methods=["POST"])
+@require_auth
+def passkey_register_verify():
+    from passkeys import verify_registration
+    data = request.json or {}
+    try:
+        cid = verify_registration(request, flask_session, data.get("credential") or {},
+                                  str(data.get("label") or ""))
+    except Exception as e:
+        log.warning(f"passkey registration failed: {e}")
+        return jsonify({"error": "Passkey registration failed."}), 400
+    return jsonify({"ok": True, "id": cid})
+
+
+@flask_app.route("/passkey/login/options", methods=["POST"])
+def passkey_login_options():
+    from passkeys import login_options
+    try:
+        return login_options(request, flask_session), 200, {"Content-Type": "application/json"}
+    except LookupError:
+        return jsonify({"error": "No passkey registered yet."}), 404
+    except Exception as e:
+        log.warning(f"passkey login options failed: {e}")
+        return jsonify({"error": "Passkey unavailable."}), 400
+
+
+@flask_app.route("/passkey/login/verify", methods=["POST"])
+def passkey_login_verify():
+    from passkeys import issue_token, verify_login
+    ip, now = _client_ip(), time.time()
+    fails = [t for t in _AUTH_FAILS.get(ip, []) if now - t < 300]
+    if len(fails) >= 10:
+        return jsonify({"error": "too many attempts — wait a few minutes"}), 429
+    try:
+        cid = verify_login(request, flask_session, (request.json or {}).get("credential") or {})
+    except Exception as e:
+        log.warning(f"passkey login failed: {e}")
+        fails.append(now)
+        _AUTH_FAILS[ip] = fails
+        return jsonify({"error": "Passkey sign-in failed."}), 401
+    return jsonify({"ok": True, "token": issue_token(FLASK_SECRET, cid)})
+
+
+@flask_app.route("/passkey/list")
+@require_auth
+def passkey_list():
+    from passkeys import list_passkeys
+    return jsonify({"passkeys": list_passkeys()})
+
+
+@flask_app.route("/passkey/delete", methods=["POST"])
+@require_auth
+def passkey_delete():
+    from passkeys import delete_passkey
+    ok = delete_passkey(str((request.json or {}).get("id") or ""))
+    return jsonify({"ok": ok})
 
 
 @flask_app.route("/freshness")
@@ -1546,6 +1759,27 @@ def log_workout():
         return jsonify({"error": reason}), 400
 
     workout_log = load_log()
+    # A day done ahead of / instead of the scheduled one doesn't move the plan.
+    if data.get("out_of_order") and day != get_next_day(workout_log):
+        cleaned["out_of_order"] = True
+    # Remember superset pairings for this program day so they're pre-linked
+    # next time: every exercise after the first in a group is "linked above".
+    try:
+        seen_groups, linked = set(), []
+        for e in exercises:
+            g = e.get("superset")
+            if g:
+                if g in seen_groups:
+                    linked.append(e["name"])
+                seen_groups.add(g)
+        from agent_core import save_profile
+        prof = load_profile() or {}
+        ss = dict(prof.get("supersets") or {})
+        if linked or day in ss:
+            ss[day] = linked
+            save_profile({"supersets": ss})
+    except Exception as e:
+        log.warning(f"Could not save superset pairings: {e}")
     prs = detect_prs(workout_log, cleaned)
     save_session(workout_log, cleaned)
     record_audit("session", f"Day {day} (workout mode) on {cleaned['date']}",

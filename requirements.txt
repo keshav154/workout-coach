@@ -8,3 +8,5 @@ pymongo==4.10.1
 dnspython==2.7.0
 certifi==2025.4.26
 twilio==9.3.6
+pywebpush==2.5.0
+webauthn==3.0.1

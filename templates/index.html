@@ -1014,6 +1014,53 @@
       border-color: var(--accent) !important; box-shadow: 0 0 0 3px rgba(63,224,160,0.12) !important;
     }
 
+
+    /* -- Passkey unlock -- */
+    #pk-btn { display: none; margin-top: 2px; background: none; border: 1px solid var(--accent2); color: var(--accent2);
+      padding: 11px 22px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font-body); }
+    #pk-btn:active { background: var(--accent2); color: var(--bg); }
+    /* -- Day override (do a different day; plan unchanged) -- */
+    .wk-do-btn { margin-top: 8px; width: 100%; background: none; border: 1px solid var(--accent); color: var(--accent);
+      padding: 8px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font-body); }
+    .wk-do-btn:active { background: var(--accent); color: var(--bg); }
+    .wk-moved { color: var(--accent3); }
+    .wk-moved-link { color: var(--accent); cursor: pointer; text-decoration: underline; }
+    /* -- Muscle map -- */
+    .bodymap { background: var(--card); border: 1px solid var(--border); padding: 10px 12px; margin: 8px 0; }
+    .bodymap-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; }
+    .bodymap-head span { color: var(--muted); font-weight: 500; font-size: 10px; }
+    .bodymap svg { width: 100%; max-width: 330px; display: block; margin: 6px auto 0; }
+    .bodymap .bm-base { fill: var(--card2); stroke: var(--border); stroke-width: 0.8; }
+    .bodymap .bm-m { stroke: rgba(0,0,0,.35); stroke-width: 0.6; cursor: pointer; }
+    .bodymap .bm-detrained { stroke: var(--muted); stroke-dasharray: 2 1.5; stroke-width: 0.9; }
+    .bodymap text { fill: var(--muted); font-size: 7px; font-family: var(--font-body); }
+    .bm-legend { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 6px; font-size: 10px; color: var(--muted); }
+    .bm-legend i { display: inline-block; width: 9px; height: 9px; margin-right: 4px; vertical-align: -1px; border-radius: 2px; }
+    .bm-detail { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; min-height: 14px; }
+    /* -- Training calendar (full history) -- */
+    .hm-scroll { overflow-x: auto; padding-bottom: 4px; }
+    .hm-weeks { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 13px); grid-auto-columns: 13px; gap: 3px; width: max-content; }
+    .hm-weeks .hm-cell { width: 13px; height: 13px; aspect-ratio: auto; }
+    .hm-sum { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; color: var(--muted); margin-bottom: 9px; }
+    .hm-sum b { color: var(--fg); font-size: 13px; }
+    .hm-months { display: grid; grid-auto-flow: column; grid-auto-columns: 13px; gap: 3px; width: max-content; font-size: 8.5px; color: var(--muted); margin-bottom: 3px; height: 11px; white-space: nowrap; }
+    /* -- Exercise demo sheet -- */
+    #demo-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(5,6,9,.78); display: none; align-items: flex-end; justify-content: center; }
+    #demo-overlay.open { display: flex; }
+    .demo-card { background: var(--card); border-top: 1px solid var(--border); width: 100%; max-width: 640px; max-height: 88vh; overflow-y: auto; padding: 16px; }
+    .demo-top { display: flex; align-items: flex-start; gap: 10px; }
+    .demo-top > div:first-child { flex: 1; }
+    .demo-title { flex: 1; font-size: 16px; font-weight: 700; }
+    .demo-sub { font-size: 11px; color: var(--muted); margin-top: 3px; text-transform: capitalize; }
+    .demo-close { background: none; border: 1px solid var(--border); color: var(--muted); width: 32px; height: 32px; cursor: pointer; font-size: 14px; flex-shrink: 0; }
+    .demo-img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #fff; margin-top: 12px; border-radius: 6px; }
+    .demo-steps { margin: 12px 0 0 18px; padding: 0; font-size: 13px; line-height: 1.5; }
+    .demo-steps li { margin-bottom: 6px; }
+    .demo-others { margin-top: 12px; font-size: 11px; color: var(--muted); }
+    .demo-others button { margin: 5px 6px 0 0; background: none; border: 1px solid var(--border); color: var(--fg); padding: 4px 8px; font-size: 11px; cursor: pointer; }
+    .demo-yt { display: inline-block; margin-top: 12px; color: var(--accent3); font-size: 12px; }
+    .demo-credit { font-size: 9.5px; color: var(--muted); margin-top: 10px; }
+    .wk-ex.ss-linked { border-left: 3px solid var(--accent2); }
   </style>
 </head>
 <body>
@@ -1027,6 +1074,12 @@
     onkeydown="if(event.key==='Enter') unlock()" autofocus />
   <div id="lock-error">ACCESS DENIED — TRY AGAIN</div>
   <button id="lock-btn" onclick="unlock()">Unlock</button>
+  <button id="pk-btn" onclick="passkeyUnlock()">🔑 Unlock with passkey</button>
+</div>
+
+<!-- Exercise demo sheet -->
+<div id="demo-overlay" onclick="if (event.target === this) closeDemo()">
+  <div class="demo-card" id="demo-card"></div>
 </div>
 
 <!-- App -->
@@ -1209,7 +1262,7 @@
       <div class="session-list" id="sv-plateaus"></div>
     </div>
     <div class="seg-sec" data-seg="strength">
-      <div class="stats-title">Training Calendar (5 weeks)</div>
+      <div class="stats-title">Training Calendar</div>
       <div class="chart-card" id="sv-heatmap"></div>
     </div>
     <div class="seg-sec" data-seg="strength">
@@ -1270,6 +1323,7 @@
       <div id="wk-meso" class="wk-meso" style="display:none"></div>
       <div id="wk-deload" class="wk-deload" style="display:none"></div>
       <div id="wk-fresh" class="wk-fresh" style="display:none"></div>
+      <div id="wk-bodymap" class="bodymap" style="display:none"></div>
       <div id="wk-rest-banner" class="wk-rest-banner" style="display:none"></div>
       <button id="wk-rest-btn" class="wk-sw" onclick="toggleRestDay()">🛌 Mark today a rest day</button>
       <div id="wk-warmup" class="wk-warmup" style="display:none"></div>
@@ -1457,6 +1511,7 @@
   <div class="sheet-handle"></div>
   <button class="sheet-btn" onclick="closeSheet(); openProgram()"><span class="ico">🏗️</span>Program builder</button>
   <button class="sheet-btn" onclick="closeSheet(); openWeekly()"><span class="ico">🗓️</span>Weekly summary</button>
+  <button class="sheet-btn" onclick="closeSheet(); setupPasskey()"><span class="ico">🔑</span>Set up passkey (Face ID / fingerprint)</button>
   <button class="sheet-btn" onclick="closeSheet(); quickSend('Give me a summary of my month — training, weight and spending')"><span class="ico">🔎</span>Ask about my data</button>
   <button class="sheet-btn" onclick="closeSheet(); quickSend('Is everything working? Run a system status check')"><span class="ico">🩺</span>System status</button>
   <button class="sheet-btn" onclick="closeSheet(); deleteLastSession()"><span class="ico">↩️</span>Undo last log</button>
@@ -1512,6 +1567,7 @@
 
   // ── Auth ──
   let password = sessionStorage.getItem('wc_pwd') || '';
+  let authToken = sessionStorage.getItem('wc_tok') || '';
 
   function unlock() {
     const val = document.getElementById('lock-input').value.trim();
@@ -1535,7 +1591,11 @@
     document.getElementById('app').style.display = 'flex';
     init();
   }
-  function authHeaders(extra) { return Object.assign({ 'X-Password': password }, extra || {}); }
+  function authHeaders(extra) {
+    const h = { 'X-Password': password };
+    if (authToken) h['X-Auth-Token'] = authToken;
+    return Object.assign(h, extra || {});
+  }
 
   // ── Network resilience ──
   // Render's free tier sleeps the app after ~15min idle; a cold start can
@@ -1814,8 +1874,9 @@
     const wrap  = document.getElementById('wk-exercises');
     let d = null, offline = false;
     try {
-      d = await (await fetch('/today_program', { headers: authHeaders() })).json();
-      if (d.ready) localStorage.setItem('wc_program', JSON.stringify(d));
+      const q = wkOverride ? '?day=' + encodeURIComponent(wkOverride) : '';
+      d = await (await fetch('/today_program' + q, { headers: authHeaders() })).json();
+      if (d.ready && !d.override) localStorage.setItem('wc_program', JSON.stringify(d));
     } catch {
       // Offline: fall back to the last cached program so the gym session
       // can still be logged (saves are queued and synced later).
@@ -1889,6 +1950,8 @@
       // Don't re-render (and wipe typed values) if the same day is already shown.
       if (!force && wkDay === d.day && wrap.children.length) return;
       wkDay = d.day;
+      wkScheduled = d.scheduled_day || d.day;
+      if (!d.override) wkOverride = null;
       wkExercises = d.exercises || [];
       document.getElementById('wk-result').innerHTML = '';
       title.innerHTML = 'DAY ' + d.day + ' — ' + d.name.toUpperCase() +
@@ -1911,6 +1974,10 @@
       if (offline) {
         st.innerHTML = `📴 <b>Offline</b> — showing the last cached program. ` +
                        `Saved workouts will sync automatically when you're back online.`;
+        st.style.display = 'block';
+      } else if (d.override) {
+        st.innerHTML = `<span class="wk-moved">🔀 Doing <b>Day ${esc(d.day)}</b> today instead — your plan stays put ` +
+                       `(Day ${esc(d.scheduled_day)} is still next).</span> <span class="wk-moved-link" onclick="trainDay(null)">Back to Day ${esc(d.scheduled_day)}</span>`;
         st.style.display = 'block';
       } else if (d.last_logged) {
         st.innerHTML = `Last logged: <b>Day ${esc(d.last_logged.day)}</b> · ${esc(d.last_logged.date)}` +
@@ -1991,7 +2058,7 @@
         const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
         const swap = `<button class="wk-swap" title="Swap exercise (equipment- & injury-aware)" onclick="swapExercise(${i})">⇄</button>`;
         const ssBtn = (i > 0) ? `<button class="wk-ss-btn" title="Superset with the exercise above" onclick="toggleSuperset(${i})">🔗</button>` : '';
-        const video = `<a class="wk-video" href="${ytSearchUrl(ex.name)}" target="_blank" rel="noopener" title="Watch form">▶</a>`;
+        const video = `<button class="wk-video" title="Form demo" onclick="openDemo(${i})">▶</button>`;
         const aiBtn = `<button class="wk-ai-btn" title="AI suggestion from your full history" onclick="aiSuggest(${i})">✨</button>`;
         const deloadTag = (auto.includes(ex.name)) ? `<span class="wk-ex-tag">deload</span>` : '';
         const prog = progBlockHTML(sug);
@@ -2017,6 +2084,8 @@
         if (hist) div.querySelector('.wk-ex-name').onclick = () => div.classList.toggle('hist-open');
         wrap.appendChild(div);
       });
+      // Restore remembered superset pairings for this day.
+      d.exercises.forEach((ex, i) => { if (i > 0 && ex.superset_linked) toggleSuperset(i); });
       if (!offline) { loadFreshness(); loadMesocycle(); }
     } catch { title.textContent = 'Could not load today\'s workout.'; }
   }
@@ -2047,6 +2116,7 @@
     try { d = await (await fetch('/freshness', { headers: authHeaders() })).json(); }
     catch { box.style.display = 'none'; return; }
     const fresh = d.freshness || [];
+    renderBodyMap(fresh);
     const fatigued = fresh.filter(m => m.state === 'fatigued');
     if (d.agrees && !fatigued.length) { box.style.display = 'none'; return; }
     const chips = fresh.map(m => {
@@ -2054,7 +2124,8 @@
       return `<span class="fresh-chip" style="border-color:${col};color:${col}">${esc(m.muscle)} ${esc(m.score)}</span>`;
     }).join('');
     let head = '';
-    if (!d.agrees) head = `🧠 Freshest today is <b>Day ${esc(d.recommended)}</b> (scheduled: Day ${esc(d.scheduled)}). ${esc(d.reason)}`;
+    if (!d.agrees) head = `🧠 Freshest today is <b>Day ${esc(d.recommended)}</b> (scheduled: Day ${esc(d.scheduled)}). ${esc(d.reason)}` +
+      (wkDay !== d.recommended ? `<button class="wk-do-btn" onclick="trainDay('${esc(d.recommended)}')">▶ Train Day ${esc(d.recommended)} today (plan unchanged)</button>` : '');
     else if (fatigued.length) head = `Still recovering: <b>${fatigued.map(m => esc(m.muscle)).join(', ')}</b> — train these lighter or focus elsewhere.`;
     box.innerHTML = `<div class="fresh-head">${head}</div><div class="fresh-chips">${chips}</div>`;
     box.style.display = 'block';
@@ -2130,7 +2201,8 @@
       `<span>${esc(e.target)}${e.last_weight != null ? ' · last ' + esc(e.last_weight) + 'kg' : ''}</span></div>`
     ).join('');
     panel.innerHTML = `<b>DAY ${esc(w.day)} — ${esc(w.name.toUpperCase())}</b>` +
-      `<div class="session-date" style="margin:3px 0 7px">${esc(w.focus)}</div>` + rows;
+      `<div class="session-date" style="margin:3px 0 7px">${esc(w.focus)}</div>` + rows +
+      (day !== wkDay ? `<button class="wk-do-btn" onclick="trainDay('${esc(day)}')">▶ Do Day ${esc(day)} today${day === wkScheduled ? '' : ' (plan unchanged)'}</button>` : '');
     panel.style.display = 'block';
   }
 
@@ -2176,7 +2248,7 @@
     try {
       const r = await (await fetchRetry(
         '/suggest_exercise?name=' + encodeURIComponent(name) + '&rep_range=' + encodeURIComponent(ex.rep_range || '8-12'),
-        { headers: authHeaders() }, { timeoutMs: 60000, retries: 1 })).json();
+        { headers: authHeaders() }, { timeoutMs: 115000, retries: 0 })).json();
       if (r.error) { setProgLine(card, { kind: 'max', reason: r.error }); }
       else {
         setProgLine(card, { kind: 'ai', weight: r.weight, target_reps: r.target_reps, reason: r.reason });
@@ -2220,8 +2292,6 @@
     const next = opts[(opts.indexOf(card.dataset.name) + 1) % opts.length];
     card.dataset.name = next;
     card.querySelector('.wk-ex-name').textContent = next;
-    const vid = card.querySelector('.wk-video');
-    if (vid) vid.href = ytSearchUrl(next);
     const target = ex.scheme ? ex.scheme : `${ex.sets} sets x ${ex.rep_range}`;
     const last = (ex.last_weight != null) ? `last: ${ex.last_weight}kg x ${ex.last_reps ?? '?'}` : 'first time';
     card.querySelector('.wk-ex-meta').textContent =
@@ -2292,7 +2362,7 @@
     const bw = parseFloat(document.getElementById('wk-bodyweight').value);
     const duration = swStart ? Math.max(1, Math.round((Date.now() - swStart) / 60000)) : null;
     const payload = { day: wkDay, exercises, body_weight_kg: isNaN(bw) ? null : bw,
-                      duration_min: duration };
+                      duration_min: duration, out_of_order: !!wkOverride };
     saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
     try {
       const res = await fetch('/log_workout', {
@@ -2308,6 +2378,7 @@
         out.innerHTML = html;
         loadStatsBar();
         resetStopwatch();
+        wkOverride = null;
         wkDay = null;               // next visit reloads the (now advanced) day
       }
     } catch { queueLog(payload); }
@@ -2356,6 +2427,7 @@
   }
   function startRest(sec) {
     ensureAudio();
+    scheduleRestPush(sec);
     rtEnd = Date.now() + sec * 1000;
     const bar = document.getElementById('rest-timer');
     bar.classList.add('running'); bar.classList.remove('done');
@@ -2363,6 +2435,7 @@
     clearInterval(rtInt); rtInt = setInterval(tickRest, 250); tickRest();
   }
   function stopRest() {
+    if (rtEnd !== null) cancelRestPush();      // stopped early by the user
     clearInterval(rtInt); rtInt = null; rtEnd = null;
     const bar = document.getElementById('rest-timer');
     bar.classList.remove('running', 'done');
@@ -2905,7 +2978,7 @@
         vSub.innerHTML = `<span style="color:${diff >= 0 ? 'var(--accent)' : 'var(--accent2)'}">${diff >= 0 ? '▲' : '▼'} ${Math.abs(pct)}% vs last wk</span>`;
       } else vSub.textContent = 'kg this week';
       drawWeeklyRing(d.sessions_this_week ?? 0, d.days_per_week ?? 6);
-      renderHeatmap(d.heatmap || []);
+      renderHeatmap(d.heatmap || [], d.heatmap_meta || {});
 
       const pWrap = document.getElementById('sv-plateaus-wrap');
       const pBox  = document.getElementById('sv-plateaus');
@@ -3660,24 +3733,38 @@
       if (el && el.classList.contains('has-content')) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
-  // Month training heatmap (5 weeks of daily volume)
-  function renderHeatmap(days) {
+  // Training calendar: GitHub-style, one column per week, full history.
+  function renderHeatmap(days, meta) {
     const box = document.getElementById('sv-heatmap');
-    if (!days.length) { box.innerHTML = '<div class="ws-empty" style="color:var(--muted);font-size:12px">Log workouts to fill your calendar.</div>'; return; }
+    meta = meta || {};
+    if (!days.length || !meta.training_days) { box.innerHTML = '<div class="ws-empty" style="color:var(--muted);font-size:12px">Log workouts to fill your calendar.</div>'; return; }
     const maxV = Math.max(1, ...days.map(x => x.volume));
-    const head = ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(h => `<div class="hm-head">${h}</div>`).join('');
-    // Pad leading blanks so the first day lands under its weekday column.
-    const pad = '<div></div>'.repeat(days[0].dow || 0);
-    const cells = pad + days.map(x => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    let months = '', lastM = -1;
+    for (let w = 0; w * 7 < days.length; w++) {
+      const m = parseInt(days[w * 7].date.slice(5, 7), 10) - 1;
+      months += `<div>${m !== lastM ? MON[m] : ''}</div>`;
+      lastM = m;
+    }
+    const cells = days.map(x => {
       const t = x.volume / maxV;
-      const bg = x.volume > 0 ? `background:rgba(63,224,160,${(0.18 + t * 0.72).toFixed(2)});border-color:rgba(63,224,160,${(0.3 + t * 0.5).toFixed(2)})` : '';
-      const today = x.date === new Date().toISOString().slice(0, 10) ? ' today' : '';
+      const bg = x.volume > 0 ? `background:rgba(63,224,160,${(0.22 + t * 0.7).toFixed(2)});border-color:rgba(63,224,160,${(0.3 + t * 0.5).toFixed(2)})` : '';
+      const today = x.date === todayIso ? ' today' : '';
       return `<div class="hm-cell${today}" style="${bg}" title="${esc(x.date)}: ${x.volume.toLocaleString()} kg"></div>`;
     }).join('');
-    box.innerHTML = `<div class="hm-grid">${head}${cells}</div>
+    const pct = meta.span_days ? Math.round(100 * meta.training_days / meta.span_days) : 0;
+    box.innerHTML = `
+      <div class="hm-sum"><span><b>${esc(meta.training_days)}</b> training days</span>
+        <span><b>${esc(meta.span_days)}</b> days since ${esc(meta.first_date)}</span>
+        <span><b>${pct}%</b> of days</span>
+        <span><b>${esc(meta.best_streak)}</b>-day best streak</span>
+        <span><b>${(Math.round((meta.total_kg || 0) / 100) / 10).toLocaleString()}t</b> lifted</span></div>
+      <div class="hm-scroll" id="hm-scroll"><div class="hm-months">${months}</div><div class="hm-weeks">${cells}</div></div>
       <div class="hm-legend">less <span class="hm-cell"></span>
         <span class="hm-cell" style="background:rgba(63,224,160,0.4)"></span>
         <span class="hm-cell" style="background:rgba(63,224,160,0.9)"></span> more</div>`;
+    const sc = document.getElementById('hm-scroll'); sc.scrollLeft = sc.scrollWidth;
   }
   function logWeight() {
     const kg = prompt('Enter your weight in kg (e.g. 97.5):');
@@ -3734,6 +3821,240 @@
         data.history.forEach(m => { if (m.role !== 'system') addBubble(m.content, m.role === 'user' ? 'user' : 'coach'); });
     } catch {}
   }
+
+  // ════ OpenGym-inspired features ════════════════════════════════════════
+
+  // ── Do a different day today, without changing the plan ──
+  let wkOverride = null, wkScheduled = null;
+  function trainDay(day) {
+    wkOverride = (day && day !== wkScheduled) ? day : null;
+    wkDay = null;
+    loadWorkout(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── Rest timer push (alerts with the screen locked) ──
+  let pushSub = null, pushAsked = false;
+  function b64uToU8(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
+    const b = atob(s), u = new Uint8Array(b.length);
+    for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+    return u;
+  }
+  async function ensurePush() {
+    if (pushSub) return pushSub;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return null;
+    try {
+      let perm = Notification.permission;
+      if (perm === 'default' && !pushAsked) { pushAsked = true; perm = await Notification.requestPermission(); }
+      if (perm !== 'granted') return null;
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const k = await (await fetch('/push/key', { headers: authHeaders() })).json();
+        if (!k.key) return null;
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToU8(k.key) });
+      }
+      pushSub = sub.toJSON();
+      return pushSub;
+    } catch { return null; }
+  }
+  function scheduleRestPush(sec) {
+    ensurePush().then(sub => {
+      if (!sub) return;
+      fetch('/push/rest', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ seconds: sec, subscription: sub }) }).catch(() => {});
+    });
+  }
+  function cancelRestPush() {
+    if (!pushSub) return;
+    fetch('/push/cancel', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ subscription: pushSub }) }).catch(() => {});
+  }
+
+  // ── Exercise demos (free-exercise-db, public domain) ──
+  let demoTimer = null;
+  function demoMap() { try { return JSON.parse(localStorage.getItem('wc_demo_map') || '{}'); } catch { return {}; } }
+  function demoHead(title, sub) {
+    return `<div class="demo-top"><div><div class="demo-title">${esc(title)}</div>
+      ${sub ? `<div class="demo-sub">${sub}</div>` : ''}</div>
+      <button class="demo-close" onclick="closeDemo()">✕</button></div>`;
+  }
+  async function openDemo(i, pickIdx) {
+    const card = document.querySelectorAll('.wk-ex')[i];
+    if (!card) return;
+    const name = card.dataset.name;
+    const ov = document.getElementById('demo-overlay'), box = document.getElementById('demo-card');
+    clearInterval(demoTimer);
+    box.innerHTML = demoHead(name, 'Loading demo…');
+    ov.classList.add('open');
+    let pick = '';
+    if (pickIdx != null && window._demoOthers) pick = window._demoOthers[pickIdx] || '';
+    const exact = pick || demoMap()[name] || '';
+    let r;
+    try {
+      r = await (await fetchRetry('/exercise_demo?name=' + encodeURIComponent(name) +
+        (exact ? '&exact=' + encodeURIComponent(exact) : ''), { headers: authHeaders() },
+        { timeoutMs: 30000, retries: 1 })).json();
+    } catch { r = { error: 'Network error — try again.' }; }
+    const yt = `<a class="demo-yt" href="${ytSearchUrl(name)}" target="_blank" rel="noopener">▶ Watch form videos on YouTube</a>`;
+    if (r.error) { box.innerHTML = demoHead(name, esc(r.error)) + yt; return; }
+    if (pick) { const m = demoMap(); m[name] = pick; localStorage.setItem('wc_demo_map', JSON.stringify(m)); }
+    const muscles = [...(r.primary || []), ...(r.secondary || []).map(x => x + ' (secondary)')].join(' · ');
+    window._demoOthers = r.others || [];
+    const others = window._demoOthers.length
+      ? `<div class="demo-others">Not quite your exercise? ${window._demoOthers.map((o, k) =>
+          `<button onclick="openDemo(${i}, ${k})">${esc(o)}</button>`).join('')}</div>` : '';
+    const imgs = r.images || [];
+    box.innerHTML = demoHead(r.name, esc(muscles) + (r.equipment ? ' · ' + esc(r.equipment) : '')) +
+      (imgs.length ? `<img class="demo-img" id="demo-img" src="${esc(imgs[0])}" alt="${esc(r.name)} demo">` : '') +
+      `<ol class="demo-steps">${(r.instructions || []).map(t => `<li>${esc(t)}</li>`).join('')}</ol>` +
+      others + yt + `<div class="demo-credit">Demo: free-exercise-db (public domain)</div>`;
+    if (imgs.length > 1) {
+      imgs.forEach(u => { const im = new Image(); im.src = u; });   // preload both frames
+      let f = 0;
+      demoTimer = setInterval(() => {
+        const el = document.getElementById('demo-img');
+        if (!el) { clearInterval(demoTimer); return; }
+        f = (f + 1) % imgs.length; el.src = imgs[f];
+      }, 1000);
+    }
+  }
+  function closeDemo() {
+    clearInterval(demoTimer);
+    document.getElementById('demo-overlay').classList.remove('open');
+  }
+
+  // ── Muscle map (front + back), coloured by freshness ──
+  // Simple stylised regions keyed to the freshness model's muscle groups.
+  const BM_FRONT = [
+    ['Shoulders', 'ellipse', { cx: 30, cy: 40, rx: 8.5, ry: 7 }], ['Shoulders', 'ellipse', { cx: 70, cy: 40, rx: 8.5, ry: 7 }],
+    ['Chest', 'rect', { x: 36.5, y: 34, width: 13, height: 17, rx: 4 }], ['Chest', 'rect', { x: 50.5, y: 34, width: 13, height: 17, rx: 4 }],
+    ['Biceps', 'ellipse', { cx: 24, cy: 58, rx: 5.2, ry: 10.5 }], ['Biceps', 'ellipse', { cx: 76, cy: 58, rx: 5.2, ry: 10.5 }],
+    ['Core', 'rect', { x: 39, y: 53, width: 22, height: 31, rx: 5 }],
+    ['Legs', 'rect', { x: 37, y: 89, width: 12, height: 42, rx: 6 }], ['Legs', 'rect', { x: 51, y: 89, width: 12, height: 42, rx: 6 }],
+    ['Legs', 'rect', { x: 38.5, y: 135, width: 9, height: 34, rx: 4.5 }], ['Legs', 'rect', { x: 52.5, y: 135, width: 9, height: 34, rx: 4.5 }],
+  ];
+  const BM_BACK = [
+    ['Shoulders', 'ellipse', { cx: 30, cy: 40, rx: 8.5, ry: 7 }], ['Shoulders', 'ellipse', { cx: 70, cy: 40, rx: 8.5, ry: 7 }],
+    ['Back', 'rect', { x: 37, y: 33, width: 26, height: 33, rx: 6 }], ['Back', 'rect', { x: 41, y: 67, width: 18, height: 16, rx: 4 }],
+    ['Triceps', 'ellipse', { cx: 24, cy: 58, rx: 5.2, ry: 10.5 }], ['Triceps', 'ellipse', { cx: 76, cy: 58, rx: 5.2, ry: 10.5 }],
+    ['Legs', 'rect', { x: 37.5, y: 85, width: 25, height: 13, rx: 5 }],
+    ['Legs', 'rect', { x: 37, y: 99, width: 12, height: 32, rx: 6 }], ['Legs', 'rect', { x: 51, y: 99, width: 12, height: 32, rx: 6 }],
+    ['Legs', 'rect', { x: 38.5, y: 135, width: 9, height: 34, rx: 4.5 }], ['Legs', 'rect', { x: 52.5, y: 135, width: 9, height: 34, rx: 4.5 }],
+  ];
+  function bmSilhouette() {
+    return `<circle class="bm-base" cx="50" cy="15" r="9.5"/>
+      <rect class="bm-base" x="45" y="24" width="10" height="7" rx="2"/>
+      <rect class="bm-base" x="34" y="31" width="32" height="56" rx="9"/>
+      <ellipse class="bm-base" cx="20" cy="82" rx="4.3" ry="11"/><ellipse class="bm-base" cx="80" cy="82" rx="4.3" ry="11"/>
+      <rect class="bm-base" x="35.5" y="86" width="29" height="86" rx="8"/>`;
+  }
+  function bmShapes(list, byName) {
+    return list.map(([m, tag, a]) => {
+      const f = byName[m];
+      if (!f) return '';
+      const col = f.state === 'fresh' ? 'var(--accent)' : f.state === 'moderate' ? 'var(--accent3)' : 'var(--accent2)';
+      const op = f.detrained ? 0.25 : 0.9;
+      const attrs = Object.entries(a).map(([k, v]) => `${k}="${v}"`).join(' ');
+      const tip = `${m}: ${f.score}/100 ${f.state}` +
+        (f.days_since != null ? ` · trained ${f.days_since}d ago` : ' · not trained yet');
+      return `<${tag} class="bm-m${f.detrained ? ' bm-detrained' : ''}" ${attrs} fill="${col}" fill-opacity="${op}"
+        onclick="bmDetail(this)" data-tip="${esc(tip)}"><title>${esc(tip)}</title></${tag}>`;
+    }).join('');
+  }
+  function bmDetail(el) { const d = document.getElementById('bm-detail'); if (d) d.textContent = el.dataset.tip; }
+  function renderBodyMap(fresh) {
+    const box = document.getElementById('wk-bodymap');
+    if (!box) return;
+    if (!fresh.length) { box.style.display = 'none'; return; }
+    const by = {}; fresh.forEach(f => by[f.muscle] = f);
+    const detrained = fresh.filter(f => f.detrained).map(f => f.muscle);
+    box.innerHTML = `<div class="bodymap-head">Muscle map <span>tap a muscle</span></div>
+      <svg viewBox="0 0 215 182" role="img" aria-label="Muscle recovery map">
+        <g>${bmSilhouette()}${bmShapes(BM_FRONT, by)}<text x="50" y="180" text-anchor="middle">front</text></g>
+        <g transform="translate(115,0)">${bmSilhouette()}${bmShapes(BM_BACK, by)}<text x="50" y="180" text-anchor="middle">back</text></g>
+      </svg>
+      <div class="bm-detail" id="bm-detail">${detrained.length ? 'Detraining (8+ days untrained): ' + esc(detrained.join(', ')) : ''}</div>
+      <div class="bm-legend"><span><i style="background:var(--accent)"></i>fresh</span>
+        <span><i style="background:var(--accent3)"></i>recovering</span>
+        <span><i style="background:var(--accent2)"></i>fatigued</span>
+        <span><i style="border:1px dashed var(--muted)"></i>detrained</span></div>`;
+    box.style.display = 'block';
+  }
+
+  // ── Passkeys (WebAuthn) ──
+  function bufToB64u(buf) {
+    const u = new Uint8Array(buf); let s = '';
+    for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function b64uToBuf(s) { return b64uToU8(s).buffer; }
+  async function offerPasskey() {
+    if (!window.PublicKeyCredential) return;
+    try {
+      const st = await (await fetch('/passkey/status')).json();
+      if (st.enabled && st.registered) document.getElementById('pk-btn').style.display = 'block';
+    } catch {}
+  }
+  async function passkeyUnlock() {
+    const btn = document.getElementById('pk-btn');
+    btn.disabled = true; btn.textContent = 'Waiting for passkey…';
+    try {
+      const o = await (await fetchTimeout('/passkey/login/options', { method: 'POST' }, 45000)).json();
+      if (o.error) throw new Error(o.error);
+      o.challenge = b64uToBuf(o.challenge);
+      (o.allowCredentials || []).forEach(c => c.id = b64uToBuf(c.id));
+      const cred = await navigator.credentials.get({ publicKey: o });
+      const r = cred.response;
+      const body = { credential: {
+        id: cred.id, rawId: bufToB64u(cred.rawId), type: cred.type,
+        response: { clientDataJSON: bufToB64u(r.clientDataJSON), authenticatorData: bufToB64u(r.authenticatorData),
+                    signature: bufToB64u(r.signature), userHandle: r.userHandle ? bufToB64u(r.userHandle) : null },
+        clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+      } };
+      const v = await (await fetch('/passkey/login/verify', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+      if (!v.token) throw new Error(v.error || 'failed');
+      authToken = v.token; sessionStorage.setItem('wc_tok', authToken);
+      document.getElementById('lock-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+      init();
+    } catch (e) {
+      const le = document.getElementById('lock-error');
+      le.textContent = 'PASSKEY FAILED — USE YOUR CODE';
+      le.style.display = 'block';
+    }
+    btn.disabled = false; btn.textContent = '🔑 Unlock with passkey';
+  }
+  async function setupPasskey() {
+    if (!window.PublicKeyCredential) { alert('This browser does not support passkeys.'); return; }
+    try {
+      const o = await (await fetch('/passkey/register/options', { method: 'POST', headers: authHeaders() })).json();
+      if (o.error) throw new Error(o.error);
+      o.challenge = b64uToBuf(o.challenge);
+      o.user.id = b64uToBuf(o.user.id);
+      (o.excludeCredentials || []).forEach(c => c.id = b64uToBuf(c.id));
+      const cred = await navigator.credentials.create({ publicKey: o });
+      const r = cred.response;
+      const body = { label: (navigator.userAgentData && navigator.userAgentData.platform) || 'This device',
+        credential: {
+          id: cred.id, rawId: bufToB64u(cred.rawId), type: cred.type,
+          response: { clientDataJSON: bufToB64u(r.clientDataJSON), attestationObject: bufToB64u(r.attestationObject),
+                      transports: r.getTransports ? r.getTransports() : [] },
+          clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+          authenticatorAttachment: cred.authenticatorAttachment || null,
+        } };
+      const v = await (await fetch('/passkey/register/verify', { method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) })).json();
+      if (!v.ok) throw new Error(v.error || 'failed');
+      addBubble('🔑 Passkey saved — next time tap "Unlock with passkey" on the lock screen.', 'system');
+    } catch (e) {
+      if (e && e.name === 'NotAllowedError') return;          // user cancelled
+      alert('Passkey setup failed' + (e && e.message ? ': ' + e.message : '') + '.');
+    }
+  }
+
   async function init() {
     flushQueue();
     await loadStatsBar();
@@ -3757,9 +4078,11 @@
 
   window.onload = () => {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-    if (password) {
+    if (!password && !authToken) offerPasskey();
+    if (password || authToken) {
       fetchRetry('/day_info', { headers: authHeaders() }, { timeoutMs: 30000, retries: 1 }).then(r => {
-        if (r.status === 401) { sessionStorage.removeItem('wc_pwd'); password = ''; }
+        if (r.status === 401) { sessionStorage.removeItem('wc_pwd'); sessionStorage.removeItem('wc_tok');
+                                password = ''; authToken = ''; offerPasskey(); }
         else { document.getElementById('lock-screen').style.display = 'none';
                document.getElementById('app').style.display = 'flex'; init(); }
       }).catch(() => {

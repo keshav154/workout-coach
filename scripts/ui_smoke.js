@@ -62,7 +62,17 @@ const MOCK = {
     sessions_this_week: 3, days_per_week: 6, streak: 3, consistent_weeks: 2,
     recent_sessions: [{ day: 'A', name: 'Push', date: '2026-08-16', exercises: 3, detail: [] }],
     plateaus: [], volume: { this_week: 5000, last_week: 4000 },
-    heatmap: [{ date: '2026-08-16', volume: 200, dow: 5 }] },
+    heatmap: [{ date: '2026-08-10', volume: 0, dow: 0 }, { date: '2026-08-16', volume: 200, dow: 6 }],
+    heatmap_meta: { training_days: 1, span_days: 7, first_date: '2026-08-10', best_streak: 1, total_kg: 200 } },
+  '/today_program': { ready: true, day: 'B', scheduled_day: 'A', override: true, name: 'Pull', today: '2026-08-16',
+    rotation: [{ day: 'A', name: 'Push' }, { day: 'B', name: 'Pull' }], week: [], autodeload: [],
+    exercises: [{ name: 'Dumbbell Row', sets: 3, rep_range: '8-12', superset_linked: false, history: [],
+                  suggestion: { weight: 16, target_reps: 10, reason: 'r', kind: 'rep_up' } },
+                { name: 'Hammer Curl', sets: 3, rep_range: '8-12', superset_linked: true, history: [] }] },
+  '/freshness': { recommended: 'B', scheduled: 'A', agrees: false, reason: 'fresher',
+    freshness: [{ muscle: 'Chest', score: 30, state: 'fatigued', days_since: 1, detrained: false },
+                { muscle: 'Back', score: 100, state: 'fresh', days_since: null, detrained: true }], day_scores: [] },
+  '/mesocycle': { week: 2, total_weeks: 5, phase: 'accumulation', focus: 'ramp' },
   '/habits': { habits: [] }, '/goals_data': { goals: [] }, '/records': { best: [], recent_prs: [] },
   '/measurements': { series: {}, latest: {} }, '/photos': { photos: [] },
   '/achievements': { badges: [] }, '/chart_data': { weight: [], volume: [], exercises: {} },
@@ -89,7 +99,8 @@ vm.createContext(sandbox);
 vm.runInContext(js, sandbox);
 
 (async () => {
-  const fns = ['loadFuel', 'loadDashboard', 'loadMoney', 'loadStatsView', 'loadCardio', 'loadWater'];
+  const fns = ['loadFuel', 'loadDashboard', 'loadMoney', 'loadStatsView', 'loadCardio', 'loadWater',
+               'loadWorkout', 'loadFreshness', 'offerPasskey', 'closeDemo'];
   let failed = false;
   for (const name of fns) {
     try {

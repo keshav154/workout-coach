@@ -400,7 +400,10 @@ def get_next_day(log: dict) -> str:
     rotation = get_rotation()
     if not rotation:
         return "A"
-    sessions = log.get("sessions", [])
+    # Sessions done out of order ("do Day D today instead") don't move the
+    # rotation — the plan picks up where it left off, like moving a workout to
+    # another day without rewriting the week.
+    sessions = [s for s in log.get("sessions", []) if not s.get("out_of_order")]
     if not sessions:
         return rotation[0]
     # Use the day of the most recent session BY DATE (robust to out-of-order
